@@ -1,0 +1,44 @@
+import ebooklib
+from typing import Union
+from bs4 import BeautifulSoup
+from ebooklib import epub
+from datamax.parser.base import BaseLife
+from datamax.parser.base import MarkdownOutputVo
+from datamax.utils import clean_original_text
+
+
+class EpubParser(BaseLife):
+    def __init__(self, file_path: Union[str, list]):
+        super().__init__()
+        self.file_path = file_path
+
+    @staticmethod
+    def read_epub_file(file_path: str) -> str:
+        try:
+            book = epub.read_epub(file_path)
+            content = ""
+            for item in book.get_items():
+                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    chapter_content = item.get_content().decode('utf-8')
+                    soup = BeautifulSoup(chapter_content, 'html.parser')
+                    text = soup.get_text()
+                    text = text.replace('\u3000', ' ')
+                    content += text
+            return content
+        except Exception as e:
+            raise e
+
+    def parse(self, file_path: str) -> MarkdownOutputVo:
+        try:
+            title = self.get_file_extension(file_path)
+            content = self.read_epub_file(file_path=file_path)
+            # clean_text = clean_original_text(content)
+            mk_content = content
+            token_count = self.tk_client.get_tokenizer(content=mk_content)
+            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+                                                usage_purpose="Documentation", life_type="LLM_ORIGIN")
+            output_vo = MarkdownOutputVo(title, mk_content)
+            output_vo.add_lifecycle(lifecycle)
+            return output_vo.to_dict()
+        except Exception as e:
+            raise e
