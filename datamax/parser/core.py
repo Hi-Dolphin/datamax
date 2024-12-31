@@ -34,6 +34,8 @@ class ParserFactory:
             '.png': 'ImageParser',
             '.svg': 'ImageParser',
             '.webp': 'ImageParser',
+            '.xlsx': 'XlsxParser',
+            '.xls': 'XlsParser'
         }.get(file_extension)
 
         if not parser_class_name:

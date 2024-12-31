@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='datamax',
-    version='0.1.6',
+    version='0.1.7',
     packages=find_packages(),
     install_requires=[
         'ebooklib',
@@ -25,7 +25,11 @@ setup(
         "premailer",
         "setuptools==75.3.0",
         "docx2markdown",
-        "tiktoken"
+        "tiktoken",
+        "markitdown",
+        "pandas",
+        "xlrd",
+        "tabulate"
     ],
     author='hzb | ccy',
     author_email='zhibaohe@hotmail.com | cy.kron@foxmail.com',
@@ -38,5 +42,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.9',
+    python_requires='>=3.10',
 )

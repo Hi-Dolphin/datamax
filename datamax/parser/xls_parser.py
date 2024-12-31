@@ -1,22 +1,22 @@
 from datamax.parser.base import MarkdownOutputVo
 from datamax.parser.base import BaseLife
-from markitdown import MarkItDown
+import pandas as pd
 import warnings
 
 warnings.filterwarnings("ignore")
 
 
-class XlsxParser(BaseLife):
+class XlsParser(BaseLife):
     """xlsx or xls table use markitdown from Microsoft  so magic for table!"""
 
     def __init__(self, file_path):
         super().__init__()
         self.file_path = file_path
-        self.markitdown = MarkItDown()
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            mk_content = self.markitdown.convert(file_path).text_content
+            df = pd.read_excel(file_path)
+            mk_content = df.to_markdown(index=False)
             token_count = self.tk_client.get_tokenizer(content=mk_content)
             lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
