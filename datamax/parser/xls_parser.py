@@ -17,8 +17,7 @@ class XlsParser(BaseLife):
         try:
             df = pd.read_excel(file_path)
             mk_content = df.to_markdown(index=False)
-            token_count = self.tk_client.get_tokenizer(content=mk_content)
-            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
             output_vo = MarkdownOutputVo(self.get_file_extension(file_path), mk_content)
             output_vo.add_lifecycle(lifecycle)

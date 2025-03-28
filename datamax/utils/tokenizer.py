@@ -17,6 +17,6 @@ class DashScopeClient:
             p50k_base corresponds to models text-davinci-002 and text-davinci-003
             r50k_base corresponds to model gpt2
         '''
-        encoding = tiktoken.get_encoding(encoding_name="o200k_base")
+        encoding = tiktoken.get_encoding(encoding_name="cl100k_base")
         num_tokens = len(encoding.encode(content))
         return num_tokens

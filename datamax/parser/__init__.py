@@ -1,4 +1,4 @@
-from .core import DataMaxParser
+from .core import DataMax
 import logging
 logger = logging.getLogger()
 logger.addHandler(logging.NullHandler())

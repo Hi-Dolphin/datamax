@@ -4,7 +4,6 @@ from docx import Document
 from typing import Union
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
-from datamax.utils import clean_original_text
 
 
 class DocxParser(BaseLife):
@@ -34,10 +33,8 @@ class DocxParser(BaseLife):
                 mk_content = open(output_md_dir, 'r', encoding='utf-8').read()
             else:
                 content = self.read_docx_file(file_path=file_path)
-                # clean_text = clean_original_text(content)
                 mk_content = content
-            token_count = self.tk_client.get_tokenizer(content=mk_content)
-            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
             output_vo = MarkdownOutputVo(title, mk_content)
             output_vo.add_lifecycle(lifecycle)

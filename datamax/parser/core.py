@@ -1,27 +1,49 @@
 import os
 import importlib
-from typing import List, Union
-
+from typing import List, Union, Dict
+from openai import OpenAI
 from datamax.utils import data_cleaner
+from datamax.utils.qa_generator import generatr_qa_pairs
+
+
+class ModelInvoker:
+    def __init__(self):
+        self.client = None
+
+    def invoke_model(self, api_key, base_url, model_name, messages):
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+
+        completion = self.client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+        )
+        json_data = completion.model_dump()
+        return json_data.get("choices")[0].get("message").get("content", "")
 
 
 class ParserFactory:
     @staticmethod
-    def create_parser(file_path: str, use_ocr: bool = False, use_gpu: bool = False, gpu_id: int = 6,
-                      to_markdown: bool = False):
+    def create_parser(
+            file_path: str,
+            use_mineru: bool = False,
+            to_markdown: bool = False,
+            timeout: int = 1200
+    ):
         """
         Create a parser instance based on the file extension.
-
         :param file_path: The path to the file to be parsed.
-        :param use_ocr: Flag to indicate whether OCR should be used.
-        :param use_gpu: Flag to indicate whether GPU should be used.
-        :param gpu_id: The ID of the GPU to use.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
                     (only supported files in .doc or .docx format)
+        :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
+        :param timeout: Timeout for the request .(only supported files in .xlsx format)
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
         parser_class_name = {
+            '.md': 'MarkdownParser',
             '.docx': 'DocxParser',
             '.doc': 'DocParser',
             '.epub': 'EpubParser',
@@ -31,8 +53,8 @@ class ParserFactory:
             '.ppt': 'PPtParser',
             '.pdf': 'PdfParser',
             '.jpg': 'ImageParser',
+            '.jpeg': 'ImageParser',
             '.png': 'ImageParser',
-            '.svg': 'ImageParser',
             '.webp': 'ImageParser',
             '.xlsx': 'XlsxParser',
             '.xls': 'XlsParser'
@@ -41,7 +63,7 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in ['.jpg', '.png', '.svg', '.webp']:
+        if file_extension in ['.jpg', 'jpeg', '.png', '.webp']:
             module_name = f'datamax.parser.image_parser'
         else:
             # Dynamically determine the module name based on the file extension
@@ -54,34 +76,55 @@ class ParserFactory:
 
             # Special handling for PdfParser arguments
             if parser_class_name == 'PdfParser':
-                return parser_class(file_path, use_ocr, use_gpu, gpu_id)
+                return parser_class(
+                    file_path=file_path,
+                    use_mineru=use_mineru,
+                )
             elif parser_class_name == 'DocxParser' or parser_class_name == 'DocParser':
-                return parser_class(file_path, to_markdown)
+                return parser_class(
+                    file_path=file_path, to_markdown=to_markdown
+                )
+            elif parser_class_name == 'XlsxParser':
+                return parser_class(
+                    file_path=file_path,
+                    timeout=timeout
+                )
             else:
-                return parser_class(file_path)
+                return parser_class(
+                    file_path=file_path
+                )
 
         except (ImportError, AttributeError) as e:
             raise e
 
 
-class DataMaxParser:
-    def __init__(self, file_path: Union[str, list] = '', use_ocr: bool = False, use_gpu: bool = False, gpu_id: int = 6,
-                 to_markdown: bool = False):
+class DataMax:
+    def __init__(self,
+                 file_path: Union[str, list] = '',
+                 use_mineru: bool = False,
+                 to_markdown: bool = False,
+                 timeout: int = 1200
+                 ):
         """
         Initialize the DataMaxParser with file path and parsing options.
 
+        # <Abandon>
+        # :param use_paddle_ocr: Flag to indicate whether PaddleOCR should be used.
+        # :param use_paddle_gpu: Flag to indicate whether PaddleOCR-GPU should be used.
+        # :param use_got_ocr: Flag to indicate whether GOT-OCR should be used.
+        # :param got_weights_path: GOT-OCR Weights Path.
+        # :param gpu_id: The ID of the GPU to use.
+
         :param file_path: The path to the file or directory to be parsed.
-        :param use_ocr: Flag to indicate whether OCR should be used.
-        :param use_gpu: Flag to indicate whether GPU should be used.
-        :param gpu_id: The ID of the GPU to use.
+        :param use_mineru: Flag to indicate whether MinerU should be used.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         """
         self.file_path = file_path
-        self.use_ocr = use_ocr
-        self.use_gpu = use_gpu
-        self.gpu_id = gpu_id
+        self.use_mineru = use_mineru
         self.to_markdown = to_markdown
         self.parsed_data = None
+        self.model_invoker = ModelInvoker()
+        self.timeout = timeout
 
     def get_data(self):
         """
@@ -143,6 +186,84 @@ class DataMaxParser:
         else:
             return cleaned_text
 
+    def get_pre_label(self,
+                      api_key: str,
+                      base_url: str,
+                      model_name: str,
+                      chunk_size: int = 500,
+                      chunk_overlap: int = 100,
+                      question_number: int = 5,
+                      max_workers: int = 5,
+                      messages: List[Dict[str, str]] = None):
+        return generatr_qa_pairs(
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            question_number=question_number,
+            max_workers=max_workers,
+            message=messages,
+            file_path=self.file_path
+        )
+
+    ## <Abandon>
+    # def enhance_with_model(self, api_key: str, base_url: str, model_name: str, iteration: int = 1,
+    #                        messages: List[Dict[str, str]] = None):
+    #     """
+    #     Enhance the parsed content using a large language model.
+    #
+    #     :param api_key: API key for the large model service.
+    #     :param base_url: Base URL for the large model service.
+    #     :param model_name: Name of the model to use.
+    #     :param iteration: Number of iterations
+    #     :param messages: Custom messages list [{"role": "system", "content": "..."}, ...]
+    #     :return: Enhanced text.
+    #     """
+    #     if not messages:
+    #         # If no custom message is provided, the default message structure is used, but only if there is parsed data
+    #         if self.parsed_data:
+    #             system_prompt = get_system_prompt(self.parsed_data)
+    #             default_message_user = {"role": "user", "content": "按照json格式给出问答对"}
+    #             messages = [
+    #                 {"role": "system", "content": system_prompt},
+    #                 default_message_user
+    #             ]
+    #         else:
+    #             raise ValueError("No data to enhance and no custom messages provided.")
+    #     try:
+    #         if isinstance(iteration, int) and iteration >= 1:
+    #             results = []
+    #             current_messages = messages.copy()  # Avoid modifying the original message during iteration
+    #
+    #             for _ in range(iteration):
+    #                 enhanced_text = self.model_invoker.invoke_model(
+    #                     api_key=api_key,
+    #                     base_url=base_url,
+    #                     model_name=model_name,
+    #                     messages=current_messages
+    #                 )
+    #
+    #                 # Append the generated content to the conversation history in multiple iterations
+    #                 if iteration > 1:
+    #                     current_messages.append({"role": "assistant", "content": enhanced_text})
+    #                     current_messages.append(
+    #                         {"role": "user", "content": "请继续生成, 生成要求不变, 结果是jsonlist, 且长度不超过5"})
+    #
+    #                 # If there is parsed data, update the contents and return a copy of the original dictionary; Otherwise, return the enhanced text directly
+    #                 if self.parsed_data:
+    #                     origin_dict = self.parsed_data.copy()
+    #                     origin_dict['content'] = enhanced_text
+    #                     results.append(origin_dict)
+    #                 else:
+    #                     results.append(enhanced_text)
+    #
+    #             return results if iteration > 1 else results[0]
+    #         else:
+    #             raise ValueError("Invalid iteration parameter.")
+    #     except Exception as e:
+    #         raise Exception(f"An error occurred while enhancing with the model: {e}")
+
     def _parse_file(self, file_path):
         """
         Create a parser instance using ParserFactory and parse the file.
@@ -150,6 +271,37 @@ class DataMaxParser:
         :param file_path: The path to the file to be parsed.
         :return: The parsed data.
         """
-        parser = ParserFactory.create_parser(file_path, self.use_ocr, self.use_gpu, self.gpu_id, self.to_markdown)
-        if parser:
-            return parser.parse(file_path)
+        try:
+            parser = ParserFactory.create_parser(
+                use_mineru=self.use_mineru,
+                file_path=file_path,
+                to_markdown=self.to_markdown,
+                timeout=self.timeout
+            )
+            if parser:
+                return parser.parse(file_path=file_path)
+        except Exception as e:
+            raise e
+
+
+if __name__ == '__main__':
+    pass
+    # data = DataMax(file_path=[r"C:\Users\cykro\Desktop\海科自研OCR接口文档.pdf", r"C:\Users\cykro\Desktop\体重管理学习题库（简易）.pdf"], use_mineru=True)
+    # data = data.get_data()
+    # print(data)
+    #
+    # # for i in [r"C:\Users\cykro\Desktop\951057_71618-ODE3QY-335-01.svg"]:
+    # #     dm = DataMax(file_path=i, use_mineru=True)
+    # #     data = dm.get_data()
+    # #     print(data)
+    # data = data.get_pre_label(
+    #     api_key="sk-9bd040d093594963a4249e6050151e86",
+    #     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    #     model_name="qwen-max",
+    #     chunk_size=500,
+    #     chunk_overlap=100,
+    #     question_number=5,
+    #     max_workers=5,
+    #     # message=[]
+    # )
+    # # print(data)

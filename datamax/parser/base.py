@@ -58,12 +58,12 @@ class BaseLife:
     tk_client = DashScopeClient()
 
     @staticmethod
-    def generate_lifecycle(source_file, token_count, domain, life_type, usage_purpose) -> LifeCycle:
+    def generate_lifecycle(source_file, domain, life_type, usage_purpose) -> LifeCycle:
         update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         life_type = [life_type]
         storage = os.stat(source_file)
         life_metadata = {
-            "token_count": token_count,  # Token count of the text
+            # "token_count": token_count,  # Token count of the text
             "storage_size": storage.st_size,  # Storage size in bytes
             "source_file": source_file,  # Source file
             "domain": domain,  # Domain

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='datamax',
-    version='0.1.7',
+    version='0.1.11',
     packages=find_packages(),
     install_requires=[
         'ebooklib',
@@ -19,7 +19,6 @@ setup(
         "chardet",
         "python-pptx",
         "openpyxl",
-        "paddleocr==2.8.1",
         "pymupdf",
         "langchain_community==0.2.9",
         "premailer",
@@ -29,7 +28,9 @@ setup(
         "markitdown",
         "pandas",
         "xlrd",
-        "tabulate"
+        "tabulate",
+        "unstructured[all]",
+        "markdown"
     ],
     author='hzb | ccy',
     author_email='zhibaohe@hotmail.com | cy.kron@foxmail.com',

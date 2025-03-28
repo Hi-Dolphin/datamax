@@ -2,7 +2,6 @@ import chardet
 from typing import Union
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
-from datamax.utils import clean_original_text
 
 
 class TxtParser(BaseLife):
@@ -37,10 +36,8 @@ class TxtParser(BaseLife):
         try:
             title = self.get_file_extension(file_path)
             content = self.read_txt_file(file_path=file_path)  # 真实数据是从load加载
-            # clean_text = clean_original_text(content)
             mk_content = content
-            token_count = self.tk_client.get_tokenizer(content=mk_content)
-            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
             output_vo = MarkdownOutputVo(title, mk_content)
             output_vo.add_lifecycle(lifecycle)

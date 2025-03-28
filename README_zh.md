@@ -1,15 +1,35 @@
-# 数据工厂 0.1.6
+# Datamax
+
+## 概述
+DataMax 是一个面向多格式文件文本解析、数据清洗与数据标注的一体化解决方案。
+
+## 核心功能
+
+### 文件处理能力
+当前支持以下格式的读取、转换与内容提取：
+- PDF、HTML  
+- DOCX/DOC、PPT/PPTX  
+- EPUB电子书  
+- 图片（.jpg|.png|.jpeg|.webp）  
+- XLS/XLSX表格文件  
+- 纯文本（TXT|markdown）  
+
+### 数据清洗流程
+三级组合式清洗：
+1. 异常检测与处理  
+2. 隐私信息脱敏  
+3. 文本过滤与标准化  
+
+### 智能数据标注
+基于LLM+Prompt的分布解耦实现：
+- 持续生成预标注数据集  
+- 为模型微调提供优化训练数据  
 
 
-## 项目简介
-文本处理工具是一个多功能的数据处理项目，旨在提供一种高效且易于使用的方式来处理各种格式的文本文件。
-该项目支持PDF、HTML、DOCX\DOC、PPT\PPTX、EPUB、图片（.jpg | .png）以及TXT等常见文本格式的读取、转换与提取。
-
-
-## 安装指南
-
-## Install
-
+## 安装指南(重点)
+依赖包括 libreoffice、datamax、MinerU
+## 1. 安装libreoffice依赖
+请注意： 如果不安装datamax不支持.doc文件
 ### Linux（Debian/Ubuntu）
 ```
 sudo apt-get update
@@ -24,22 +44,45 @@ sudo apt-get install libreoffice
 ```
 soffice --version
 ```
-### 安装依赖
-```
-pip install --no-cache-dir -r requirements.txt
+
+## 2.安装MinerU依赖
+如果不安装MinerU 将无法支持PDF更强大的OCR解析
+### 创建虚拟环境，安装基础依赖
+```bash
+conda create -n mineru python=3.10
+conda activate mineru
+pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com -i https://mirrors.aliyun.com/pypi/simple
 ```
 
+
+### 安装模型权重文件 
+https://github.com/opendatalab/MinerU/blob/master/docs/how_to_download_models_zh_cn.md
+```bash
+pip install modelscope
+wget https://gcore.jsdelivr.net/gh/opendatalab/MinerU@master/scripts/download_models.py -O download_models.py
+python download_models.py
+```
+
+### 修改配置文件 magic-pdf.json （用户目录下, 以下为模板预览）
+```json
+{
+    "models-dir": "path\\to\\folder\\PDF-Extract-Kit-1___0\\models",
+    "layoutreader-model-dir": "path\\to\\folder\\layoutreader",
+    "device-mode": "cpu",
+    ...
+}
+```
+
+
+##  3.安装datamax基本依赖
 1. 克隆仓库到本地：
    ```bash
    git clone 
    ```
-2. 进入项目目录并创建虚拟环境（举例uv）：
+2. 安装依赖到conda中：
    ```bash
-   cd DataMax
-   uv init
-   uv add requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-   uv sync
-   . .venv/bin/activate
+   cd datamax
+   pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
    ```
 
 
@@ -53,7 +96,7 @@ pip install --no-cache-dir -r requirements.txt
 
 
 ## 技术栈
-- **编程语言**: Python >= 3.9
+- **编程语言**: Python >= 3.10
 - **依赖库**:
   - PyMuPDF: 用于PDF文件的解析。
   - BeautifulSoup: 用于HTML文件的解析。
@@ -75,50 +118,72 @@ pip install --no-cache-dir -r requirements.txt
   pip install pydatamax
   ```
   
-- 引入代码
+  - 引入代码
     ```python
-  # 文件解析
-  from datamax import DataMaxParser
-  ##  处理单个文件的两种方式
-  # 1.长度为1的列表 
-  data = DataMaxParser(file_path=[r"docx_files_example/船视宝概述.doc"])
-  data = data.get_data()
-  # 2.字符串
-  data = DataMaxParser(file_path=r"docx_files_example/船视宝概述.doc")
-  data = data.get_data()
-  
-  ## 处理多个文件
-  ## 1.长度为n的列表
-  data = DataMaxParser(file_path=[r"docx_files_example/船视宝概述1.doc", r"docx_files_example/船视宝概述2.doc"])
-  data = data.get_data()
-
-  ## 2.传递文件夹字符串
-  data = DataMaxParser(file_path=r"docx_files_example/")
-  data = data.get_data()
-  
-  # 文件清洗
-  """
-  具体清洗规则可以从 datamax/utils/data_cleaner.py 查看 
-  abnormal: 异常清洗
-  private: 隐私处理
-  filter： 文本过滤
-  """
-  # 直接使用：支持对text参数中的文本内容进行直接清洗,返回字符串
-  dm = DataMaxParser()
-  data = dm.clean_data(method_list=["abnormal", "private"], text="<div></div>你好 18717777777 \n\n\n\n")
+        # 文件解析
+        from datamax import DataMax
+        ##  处理单个文件的两种方式
+        # 1.长度为1的列表 
+        data = DataMax(file_path=[r"docx_files_example/船视宝概述.doc"])
+        data = data.get_data()
+        # 2.字符串
+        data = DataMax(file_path=r"docx_files_example/船视宝概述.doc")
+        data = data.get_data()
+      
+        ## 处理多个文件
+        ## 1.长度为n的列表
+        data = DataMax(file_path=[r"docx_files_example/船视宝概述1.doc", r"docx_files_example/船视宝概述2.doc"])
+        data = data.get_data()
     
-  # 过程使用：支持在get_data()后使用,即可返回完整的数据结构
-  dm = DataMaxParser(file_path=r"C:\Users\cykro\Desktop\数据库开发手册.pdf", use_ocr=True)
-  data2 = dm.get_data()
-  cleaned_data = dm.clean_data(method_list=["abnormal", "filter", "private"])
-  ```
+        ## 2.传递文件夹字符串
+        data = DataMax(file_path=r"docx_files_example/")
+        data = data.get_data()
+      
+        # 文件清洗
+        """
+        具体清洗规则可以从 datamax/utils/data_cleaner.py 查看 
+        abnormal: 异常清洗
+        private: 隐私处理
+        filter： 文本过滤
+        """
+        # 直接使用：支持对text参数中的文本内容进行直接清洗,返回字符串
+        dm = DataMax()
+        data = dm.clean_data(method_list=["abnormal", "private"], text="<div></div>你好 18717777777 \n\n\n\n")
+        
+        # 过程使用：支持在get_data()后使用,即可返回完整的数据结构
+        dm = DataMax(file_path=r"C:\Users\cykro\Desktop\数据库开发手册.pdf", use_ocr=True)
+        data2 = dm.get_data()
+        cleaned_data = dm.clean_data(method_list=["abnormal", "filter", "private"])
+      
+        # 大模型预标注 支持用OpenAI SDK的方式调用模型
+        data = DataMax(
+              file_path=r"path\to\xxx.docx"
+          )
+        parsed_data = data.get_data()
+        # 如果不传递自定义messages，则使用sdk中默认的messages
+        messages=[
+                  {'role': 'system', 'content': 'You are a helpful assistant.'},
+                  {'role': 'user', 'content': '你是谁？'}
+              ]
+        qa_datas = data.get_pre_label(
+            api_key="sk-xxx",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            model_name="qwen-max",
+            chunk_size=500,
+            chunk_overlap=100,
+            question_number=5,
+            max_workers=5,
+            # message=[]
+        )
+        print(f'Annotated result:{qa_datas}')
+    ```
 
 
 ## 示例
 ```python
-  ## docx | doc | epub | html | txt | jpg | png | ppt | pptx
-  from datamax import DataMaxParser
-  data = DataMaxParser(file_path=r"docx_files_example/船视宝概述.doc", to_markdown=True)
+  ## docx | doc | epub | html | txt | ppt | pptx | xls | xlsx
+  from datamax import DataMax
+  data = DataMax(file_path=r"docx_files_example/船视宝概述.doc", to_markdown=True)
   """
   参数： 
   file_path: 文件相对路径 / 文件绝对路径
@@ -126,20 +191,22 @@ pip install --no-cache-dir -r requirements.txt
   """
   
   
+  ## jpg | jpeg | png | ...(图片类型)
+  data = DataMax(file_path=r"image.jpg", use_mineru=True)
+  """
+  参数：
+  file_path: 文件相对路径 / 文件绝对路径
+  use_mineru: 是否使用MinerU增强
+  """
+  
+  
   ## pdf
-  from datamax import DataMaxParser
-  data = DataMaxParser(file_path=r"docx_files_example/船视宝概述.pdf", use_ocr=True, use_gpu=True, gpu_id=0)
+  from datamax import DataMax
+  data = DataMax(file_path=r"docx_files_example/船视宝概述.pdf", use_mineru=True)
   """
   参数： 
   file_path: 文件相对路径 / 文件绝对路径
-  use_ocr: 是否使用ocr (True返回markdown, False返回纯文本)
-  use_gpu: 是否使用gpu 
-    use_gpu=True: 
-        if 当有cuda环境 => 执行 nvcc -V。 会自动安装 paddlepaddle-gpu环境
-        else： 自动安装基础的 paddlepaddle环境
-    use_gpu=False：
-        自动安装基础的 paddlepaddle环境
-  gpu_id: gpu卡 （默认6卡）
+  use_mineru: 是否使用MinerU增强
   """
 ```
 
@@ -250,7 +317,7 @@ class DataLoaderClass:
 ├── datamax        # 各种 SDK 的核心函数与类
 ├── dockerfiles    # Docker 配置文件
 ├── docs           # 项目文档
-├── example        # 示例代码
+├── examples        # 示例代码
 ├── README.md      # 项目说明文件
 ├── scripts        # 各种脚本
 └── test           # 测试代码

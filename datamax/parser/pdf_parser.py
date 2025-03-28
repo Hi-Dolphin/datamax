@@ -1,7 +1,7 @@
 import os
 import pathlib
 import sys
-import docx2markdown
+import subprocess
 from typing import Union
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
@@ -9,22 +9,51 @@ sys.path.insert(0, str(ROOT_DIR))
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
 from langchain_community.document_loaders import PyMuPDFLoader
-from datamax.utils import clean_original_text
-from datamax.utils import setup_environment
+from loguru import logger
+from datamax.utils.mineru_operator import pdf_processor
 
 
 class PdfParser(BaseLife):
 
-    def __init__(self, file_path: Union[str, list], use_ocr: bool = False, use_gpu: bool = False, gpu_id: int = 6):
+    def __init__(self,
+                 file_path: Union[str, list],
+                 use_mineru: bool = False,
+                 ):
         super().__init__()
+
         self.file_path = file_path
-        self.use_ocr = use_ocr
-        self.use_gpu = use_gpu
-        self.gpu_id = gpu_id
-        if use_gpu:
-            setup_environment(use_gpu=True)
-        else:
-            setup_environment(use_gpu=False)
+        self.use_mineru = use_mineru
+
+    def mineru_process(self, input_pdf_filename, output_dir):
+        proc = None
+        try:
+            logger.info(f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!")
+            command = ['magic-pdf', '-p', input_pdf_filename, '-o', output_dir]
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            # 等待命令执行完成
+            stdout, stderr = proc.communicate()
+            # 检查命令是否成功执行
+            if proc.returncode != 0:
+                raise Exception(f"mineru failed with return code {proc.returncode}: {stderr.decode()}")
+
+            logger.info(f"Markdown saved in {output_dir}, input file is {input_pdf_filename}")
+
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            if proc is not None:
+                proc.kill()
+                proc.wait()
+                logger.info("The process was terminated due to an error.")
+            raise  # Re-raise the exception to let the caller handle it
+
+        finally:
+            # 确保子进程已经结束
+            if proc is not None:
+                if proc.poll() is None:  # 如果子进程尚未结束
+                    proc.kill()
+                    proc.wait()
+                    logger.info("The process was terminated due to timeout or completion.")
 
     @staticmethod
     def read_pdf_file(file_path) -> str:
@@ -39,26 +68,31 @@ class PdfParser(BaseLife):
             raise e
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
-        from datamax.utils.paddleocr_pdf_operator import use_paddleocr
         try:
             title = self.get_file_extension(file_path)
-            if self.use_ocr:
-                output_docx_dir = f'./output/{os.path.basename(file_path).replace(".pdf", "_ocr.docx")}'
-                if os.path.exists(output_docx_dir):
-                    pass
+
+            if self.use_mineru:
+                output_dir = 'uploaded_files'
+                output_folder_name = os.path.basename(file_path).replace(".pdf", "")
+                # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
+                # if os.path.exists(output_mineru):
+                #     pass
+                # else:
+                    # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
+                # mk_content = open(output_mineru, 'r', encoding='utf-8').read()
+
+                # todo: 是否有必要跟api的默认保存路径保持一致
+                output_mineru = f'{output_dir}/markdown/{output_folder_name}.md'
+
+                if os.path.exists(output_mineru):
+                    mk_content = open(output_mineru, 'r', encoding='utf-8').read()
                 else:
-                    use_paddleocr(file_path, './output', self.use_gpu, self.gpu_id)
-                output_md_dir = f'./output/{os.path.basename(file_path).replace(".pdf", "_ocr.md")}'
-                docx2markdown.docx_to_markdown(output_docx_dir, output_md_dir)
-                mk_content = open(output_md_dir, 'r', encoding='utf-8').read()
-                token_count = self.tk_client.get_tokenizer(content=mk_content)
+                    mk_content = pdf_processor.process_pdf(file_path)
             else:
                 content = self.read_pdf_file(file_path=file_path)
-                # clean_text = clean_original_text(content)
                 mk_content = content
-                token_count = self.tk_client.get_tokenizer(content=mk_content)
 
-            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
             output_vo = MarkdownOutputVo(title, mk_content)
             output_vo.add_lifecycle(lifecycle)

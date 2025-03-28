@@ -83,7 +83,7 @@ def use_paddleocr(input_files: str, output_files: str, use_gpu: bool = False, gp
         if not os.path.exists(output_files):
             os.makedirs(output_files)
         try:
-            recovery(input_files, output_files, use_gpu, gpu_id)
+            recovery(img_path=input_files, output=output_files, use_gpu=use_gpu, gpu_id=gpu_id)
         except Exception as e:
             raise e
     except Exception as e:

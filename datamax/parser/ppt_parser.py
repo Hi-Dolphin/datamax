@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Union
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
-from datamax.utils import clean_original_text
 from datamax.utils.ppt_extract import PPtExtractor
 
 
@@ -66,8 +65,7 @@ class PPtParser(BaseLife):
             content = self.read_ppt_file(file_path=file_path)
             # clean_text = clean_original_text(content)
             mk_content = content
-            token_count = self.tk_client.get_tokenizer(content=mk_content)
-            lifecycle = self.generate_lifecycle(source_file=file_path, token_count=token_count, domain="Technology",
+            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
                                                 usage_purpose="Documentation", life_type="LLM_ORIGIN")
             output_vo = MarkdownOutputVo(title, mk_content)
             output_vo.add_lifecycle(lifecycle)

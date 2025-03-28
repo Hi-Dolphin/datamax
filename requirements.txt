@@ -22,3 +22,5 @@ markitdown
 pandas
 xlrd
 tabulate
+unstructured[all]
+markdown

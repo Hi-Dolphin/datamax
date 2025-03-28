@@ -1,1 +1,1 @@
-from .parser import DataMaxParser
+from .parser import DataMax
