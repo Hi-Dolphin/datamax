@@ -20,6 +20,7 @@ __pycache__/
 .installed.cfg
 *.egg
 MANIFEST
+dist
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

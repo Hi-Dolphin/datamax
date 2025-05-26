@@ -1,8 +1,8 @@
-import sys
 import os
 import re
-from contextlib import contextmanager
+import sys
 from collections import Counter
+from contextlib import contextmanager
 
 
 @contextmanager
@@ -10,7 +10,7 @@ def suppress_stdout():
     # Save the original standard output stream
     original_stdout = sys.stdout
     # Redirect standard output to an empty device ('nul' on Windows, '/dev/null' on Unix/Linux/MacOS)
-    with open(os.devnull, 'w') as devnull:
+    with open(os.devnull, "w") as devnull:
         sys.stdout = devnull
         try:
             yield
@@ -18,8 +18,10 @@ def suppress_stdout():
             # Restore the original standard output stream
             sys.stdout = original_stdout
 
+
 with suppress_stdout():
     import jionlp as jio
+
 
 class AbnormalCleaner:
     def __init__(self, parsed_data):
@@ -38,23 +40,25 @@ class AbnormalCleaner:
 
     def convert_newlines(self):
         """Convert \r to \n and multiple \n to a single \n"""
-        self.parsed_data = re.sub(r'\r', '', self.parsed_data)
-        self.parsed_data = re.sub(r'\n+', '\n', self.parsed_data)
+        self.parsed_data = re.sub(r"\r", "", self.parsed_data)
+        self.parsed_data = re.sub(r"\n+", "\n", self.parsed_data)
         return self.parsed_data
 
     def single_space(self):
         """Convert strings with more than 2 spaces to a single space"""
-        self.parsed_data = re.sub(r' {2,}', ' ', self.parsed_data)
+        self.parsed_data = re.sub(r" {2,}", " ", self.parsed_data)
         return self.parsed_data
 
     def tabs_to_spaces(self):
         """Convert tab characters to 4 spaces"""
-        self.parsed_data = self.parsed_data.replace('\t', '    ')
+        self.parsed_data = self.parsed_data.replace("\t", "    ")
         return self.parsed_data
 
     def remove_invisible_chars(self):
         """Remove invisible ASCII characters"""
-        self.parsed_data = re.sub(r'[\x00-\x09\x0b-\x1f\x7f-\xa0]', '', self.parsed_data)
+        self.parsed_data = re.sub(
+            r"[\x00-\x09\x0b-\x1f\x7f-\xa0]", "", self.parsed_data
+        )
         return self.parsed_data
 
     def simplify_chinese(self):
@@ -68,7 +72,7 @@ class AbnormalCleaner:
 
     def point_conversion(self):
         """Bullet point conversion"""
-        self.parsed_data = self.parsed_data.replace('\n• ', '\n- ')
+        self.parsed_data = self.parsed_data.replace("\n• ", "\n- ")
         return self.parsed_data
 
     def clean_space(self):
@@ -76,8 +80,9 @@ class AbnormalCleaner:
         return self.parsed_data
 
     def clean_tips(self):
-        self.parsed_data = self.parsed_data.replace("EvaluationWarning:ThedocumentwascreatedwithSpire.DocforPython.",
-                                                    "")
+        self.parsed_data = self.parsed_data.replace(
+            "EvaluationWarning:ThedocumentwascreatedwithSpire.DocforPython.", ""
+        )
         return self.parsed_data
 
     def markdown_format(self):
@@ -95,9 +100,7 @@ class AbnormalCleaner:
             # After cleaning invisible characters, perform another multi-line merge, remove space operation
             self.convert_newlines()
 
-            result = {
-                "text": self.parsed_data
-            }
+            result = {"text": self.parsed_data}
             return result
 
         except Exception as e:
@@ -120,9 +123,7 @@ class AbnormalCleaner:
             # self.clean_space()
             self.clean_tips()
 
-            result = {
-                "text": self.parsed_data
-            }
+            result = {"text": self.parsed_data}
             return result
 
         except Exception as e:
@@ -138,7 +139,7 @@ class TextFilter:
         """Filter by word repetition rate"""
         text = self.parsed_data
         # Each two characters form a word
-        bi_grams = [text[i:i + 2] for i in range(0, len(text) - 1, 2)]
+        bi_grams = [text[i : i + 2] for i in range(0, len(text) - 1, 2)]
         word_count = len(bi_grams)
         if word_count == 0:
             return False
@@ -164,7 +165,7 @@ class TextFilter:
         """Filter by numeric content"""
         text = self.parsed_data
         total_chars = len(text)
-        numeric_chars = len(re.findall(r'\d', text))
+        numeric_chars = len(re.findall(r"\d", text))
         if numeric_chars / total_chars > threshold:
             return False
         return True
@@ -178,9 +179,7 @@ class TextFilter:
         elif not self.filter_by_numeric_content():
             return {}
         else:
-            result = {
-                "text": self.parsed_data
-            }
+            result = {"text": self.parsed_data}
             return result
 
 
@@ -201,12 +200,12 @@ class PrivacyDesensitization:
 
     def replace_bank_id(self, text, token):
         # Match bank card numbers and replace
-        self.parsed_data = re.sub(r'\b\d{13,19}\b', token, text)
+        self.parsed_data = re.sub(r"\b\d{13,19}\b", token, text)
         return self.parsed_data
 
     def replace_customer_number(self, text, token):
         # Customer service hotlines are not easy to match and are not considered private data
-        self.parsed_data = re.sub(r'\d+-\d+-\d+', token, text)
+        self.parsed_data = re.sub(r"\d+-\d+-\d+", token, text)
         return self.parsed_data
 
     def replace_number(self):
@@ -219,7 +218,9 @@ class PrivacyDesensitization:
         # ID card
         self.parsed_data = jio.replace_id_card(self.parsed_data, "COSCO_NUMBER")
         # Bank card
-        self.parsed_data = self.replace_bank_id(self.parsed_data, token="COSCO_NUMBER")
+        self.parsed_data = self.replace_bank_id(
+            self.parsed_data, token="COSCO_NUMBER"
+        )  # nosec B106 - 这是数据脱敏标记，不是密码
         # Dash-separated customer service hotlines
         # self.parsed_data = self.replace_customer_number(self.parsed_data, token="COSCO_NUMBER")
 
@@ -231,8 +232,6 @@ class PrivacyDesensitization:
         self.replace_email()
         self.replace_number()
 
-        result = {
-            "text": self.parsed_data
-        }
+        result = {"text": self.parsed_data}
 
         return result

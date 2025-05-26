@@ -1,15 +1,16 @@
 import json
 import os.path
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
-import requests
 from pyexpat.errors import messages
 from tqdm import tqdm  # For progress bar display
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 
 lock = threading.Lock()
 
@@ -149,7 +150,7 @@ def extract_json_from_llm_output(output: str):
         pass
 
     # Try to extract content wrapped in ```json ```
-    json_match = re.search(r'```json\n([\s\S]*?)\n```', output)
+    json_match = re.search(r"```json\n([\s\S]*?)\n```", output)
     if json_match:
         try:
             return json.loads(json_match.group(1))
@@ -157,48 +158,48 @@ def extract_json_from_llm_output(output: str):
             print(f"解析 JSON 时出错: {e}")
 
     # Try to extract the most JSON-like part
-    json_start = output.find('[')
-    json_end = output.rfind(']') + 1
+    json_start = output.find("[")
+    json_end = output.rfind("]") + 1
     if json_start != -1 and json_end != 0:
         try:
             return json.loads(output[json_start:json_end])
         except json.JSONDecodeError:
             pass
 
-    print('模型未按标准格式输出:', output)
+    print("模型未按标准格式输出:", output)
     return None
 
 
 def llm_generator(
-        api_key: str,
-        model: str,
-        base_url: str,
-        prompt: str,
-        type: str,
-        message: list = None,
-        temperature: float = 0.7,
-        top_p: float = 0.9,
-        max_token: int = 2048
+    api_key: str,
+    model: str,
+    base_url: str,
+    prompt: str,
+    type: str,
+    message: list = None,
+    temperature: float = 0.7,
+    top_p: float = 0.9,
+    max_token: int = 2048,
 ) -> list:
     """Generate content using LLM API"""
     try:
         if not message:
             message = [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": "请严格按照要求生成内容"}
+                {"role": "user", "content": "请严格按照要求生成内容"},
             ]
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         data = {
             "model": model,
             "messages": message,
             "max_tokens": max_token,
             "temperature": temperature,
-            "top_p": top_p
+            "top_p": top_p,
         }
-        response = requests.post(base_url, headers=headers, json=data)
+        response = requests.post(base_url, headers=headers, json=data, timeout=30)
         response.raise_for_status()
         result = response.json()
 
@@ -219,14 +220,15 @@ def llm_generator(
 
 # ------------thread_process-------------
 
+
 def process_questions(
-        api_key: str,
-        model: str,
-        base_url: str,
-        page_content: list,
-        question_number: int,
-        message: list,
-        max_workers: int = 5
+    api_key: str,
+    model: str,
+    base_url: str,
+    page_content: list,
+    question_number: int,
+    message: list,
+    max_workers: int = 5,
 ) -> list:
     """Generate questions using multi-threading"""
     total_questions = []
@@ -240,7 +242,7 @@ def process_questions(
             base_url=base_url,
             message=message,
             prompt=prompt,
-            type="question"
+            type="question",
         )
         return [{"question": q, "page": page} for q in questions] if questions else []
 
@@ -260,12 +262,12 @@ def process_questions(
 
 
 def process_answers(
-        api_key: str,
-        model: str,
-        base_url: str,
-        question_items: list,
-        message: list = None,
-        max_workers=5
+    api_key: str,
+    model: str,
+    base_url: str,
+    question_items: list,
+    message: list = None,
+    max_workers=5,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
@@ -279,13 +281,15 @@ def process_answers(
             base_url=base_url,
             prompt=prompt,
             message=message,
-            type="answer"
+            type="answer",
         )
         return item["question"], answer
 
     logger.info(f"开始生成答案 (线程数: {max_workers})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_generate_answer, item): item for item in question_items}
+        futures = {
+            executor.submit(_generate_answer, item): item for item in question_items
+        }
 
         with tqdm(as_completed(futures), total=len(futures), desc="生成答案") as pbar:
             for future in pbar:
@@ -297,21 +301,21 @@ def process_answers(
     return qa_pairs
 
 
-def generatr_qa_pairs(file_path: str,
-                      api_key: str,
-                      base_url: str,
-                      model_name: str,
-                      chunk_size=500,
-                      chunk_overlap=100,
-                      question_number=5,
-                      message: list = None,
-                      max_workers=5):
+def generatr_qa_pairs(
+    file_path: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    chunk_size=500,
+    chunk_overlap=100,
+    question_number=5,
+    message: list = None,
+    max_workers=5,
+):
     """Main function to generate QA pairs from markdown file"""
     # 1. Split markdown text into chunks
     pages = load_and_split_markdown(
-        md_path=file_path,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
+        md_path=file_path, chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
     page_content = [i.page_content for i in pages]
     logger.info(f"markdown被分解了{len(page_content)}个chunk")
@@ -324,7 +328,7 @@ def generatr_qa_pairs(file_path: str,
         max_workers=max_workers,
         api_key=api_key,
         base_url=base_url,
-        model=model_name
+        model=model_name,
     )
     if not questions:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
@@ -336,29 +340,29 @@ def generatr_qa_pairs(file_path: str,
         max_workers=max_workers,
         api_key=api_key,
         base_url=base_url,
-        model=model_name
+        model=model_name,
     )
 
     # 4. Save results
     res_list = []
-    with open(f"{os.path.basename(file_path).strip('.md')}.jsonl", "w", encoding="utf-8") as f:
+    with open(
+        f"{os.path.basename(file_path).strip('.md')}.jsonl", "w", encoding="utf-8"
+    ) as f:
         for question, answer in qa_pairs.items():
             # Build properly formatted JSON object
-            qa_entry = {
-                "instruction": question,
-                "input": "",
-                "output": answer
-            }
+            qa_entry = {"instruction": question, "input": "", "output": answer}
             res_list.append(qa_entry)
             # Write to JSONL file (one JSON object per line)
             f.write(json.dumps(qa_entry, ensure_ascii=False) + "\n")
 
-    logger.success(f"完成! 共生成 {len(qa_pairs)} 个问答对，已保存到 {os.path.basename(file_path).strip('.md')}.jsonl")
+    logger.success(
+        f"完成! 共生成 {len(qa_pairs)} 个问答对，已保存到 {os.path.basename(file_path).strip('.md')}.jsonl"
+    )
 
     return res_list
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     generatr_qa_pairs(
         file_path=r"C:\Users\cykro\Desktop\文档整理\知识图谱\知识图谱概要设计.md",
         api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxxxx",
