@@ -1,0 +1,237 @@
+import os
+import re
+import sys
+from collections import Counter
+from contextlib import contextmanager
+
+
+@contextmanager
+def suppress_stdout():
+    # Save the original standard output stream
+    original_stdout = sys.stdout
+    # Redirect standard output to an empty device ('nul' on Windows, '/dev/null' on Unix/Linux/MacOS)
+    with open(os.devnull, "w") as devnull:
+        sys.stdout = devnull
+        try:
+            yield
+        finally:
+            # Restore the original standard output stream
+            sys.stdout = original_stdout
+
+
+with suppress_stdout():
+    import jionlp as jio
+
+
+class AbnormalCleaner:
+    def __init__(self, parsed_data):
+        self.parsed_data = parsed_data
+
+    # Exception cleaning class
+    def remove_abnormal_chars(self):
+        """Remove abnormal characters from text"""
+        self.parsed_data = jio.remove_exception_char(self.parsed_data)
+        return self.parsed_data
+
+    def remove_html_tags(self):
+        """Remove HTML tags"""
+        self.parsed_data = jio.remove_html_tag(self.parsed_data)
+        return self.parsed_data
+
+    def convert_newlines(self):
+        """Convert \r to \n and multiple \n to a single \n"""
+        self.parsed_data = re.sub(r"\r", "", self.parsed_data)
+        self.parsed_data = re.sub(r"\n+", "\n", self.parsed_data)
+        return self.parsed_data
+
+    def single_space(self):
+        """Convert strings with more than 2 spaces to a single space"""
+        self.parsed_data = re.sub(r" {2,}", " ", self.parsed_data)
+        return self.parsed_data
+
+    def tabs_to_spaces(self):
+        """Convert tab characters to 4 spaces"""
+        self.parsed_data = self.parsed_data.replace("\t", "    ")
+        return self.parsed_data
+
+    def remove_invisible_chars(self):
+        """Remove invisible ASCII characters"""
+        self.parsed_data = re.sub(
+            r"[\x00-\x09\x0b-\x1f\x7f-\xa0]", "", self.parsed_data
+        )
+        return self.parsed_data
+
+    def simplify_chinese(self):
+        """Convert traditional Chinese characters to simplified Chinese"""
+        self.parsed_data = jio.tra2sim(self.parsed_data, mode="word")
+        return self.parsed_data
+
+    def nlp_clean(self):
+        # jio nlp rough text cleaning
+        return jio.clean_text(self.parsed_data)
+
+    def point_conversion(self):
+        """Bullet point conversion"""
+        self.parsed_data = self.parsed_data.replace("\n• ", "\n- ")
+        return self.parsed_data
+
+    def clean_space(self):
+        self.parsed_data = self.parsed_data.replace(" ", "")
+        return self.parsed_data
+
+    def clean_tips(self):
+        self.parsed_data = self.parsed_data.replace(
+            "EvaluationWarning:ThedocumentwascreatedwithSpire.DocforPython.", ""
+        )
+        return self.parsed_data
+
+    def markdown_format(self):
+        pass
+
+    def no_html_clean(self):
+        """Perform cleaning without executing HTML cleaning"""
+        try:
+            self.convert_newlines()
+            self.single_space()
+            self.tabs_to_spaces()
+            self.simplify_chinese()
+
+            self.remove_invisible_chars()
+            # After cleaning invisible characters, perform another multi-line merge, remove space operation
+            self.convert_newlines()
+
+            result = {"text": self.parsed_data}
+            return result
+
+        except Exception as e:
+            print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
+            return {}
+
+    def to_clean(self):
+        """Perform all cleaning operations"""
+        try:
+            self.point_conversion()
+            self.remove_html_tags()
+            self.convert_newlines()
+            self.single_space()
+            self.tabs_to_spaces()
+            self.simplify_chinese()
+
+            self.remove_invisible_chars()
+            # After cleaning invisible characters, perform another multi-line merge, remove space operation
+            self.convert_newlines()
+            # self.clean_space()
+            self.clean_tips()
+
+            result = {"text": self.parsed_data}
+            return result
+
+        except Exception as e:
+            print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
+            return {}
+
+
+class TextFilter:
+    def __init__(self, parsed_data):
+        self.parsed_data = parsed_data
+
+    def filter_by_word_repetition(self, threshold=0.6):
+        """Filter by word repetition rate"""
+        text = self.parsed_data
+        # Each two characters form a word
+        bi_grams = [text[i : i + 2] for i in range(0, len(text) - 1, 2)]
+        word_count = len(bi_grams)
+        if word_count == 0:
+            return False
+
+        word_freq = Counter(bi_grams)
+
+        most_common_word, most_common_count = word_freq.most_common(1)[0]
+        repetition_rate = most_common_count / word_count
+
+        if repetition_rate > threshold:
+            return False
+
+        return True
+
+    def filter_by_char_count(self, min_chars=30, max_chars=500000):
+        """Filter by character count"""
+        char_count = len(self.parsed_data)
+        if char_count < min_chars or char_count > max_chars:
+            return False
+        return True
+
+    def filter_by_numeric_content(self, threshold=0.6):
+        """Filter by numeric content"""
+        text = self.parsed_data
+        total_chars = len(text)
+        numeric_chars = len(re.findall(r"\d", text))
+        if numeric_chars / total_chars > threshold:
+            return False
+        return True
+
+    def to_filter(self):
+        """Perform all filtering operations and filter out texts that do not meet the conditions"""
+        if not self.filter_by_word_repetition():
+            return {}
+        elif not self.filter_by_char_count():
+            return {}
+        elif not self.filter_by_numeric_content():
+            return {}
+        else:
+            result = {"text": self.parsed_data}
+            return result
+
+
+class PrivacyDesensitization:
+    def __init__(self, parsed_data):
+        self.parsed_data = parsed_data
+
+    # Privacy data replacement class
+    def replace_ip(self):
+        # Replace IP addresses
+        self.parsed_data = jio.replace_ip_address(self.parsed_data, "COSCO_IP")
+        return self.parsed_data
+
+    def replace_email(self):
+        # Replace email addresses
+        self.parsed_data = jio.replace_email(self.parsed_data, "COSCO_EMAIL")
+        return self.parsed_data
+
+    def replace_bank_id(self, text, token):
+        # Match bank card numbers and replace
+        self.parsed_data = re.sub(r"\b\d{13,19}\b", token, text)
+        return self.parsed_data
+
+    def replace_customer_number(self, text, token):
+        # Customer service hotlines are not easy to match and are not considered private data
+        self.parsed_data = re.sub(r"\d+-\d+-\d+", token, text)
+        return self.parsed_data
+
+    def replace_number(self):
+        # Replace all types of numeric private data
+
+        # Landline + mobile phone
+        self.parsed_data = jio.replace_phone_number(self.parsed_data, "COSCO_NUMBER")
+        # QQ
+        self.parsed_data = jio.replace_qq(self.parsed_data, "COSCO_NUMBER")
+        # ID card
+        self.parsed_data = jio.replace_id_card(self.parsed_data, "COSCO_NUMBER")
+        # Bank card
+        self.parsed_data = self.replace_bank_id(
+            self.parsed_data, token="COSCO_NUMBER"
+        )  # nosec B106 - 这是数据脱敏标记，不是密码
+        # Dash-separated customer service hotlines
+        # self.parsed_data = self.replace_customer_number(self.parsed_data, token="COSCO_NUMBER")
+
+        return self.parsed_data
+
+    def to_private(self):
+        """Perform all privacy data replacement operations"""
+        self.replace_ip()
+        self.replace_email()
+        self.replace_number()
+
+        result = {"text": self.parsed_data}
+
+        return result

@@ -1,0 +1,271 @@
+name: 发布到PyPI和创建标签
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: '版本类型 (major, minor, patch, prerelease)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+          - prerelease
+      custom_version:
+        description: '自定义版本号 (可选，如果提供则忽略版本类型)'
+        required: false
+        type: string
+  # 推送到main分支时的版本标签
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  validate-and-test:
+    name: 验证和测试
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_publish: ${{ steps.check.outputs.should_publish }}
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine setuptools wheel
+        pip install -r requirements.txt
+
+    - name: 版本管理
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            NEW_VERSION="${{ github.event.inputs.custom_version }}"
+          else
+            # 从setup.py获取当前版本
+            CURRENT_VERSION=$(python setup.py --version)
+            echo "当前版本: $CURRENT_VERSION"
+
+            # 根据版本类型计算新版本
+            IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_VERSION"
+            MAJOR=${VERSION_PARTS[0]}
+            MINOR=${VERSION_PARTS[1]}
+            PATCH=${VERSION_PARTS[2]}
+
+            case "${{ github.event.inputs.version_type }}" in
+              major)
+                NEW_VERSION="$((MAJOR + 1)).0.0"
+                ;;
+              minor)
+                NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
+                ;;
+              patch)
+                NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+                ;;
+              prerelease)
+                NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))-rc.$(date +%s)"
+                ;;
+            esac
+          fi
+          echo "新版本: $NEW_VERSION"
+
+          # 更新setup.py中的版本
+          sed -i "s/version='[^']*'/version='$NEW_VERSION'/g" setup.py
+
+        else
+          # 从标签获取版本
+          NEW_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "标签版本: $NEW_VERSION"
+
+          # 更新setup.py中的版本
+          sed -i "s/version='[^']*'/version='$NEW_VERSION'/g" setup.py
+        fi
+
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+    - name: 验证版本更新
+      run: |
+        python setup.py --version
+        echo "Setup.py版本: $(python setup.py --version)"
+
+    - name: 代码质量检查
+      run: |
+        # 检查setup.py语法
+        python -m py_compile setup.py
+
+        # 检查包是否可以正确导入
+        python -c "import setuptools; setuptools.setup()" --help-commands > /dev/null
+
+    - name: 构建包
+      run: |
+        python -m build
+
+    - name: 验证包
+      run: |
+        # 检查包的完整性
+        python -m twine check dist/*
+
+        # 测试安装
+        pip install dist/*.whl
+        python -c "import datamax; print('包导入成功')"
+
+    - name: 检查是否应该发布
+      id: check
+      run: |
+        # 检查PyPI上是否已存在该版本
+        VERSION="${{ steps.version.outputs.version }}"
+        if pip index versions datamax | grep -q "$VERSION"; then
+          echo "版本 $VERSION 已存在于PyPI"
+          echo "should_publish=false" >> $GITHUB_OUTPUT
+        else
+          echo "版本 $VERSION 不存在于PyPI，可以发布"
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist
+        path: dist/
+
+  publish-pypi:
+    name: 发布到PyPI
+    needs: validate-and-test
+    if: needs.validate-and-test.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/datamax
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 下载构建产物
+      uses: actions/download-artifact@v3
+      with:
+        name: dist
+        path: dist/
+
+    - name: 发布到测试PyPI (可选)
+      if: contains(needs.validate-and-test.outputs.version, 'rc')
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        verbose: true
+
+    - name: 发布到PyPI
+      if: ${{ !contains(needs.validate-and-test.outputs.version, 'rc') }}
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        verbose: true
+
+  create-release:
+    name: 创建GitHub Release
+    needs: [validate-and-test, publish-pypi]
+    if: needs.validate-and-test.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 提交版本更新
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add setup.py
+        git commit -m "bump: 版本更新至 v${{ needs.validate-and-test.outputs.version }}" || exit 0
+        git push
+
+    - name: 创建标签
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        git tag -a "v${{ needs.validate-and-test.outputs.version }}" -m "Release v${{ needs.validate-and-test.outputs.version }}"
+        git push origin "v${{ needs.validate-and-test.outputs.version }}"
+
+    - name: 生成更新日志
+      id: changelog
+      run: |
+        # 获取上一个标签
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "# 更新日志" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## v${{ needs.validate-and-test.outputs.version }}" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          # 获取提交历史
+          echo "### 更改内容" >> CHANGELOG.md
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          # 获取贡献者
+          echo "### 贡献者" >> CHANGELOG.md
+          git log --pretty=format:"- %an" $PREVIOUS_TAG..HEAD | sort -u >> CHANGELOG.md
+        else
+          echo "# DataMax v${{ needs.validate-and-test.outputs.version }}" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "首次发布版本" >> CHANGELOG.md
+        fi
+
+    - name: 下载构建产物
+      uses: actions/download-artifact@v3
+      with:
+        name: dist
+        path: dist/
+
+    - name: 创建GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.validate-and-test.outputs.version }}
+        name: DataMax v${{ needs.validate-and-test.outputs.version }}
+        body_path: CHANGELOG.md
+        files: |
+          dist/*
+        draft: false
+        prerelease: ${{ contains(needs.validate-and-test.outputs.version, 'rc') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: 发布通知
+    needs: [validate-and-test, publish-pypi, create-release]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 发布成功通知
+      if: needs.publish-pypi.result == 'success' && needs.create-release.result == 'success'
+      run: |
+        echo "🎉 DataMax v${{ needs.validate-and-test.outputs.version }} 发布成功!"
+        echo "📦 PyPI: https://pypi.org/project/datamax/${{ needs.validate-and-test.outputs.version }}/"
+        echo "🏷️ GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ needs.validate-and-test.outputs.version }}"
+
+    - name: 发布失败通知
+      if: needs.publish-pypi.result == 'failure' || needs.create-release.result == 'failure'
+      run: |
+        echo "❌ DataMax v${{ needs.validate-and-test.outputs.version }} 发布失败!"
+        echo "请检查工作流日志以获取详细信息。"
