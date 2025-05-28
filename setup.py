@@ -1,8 +1,8 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
-    name='pydatamax',
-    version='0.1.13',
+    name="pydatamax",
+    version="0.1.13",
     packages=find_packages(),
     install_requires=[
         "oss2>=2.19.1,<3.0.0",
@@ -41,16 +41,16 @@ setup(
         "langchain>=0.3.0,<1.0.0",
         "langchain-community>=0.3.0,<1.0.0",
     ],
-    author='ccy',
-    author_email='cy.kron@foxmail.com',
-    description='A library for parsing and converting various file formats.',
-    long_description=open('README.md', encoding='utf-8').read(),
-    long_description_content_type='text/markdown',
-    url='https://github.com/Hi-Dolphin/datamax',
+    author="ccy",
+    author_email="cy.kron@foxmail.com",
+    description="A library for parsing and converting various file formats.",
+    long_description=open("README.md", encoding="utf-8").read(),
+    long_description_content_type="text/markdown",
+    url="https://github.com/Hi-Dolphin/datamax",
     classifiers=[
-        'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
     ],
-    python_requires='>=3.10',
+    python_requires=">=3.10",
 )

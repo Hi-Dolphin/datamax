@@ -12,7 +12,7 @@ from datamax import DataMax
 
 data = DataMax(file_path=r"/mnt/f/code/datamax/examples/网信安全风险评估报告（2024） (1).doc")
 
-print(f'txt parser result:-->{data.get_data()}')
+print(f"txt parser result:-->{data.get_data()}")
 
 # # pdf type (use ocr by mineru)
 # data = DataMax(file_path=r"db.pdf", use_mineru=True)
@@ -22,7 +22,6 @@ print(f'txt parser result:-->{data.get_data()}')
 # # "XLSX files may encounter long-running calculations (e.g., complex formulas or large datasets). You can set a TTL (Time-To-Live) to enforce a timeout."
 # data = DataMax(file_path=r"db.xlsx", timeout=10)
 # print(f'xlsx parser result:-->{data.get_data()}')
-
 
 
 # #
