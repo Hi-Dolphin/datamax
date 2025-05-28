@@ -124,3 +124,8 @@ test.py
 .vscode
 
 /deploy
+
+# venv
+venv/
+venv*/
+examples/parser_examples.py

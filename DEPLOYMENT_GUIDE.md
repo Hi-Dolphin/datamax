@@ -166,6 +166,46 @@ env:
     webhook_url: ${{ secrets.SLACK_WEBHOOK }}
 ```
 
+## 🖥️ 本地手动发布流程（每次迭代）
+
+下表列出了 **每次版本迭代** 时，从代码冻结到 PyPI 发布需要执行的全部步骤和对应命令。建议在 *虚拟环境* 中操作，并确保已在 `~/.pypirc` 或环境变量中配置好 `TWINE_USERNAME/__token__` 与 `TWINE_PASSWORD/pypi-***`。
+
+```
+python3.11 -m venv venv311
+source venv311/bin/activate
+pip install --upgrade pip -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+pip install build -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+python scripts/bump_version.py patch
+python -m build
+pip install dist/pydatamax-*.whl -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+python -c "import datamax;"
+deactivate
+```
+
+| 阶段 | 目的 | 典型命令 |
+|------|------|----------|
+| 1. 代码冻结 | 合并功能分支，进入发布流程 | `git checkout main && git pull` |
+| 2. 更新日志 | 编写 / 更新 `CHANGELOG.md` | 手动编辑文件 |
+| 3. 质量检查 | 运行全部静态检查和单测 | `pre-commit run --all-files`<br>`pytest -q` |
+| 4. 版本号递增 | 使用脚本递增版本（或手动指定） | `python scripts/bump_version.py patch`<br>可选 `major` / `minor` / 具体版本号 |
+| 5. 提交&打标签 | 持久化版本变动 | `git add .`<br>`git commit -m "bump: 发布 vX.Y.Z"`<br>`git tag vX.Y.Z` |
+| 6. 构建包 | 生成 sdist 和 wheel | `python -m build` |
+| 7. TestPyPI 验证 | 先上传到测试仓库并安装验证 | `twine upload --repository-url https://test.pypi.org/legacy/ dist/*`<br>`pip install --index-url https://test.pypi.org/simple/ pydatamax==X.Y.Z --no-cache-dir -U` |
+| 8. 正式发布 | 上传到 PyPI | `twine upload dist/*` |
+| 9. 推送代码 | 同步远程仓库和标签 | `git push origin main --follow-tags` |
+|10. 发布Release | 创建GitHub Release并上传构建产物 | 在GitHub网页端创建Release<br>或使用 `gh release create vX.Y.Z dist/* --title "vX.Y.Z" --notes-from-tag` |
+|11. 清理工作 | 保持工作区整洁 | `rm -rf build dist *.egg-info` |
+
+> 💡 **提示**  
+> • 若使用 **SSH** 方式避免输入 PAT，可运行 `git remote set-url origin git@github.com:<user>/<repo>.git`。  
+> • `twine` 会优先读取 `~/.pypirc`，也可通过环境变量：  
+>   ```bash
+>   export TWINE_USERNAME="__token__"
+>   export TWINE_PASSWORD="pypi-xxxxxxxxxxxxxxxxxxxx"
+>   ```
+> • 上传前可执行 `twine check dist/*` 确认元数据完整。
+> • 注意：本项目在 PyPI 上发布的包名为 **pydatamax**，而非 datamax。
+
 ## 📚 相关资源
 
 - [PyPI官方文档](https://packaging.python.org/)
