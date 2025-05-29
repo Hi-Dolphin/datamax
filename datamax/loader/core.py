@@ -1,7 +1,7 @@
 import os
 from typing import List
-from datamax.loader.MinioHandler import MinIOClient
-from datamax.loader.OssHandler import OssClient
+from datamax.loader.minio_handler import MinIOClient
+from datamax.loader.oss_handler import OssClient
 
 
 class DataLoader:

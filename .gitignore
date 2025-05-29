@@ -129,3 +129,12 @@ test.py
 venv/
 venv*/
 examples/parser_examples.py
+# scripts
+scripts/*
+scripts
+# test
+tests/*
+tests
+security_report.json
+README_CI_CD.md
+DEPLOYMENT_GUIDE.md
