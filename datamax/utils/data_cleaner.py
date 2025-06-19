@@ -27,6 +27,31 @@ class AbnormalCleaner:
     def __init__(self, parsed_data):
         self.parsed_data = parsed_data
 
+    def extract_references(self) -> str:
+        """
+        Extract reference entries and assign to self.parsed_data
+        (Original text will be replaced with extracted references, each item on a separate line)
+        
+        Returns:
+            str: Extracted reference text (same as self.parsed_data)
+        """
+        patterns = [
+            r'([A-Z][a-z]+(?:, [A-Z](?:\.[a-z]*)?)+(?: et al\.)? $\d{4}$[^\n]+)',  # APA format
+            r'($$\d+$$[^\n]+)',                                                      # Numbered references like [1]
+            r'(DOI:\s?\S+|https?://\S+)',                                            # DOI/URL
+            r'([A-Z][a-z]+, [A-Z]\.?,? & [A-Z][a-z]+, [A-Z]\. \d{4}[^\n]+)'           # Multi-author APA
+        ]
+        references = []
+        for pattern in patterns:
+            try:
+                references.extend(re.findall(pattern, self.parsed_data))
+            except re.error as e:
+                print(f"Regex error {pattern}: {e}")
+        
+        # Assign extraction results to parsed_data (each item on a separate line)
+        self.parsed_data = "\n".join(list(set(references)))  # Deduplicate and merge into string
+        return self.parsed_data
+
     # Exception cleaning class
     def remove_abnormal_chars(self):
         """Remove abnormal characters from text"""
@@ -246,7 +271,5 @@ class PrivacyDesensitization:
         self.replace_ip()
         self.replace_email()
         self.replace_number()
-
         result = {"text": self.parsed_data}
-
         return result
