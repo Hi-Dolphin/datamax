@@ -313,7 +313,7 @@ def generatr_qa_pairs(
     max_workers=5,
 ):
     """Main function to generate QA pairs from markdown file"""
-    # 1. Split markdown text into chunks
+    # 1. Split markdown text into chunks`
     pages = load_and_split_markdown(
         md_path=file_path, chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
@@ -343,22 +343,15 @@ def generatr_qa_pairs(
         model=model_name,
     )
 
-    # 4. Save results
-    res_list = []
-    with open(
-        f"{os.path.basename(file_path).strip('.md')}.jsonl", "w", encoding="utf-8"
-    ) as f:
-        for question, answer in qa_pairs.items():
-            # Build properly formatted JSON object
-            qa_entry = {"instruction": question, "input": "", "output": answer}
-            res_list.append(qa_entry)
-            # Write to JSONL file (one JSON object per line)
-            f.write(json.dumps(qa_entry, ensure_ascii=False) + "\n")
-
     logger.success(
-        f"完成! 共生成 {len(qa_pairs)} 个问答对，已保存到 {os.path.basename(file_path).strip('.md')}.jsonl"
+        f"完成! 共生成 {len(qa_pairs)} 个问答对"
     )
 
+    # 
+    res_list = []
+    for question, answer in qa_pairs.items():
+        qa_entry = {"instruction": question, "input": "", "output": answer}
+        res_list.append(qa_entry)
     return res_list
 
 

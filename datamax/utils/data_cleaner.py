@@ -137,22 +137,22 @@ class TextFilter:
 
     def filter_by_word_repetition(self, threshold=0.6):
         """Filter by word repetition rate"""
-        text = self.parsed_data
-        # Each two characters form a word
-        bi_grams = [text[i : i + 2] for i in range(0, len(text) - 1, 2)]
+        if not isinstance(self.parsed_data, str):
+            return False
+            
+        text = str(self.parsed_data)
+        bi_grams = [text[i:i+2] for i in range(0, len(text)-1, 2)]
         word_count = len(bi_grams)
         if word_count == 0:
+            print("No words found.")
             return False
-
+    
         word_freq = Counter(bi_grams)
-
         most_common_word, most_common_count = word_freq.most_common(1)[0]
         repetition_rate = most_common_count / word_count
-
-        if repetition_rate > threshold:
-            return False
-
-        return True
+        print(f"Word repetition rate: {repetition_rate}")
+    
+        return repetition_rate <= threshold
 
     def filter_by_char_count(self, min_chars=30, max_chars=500000):
         """Filter by character count"""
@@ -188,24 +188,41 @@ class PrivacyDesensitization:
         self.parsed_data = parsed_data
 
     # Privacy data replacement class
-    def replace_ip(self):
+    def replace_ip(self, token="COSCO_IP"):
         # Replace IP addresses
-        self.parsed_data = jio.replace_ip_address(self.parsed_data, "COSCO_IP")
+        self.parsed_data = jio.replace_ip_address(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_email(self):
+    def replace_email(self, token="COSCO_EMAIL"):
         # Replace email addresses
-        self.parsed_data = jio.replace_email(self.parsed_data, "COSCO_EMAIL")
+        self.parsed_data = jio.replace_email(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_bank_id(self, text, token):
-        # Match bank card numbers and replace
-        self.parsed_data = re.sub(r"\b\d{13,19}\b", token, text)
-        return self.parsed_data
-
-    def replace_customer_number(self, text, token):
+    def replace_customer_number(self, token="COSCO_NUMBER"):
         # Customer service hotlines are not easy to match and are not considered private data
-        self.parsed_data = re.sub(r"\d+-\d+-\d+", token, text)
+        self.parsed_data = re.sub(r"\d+-\d+-\d+", token, self.parsed_data)
+        return self.parsed_data
+    
+    def replace_bank_id(self, token="COSCO_NUMBER"):
+        # Match bank card numbers and replace
+        self.parsed_data = self.replace_bank_id(
+            self.parsed_data, token=token
+        )  
+        return self.parsed_data
+    
+    def replace_phone_number(self, token="COSCO_NUMBER"):
+        # Match phone numbers and replace
+        self.parsed_data = jio.replace_phone_number(self.parsed_data, token)
+        return self.parsed_data
+    
+    def replace_qq(self, token="COSCO_NUMBER"):
+        # Match QQ numbers and replace
+        self.parsed_data = jio.replace_qq(self.parsed_data,token)
+        return self.parsed_data
+
+    def replace_id_card(self, token="COSCO_NUMBER"):
+        # Match ID card numbers and replace
+        self.parsed_data = jio.replace_id_card(self.parsed_data, token)
         return self.parsed_data
 
     def replace_number(self):
@@ -221,8 +238,6 @@ class PrivacyDesensitization:
         self.parsed_data = self.replace_bank_id(
             self.parsed_data, token="COSCO_NUMBER"
         )  # nosec B106 - 这是数据脱敏标记，不是密码
-        # Dash-separated customer service hotlines
-        # self.parsed_data = self.replace_customer_number(self.parsed_data, token="COSCO_NUMBER")
 
         return self.parsed_data
 

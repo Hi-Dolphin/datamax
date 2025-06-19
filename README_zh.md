@@ -75,18 +75,126 @@ dm = DataMax(file_path="complex.pdf", use_mineru=True)
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
 # 图片OCR
-dm = DataMax(file_path="image.jpg", use_ocr=True)
+dm = DataMax(file_path="image.jpg", use_mineru=True)
+```
+
+### 批处理解析
+```python
+# 批量解析多个文件
+dm = DataMax(
+    file_path=["file1.pdf", "file2.docx"],
+    use_mineru=True
+)
+data = dm.get_data()
+```
+
+### 文件缓存
+```python
+# 缓存解析结果，避免重复解析
+dm = DataMax(
+    file_path=["file1.pdf", "file2.docx"],
+    ttl=3600  # 缓存时间，单位秒, 默认3600秒, 如果为0则不缓存
+)
+data = dm.get_data()
 ```
 
 ### 数据清洗
+## 异常处理
+
+- remove_abnormal_chars 从文本中移除异常字符
+- remove_html_tags 移除HTML标签
+- convert_newlines 将\r转换为\n并将多个\n合并为单个\n
+- single_space 将多个空格(2个以上)转换为单个空格
+- tabs_to_spaces 将制表符转换为4个空格
+- remove_invisible_chars 移除不可见ASCII字符
+- simplify_chinese 将繁体中文转换为简体中文
+
+## 文本过滤
+
+- filter_by_word_repetition 词重复率过滤
+- filter_by_char_count 按字符数量过滤
+- filter_by_numeric_content 按数字占比过滤
+
+## 隐私脱敏
+
+- replace_ip
+- replace_email
+- replace_customer_number   4008-123-123 清洗热线电话
+- replace_bank_id
+- replace_phone_number
+- replace_qq
+- replace_id_card
+
 
 ```python
-# 三种清洗模式
+# 三种清洗模式(快速使用不支持自定义)
 dm.clean_data(method_list=[
     "abnormal",  # 异常数据处理
     "private",   # 隐私信息脱敏
     "filter"     # 文本过滤规范化
 ])
+
+# 自定义清洗流程(支持自定义)
+from datamax.utils.data_cleaner import TextFilter, PrivacyDesensitization, AbnormalCleaner
+dm = DataMax(
+    file_path=r"C:\Users\cykro\Desktop\香港开发机.txt"
+)
+parsed_data = dm.get_data().get('content')
+# 1. 文本过滤
+tf = TextFilter(parsed_data=parsed_data)
+    # 词重复率过滤 参数 threshold 默认为 0.6，即文本中最多允许 60% 的字符是重复的
+tf_bool = tf.filter_by_word_repetition(threshold=0.6)
+if tf_bool:
+    print("文本通过词重复率过滤")
+else:
+    print("文本未通过词重复率过滤")
+    
+# 按字符数量过滤 参数 min_chars 默认为 30，即文本中最少允许 30 个字符, max_chars 默认为 500000，即文本中最多允许 500000 个字符
+tf_bool = tf.filter_by_char_count(min_chars=30, max_chars=500000)
+if tf_bool:
+    print("文本通过字符数量过滤")
+else:
+    print("文本未通过字符数量过滤")
+
+# 按数字占比过滤 参数 threshold 默认为 0.6，即文本中最多允许 60% 的字符是数字
+tf_bool = tf.filter_by_numeric_content(threshold=0.6)
+if tf_bool:
+    print("文本通过数字比例过滤")
+else:
+print("文本未通过数字比例过滤")
+
+# 2. 隐私脱敏
+pd = PrivacyDesensitization(parsed_data=parsed_data)
+res = pd.replace_ip(
+    token="MyIP"
+)
+print(res)
+
+# 3. 异常字符清洗
+ac = AbnormalCleaner(parsed_data=parsed_data)
+res = ac.remove_abnormal_chars()
+res = ac.remove_html_tags()
+res = ac.convert_newlines()
+res = ac.single_space()
+res = ac.tabs_to_spaces()
+res = ac.remove_invisible_chars()
+res = ac.simplify_chinese()
+print(res)
+```
+
+### 文本切分
+
+```python
+dm.split_data(
+    chunk_size=500,      # 文本块大小
+    chunk_overlap=100,    # 重叠长度
+    use_langchain=True  # 使用LangChain进行文本切分
+)
+
+# 当use_langchain为False时，使用自定义切分方法
+# 。！？作为分隔符，连续的分隔符会被合并 chunk_size是严格的字符串长度不会超过
+for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=False).get("content"):
+    print(chunk)
 ```
 
 ### AI标注
@@ -102,6 +210,8 @@ qa_data = dm.get_pre_label(
     question_number=5,     # 每块生成问题数
     max_workers=5          # 并发数
 )
+# 保存结果
+dm.save_label_data(res)
 ```
 
 ## ⚙️ 环境配置

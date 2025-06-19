@@ -1,9 +1,14 @@
 import os
+import json
+import time
 import importlib
+from loguru import logger
 from typing import List, Union, Dict
 from openai import OpenAI
+from pathlib import Path
 from datamax.utils import data_cleaner
 from datamax.utils.qa_generator import generatr_qa_pairs
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
 class ModelInvoker:
@@ -103,7 +108,8 @@ class DataMax:
                  file_path: Union[str, list] = '',
                  use_mineru: bool = False,
                  to_markdown: bool = False,
-                 timeout: int = 1200
+                 timeout: int = 1200,
+                 ttl: int = 3600
                  ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -118,6 +124,8 @@ class DataMax:
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
+        :param timeout: Timeout for the request.
+        :param ttl: Time to live for the cache.
         """
         self.file_path = file_path
         self.use_mineru = use_mineru
@@ -125,6 +133,19 @@ class DataMax:
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
         self.timeout = timeout
+        self._cache = {}
+        self.ttl = ttl
+    
+    def set_data(self, file_name, parsed_data):
+        """
+        Set cached data
+        :param file_name: File name as cache key
+        :param parsed_data: Parsed data as value
+        """
+        logger.info(f"cache ttl is {self.ttl}s")
+        if self.ttl > 0:
+            self._cache[file_name] = {'data': parsed_data, 'ttl': time.time() + self.ttl}
+            logger.info(f"✅ [Cache Updated] Cached data for {file_name}, ttl: {self._cache[file_name]['ttl']}s")
 
     def get_data(self):
         """
@@ -134,19 +155,48 @@ class DataMax:
         """
         try:
             if isinstance(self.file_path, list):
-                parsed_data = [self._parse_file(f) for f in self.file_path]
-                self.parsed_data = parsed_data
+                parsed_data = []
+                for f in self.file_path:
+                    file_name = os.path.basename(f)
+                    if file_name in self._cache and self._cache[file_name]['ttl'] > time.time():
+                        logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
+                        parsed_data.append(self._cache[file_name]['data'])
+                    else:
+                        logger.info(f"⏳ [Cache Miss] No cached data for {file_name}, parsing...")
+                        self._cache = {k: v for k, v in self._cache.items() if v['ttl'] > time.time()}
+                        res_data = self._parse_file(f)
+                        parsed_data.append(res_data)
+                        self.set_data(file_name, res_data)
                 return parsed_data
 
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                parsed_data = self._parse_file(self.file_path)
-                self.parsed_data = parsed_data
-                return parsed_data
+                file_name = os.path.basename(self.file_path)
+                if file_name in self._cache and self._cache[file_name]['ttl'] > time.time():
+                    logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
+                    return self._cache[file_name]['data']
+                else:
+                    logger.info(f"⏳ [Cache Miss] No cached data for {file_name}, parsing...")
+                    self._cache = {k: v for k, v in self._cache.items() if v['ttl'] > time.time()}
+                    parsed_data = self._parse_file(self.file_path)
+                    self.parsed_data = parsed_data
+                    self.set_data(file_name, parsed_data)
+                    return parsed_data
 
             elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                file_list = [os.path.join(self.file_path, file) for file in os.listdir(self.file_path)]
-                parsed_data = [self._parse_file(f) for f in file_list if os.path.isfile(f)]
-                self.parsed_data = parsed_data
+                file_list = [str(file) for file in list(Path(self.file_path).rglob('*.*'))]
+                parsed_data = []
+                for f in file_list:
+                    if os.path.isfile(f):
+                        file_name = os.path.basename(f)
+                        if file_name in self._cache and self._cache[file_name]['ttl'] > time.time():
+                            logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
+                            parsed_data.append(self._cache[file_name]['data'])
+                        else:
+                            logger.info(f"⏳ [Cache Miss] No cached data for {file_name}, parsing...")
+                            self._cache = {k: v for k, v in self._cache.items() if v['ttl'] > time.time()}
+                            res_data = self._parse_file(f)
+                            parsed_data.append(res_data)
+                            self.set_data(file_name, res_data)
                 return parsed_data
             else:
                 raise ValueError("Invalid file path.")
@@ -207,62 +257,137 @@ class DataMax:
             file_path=self.file_path
         )
 
-    ## <Abandon>
-    # def enhance_with_model(self, api_key: str, base_url: str, model_name: str, iteration: int = 1,
-    #                        messages: List[Dict[str, str]] = None):
-    #     """
-    #     Enhance the parsed content using a large language model.
-    #
-    #     :param api_key: API key for the large model service.
-    #     :param base_url: Base URL for the large model service.
-    #     :param model_name: Name of the model to use.
-    #     :param iteration: Number of iterations
-    #     :param messages: Custom messages list [{"role": "system", "content": "..."}, ...]
-    #     :return: Enhanced text.
-    #     """
-    #     if not messages:
-    #         # If no custom message is provided, the default message structure is used, but only if there is parsed data
-    #         if self.parsed_data:
-    #             system_prompt = get_system_prompt(self.parsed_data)
-    #             default_message_user = {"role": "user", "content": "按照json格式给出问答对"}
-    #             messages = [
-    #                 {"role": "system", "content": system_prompt},
-    #                 default_message_user
-    #             ]
-    #         else:
-    #             raise ValueError("No data to enhance and no custom messages provided.")
-    #     try:
-    #         if isinstance(iteration, int) and iteration >= 1:
-    #             results = []
-    #             current_messages = messages.copy()  # Avoid modifying the original message during iteration
-    #
-    #             for _ in range(iteration):
-    #                 enhanced_text = self.model_invoker.invoke_model(
-    #                     api_key=api_key,
-    #                     base_url=base_url,
-    #                     model_name=model_name,
-    #                     messages=current_messages
-    #                 )
-    #
-    #                 # Append the generated content to the conversation history in multiple iterations
-    #                 if iteration > 1:
-    #                     current_messages.append({"role": "assistant", "content": enhanced_text})
-    #                     current_messages.append(
-    #                         {"role": "user", "content": "请继续生成, 生成要求不变, 结果是jsonlist, 且长度不超过5"})
-    #
-    #                 # If there is parsed data, update the contents and return a copy of the original dictionary; Otherwise, return the enhanced text directly
-    #                 if self.parsed_data:
-    #                     origin_dict = self.parsed_data.copy()
-    #                     origin_dict['content'] = enhanced_text
-    #                     results.append(origin_dict)
-    #                 else:
-    #                     results.append(enhanced_text)
-    #
-    #             return results if iteration > 1 else results[0]
-    #         else:
-    #             raise ValueError("Invalid iteration parameter.")
-    #     except Exception as e:
-    #         raise Exception(f"An error occurred while enhancing with the model: {e}")
+    def save_label_data(self, label_data: list, save_file_name: str = None):
+        """
+        Save label data to file.
+        :param label_data: Label data to be saved.
+        :param save_file_name: File name to save the label data.
+        """
+        if not label_data:
+            raise ValueError("No data to save.")
+        if not save_file_name:
+            if isinstance(self.file_path, str):
+                save_file_name = os.path.splitext(os.path.basename(self.file_path))[0]
+            else:
+                save_file_name = 'label_data'
+        if isinstance(label_data, list):
+            with open(save_file_name + '.jsonl', 'w', encoding='utf-8') as f:
+                for qa_entry in label_data:
+                    f.write(json.dumps(qa_entry, ensure_ascii=False) + "\n")
+            logger.info(f"✅ [Label Data Saved] Label data saved to {save_file_name}.jsonl")
+
+
+    @staticmethod 
+    def split_text_into_paragraphs(text: str, max_length:int = 500, chunk_overlap: int = 100):
+        """
+        Split text into paragraphs by sentence boundaries, each paragraph not exceeding max_length characters.
+        Paragraphs will have chunk_overlap characters of overlap between them.
+        """
+        import re 
+
+        # Split sentences using Chinese punctuation marks
+        sentences = re.split('(?<=[。！？])', text)
+        paragraphs = []
+        current_paragraph = ''
+        overlap_buffer = ''
+
+        for sentence in sentences:
+            # If current paragraph plus new sentence doesn't exceed max length
+            if len(current_paragraph) + len(sentence) <= max_length:
+                current_paragraph += sentence
+            else:
+                if current_paragraph:
+                    # Add current paragraph to results
+                    paragraphs.append(current_paragraph)
+                    # Save overlap portion
+                    overlap_buffer = current_paragraph[-chunk_overlap:] if chunk_overlap > 0 else ''
+                # Start new paragraph with overlap
+                current_paragraph = overlap_buffer + sentence
+                overlap_buffer = ''
+                
+                # Handle overly long sentences
+                while len(current_paragraph) > max_length:
+                    # Split long paragraph
+                    split_point = max_length - len(overlap_buffer)
+                    paragraphs.append(current_paragraph[:split_point])
+                    # Update overlap buffer
+                    overlap_buffer = current_paragraph[split_point - chunk_overlap:split_point] if chunk_overlap > 0 else ''
+                    current_paragraph = overlap_buffer + current_paragraph[split_point:]
+                    overlap_buffer = ''
+
+        # Add the last paragraph
+        if current_paragraph:
+            paragraphs.append(current_paragraph)
+
+        return paragraphs
+
+    @staticmethod
+    def split_with_langchain(text: str, chunk_size: int = 500, chunk_overlap: int = 100):
+        """
+        Split text using LangChain's intelligent text splitting
+        
+        :param text: Text to be split
+        :param chunk_size: Maximum length of each chunk
+        :param chunk_overlap: Number of overlapping characters between chunks
+        :return: List of split text
+        """
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        return text_splitter.split_text(text)
+
+    def split_data(
+            self,
+            parsed_data: Union[str, dict] = None,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            use_langchain: bool = False):
+        """
+        Improved splitting method with LangChain option
+        
+        :param use_langchain: Whether to use LangChain for splitting
+        :param parsed_data: Data to be split, either string or dict
+        :param chunk_size: Maximum length of each chunk
+        :param chunk_overlap: Number of overlapping characters between chunks
+        :return: List or dict of split text
+        """
+        if parsed_data:
+            self.parsed_data = parsed_data
+        if not self.parsed_data:
+            raise ValueError("No data to split.")
+        
+        if use_langchain:
+            if isinstance(self.parsed_data, str):
+                return self.split_with_langchain(self.parsed_data, chunk_size, chunk_overlap)
+            elif isinstance(self.parsed_data, dict):
+                if 'content' not in self.parsed_data:
+                    raise ValueError("Input dict must contain 'content' key")
+                chunks = self.split_with_langchain(self.parsed_data['content'], chunk_size, chunk_overlap)
+                result = self.parsed_data.copy()
+                result['content'] = chunks
+                return result
+        
+        # Handle string input
+        if isinstance(self.parsed_data, str):
+            return self.split_text_into_paragraphs(self.parsed_data, chunk_size, chunk_overlap)
+        
+        # Handle dict input
+        elif isinstance(self.parsed_data, dict):
+            if 'content' not in self.parsed_data:
+                raise ValueError("Input dict must contain 'content' key")
+                
+            content = self.parsed_data['content']
+            chunks = self.split_text_into_paragraphs(content, chunk_size, chunk_overlap)
+                
+            result = self.parsed_data.copy()
+            result['content'] = chunks
+            return result
+        else:
+            raise ValueError("Unsupported input type")
+    
 
     def _parse_file(self, file_path):
         """

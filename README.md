@@ -44,10 +44,15 @@ cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
 # AI annotation
 qa_data = dm.get_pre_label(
-    api_key="your-api-key",
-    base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo"
+    api_key="sk-xxx",
+    base_url="https://api.provider.com/v1",
+    model_name="model-name",
+    chunk_size=500,        # 文本块大小
+    chunk_overlap=100,     # 重叠长度
+    question_number=5,     # 每块生成问题数
+    max_workers=5          # 并发数
 )
+dm.save_label_data(res)
 ```
 
 ## 📖 Detailed Documentation
@@ -77,8 +82,54 @@ dm = DataMax(file_path="document.docx", to_markdown=True)
 # Image OCR
 dm = DataMax(file_path="image.jpg", use_ocr=True)
 ```
+### Batch Processing
+```python
+# Parse multiple files in batch
+dm = DataMax(
+    file_path=["file1.pdf", "file2.docx"],
+    use_mineru=True
+)
+data = dm.get_data()
+```
+
+### Cache parsed results
+```python
+# Cache parsed results to avoid repeated parsing
+dm = DataMax(
+    file_path=["file1.pdf", "file2.docx"],
+    ttl=3600  # Cache duration in seconds, default 3600s, 0 means no caching
+)
+data = dm.get_data()
+```
 
 ### Data Cleaning
+## Exception Handling
+
+- remove_abnormal_chars Remove abnormal characters from text
+- remove_html_tags Remove HTML tags
+- convert_newlines Convert \r to \n and merge multiple \n into single \n
+- single_space Convert multiple spaces (more than 2) to single space
+- tabs_to_spaces Convert tabs to 4 spaces
+- remove_invisible_chars Remove invisible ASCII characters
+- simplify_chinese Convert traditional Chinese to simplified Chinese
+
+## Text Filtering
+
+- filter_by_word_repetition Filter by word repetition rate
+- filter_by_char_count Filter by character count
+- filter_by_numeric_content Filter by numeric content ratio
+
+## Privacy Desensitization
+
+- replace_ip
+- replace_email
+- replace_customer_number Clean hotline numbers like 4008-123-123
+- replace_bank_id
+- replace_phone_number
+- replace_qq
+- replace_id_card
+
+
 
 ```python
 # Three cleaning modes
@@ -87,6 +138,67 @@ dm.clean_data(method_list=[
     "private",   # Privacy information masking
     "filter"     # Text filtering and normalization
 ])
+
+# Custom cleaning mode
+from datamax.utils.data_cleaner import TextFilter, PrivacyDesensitization, AbnormalCleaner
+dm = DataMax(
+    file_path=r"C:\Users\cykro\Desktop\HongKongDevMachine.txt"
+)
+parsed_data = dm.get_data().get('content')
+# 1. Text filtering
+tf = TextFilter(parsed_data=parsed_data)
+    # Word repetition filtering - default threshold is 0.6 (max 60% of characters can be repeated)
+tf_bool = tf.filter_by_word_repetition(threshold=0.6)
+if tf_bool:
+    print("Text passed word repetition filtering")
+else:
+    print("Text failed word repetition filtering")
+    
+# Character count filtering - default min_chars=30 (minimum 30 chars), max_chars=500000 (maximum 500000 chars)
+tf_bool = tf.filter_by_char_count(min_chars=30, max_chars=500000)
+if tf_bool:
+    print("Text passed character count filtering")
+else:
+    print("Text failed character count filtering")
+
+# Numeric content filtering - default threshold=0.6 (max 60% of characters can be digits)
+tf_bool = tf.filter_by_numeric_content(threshold=0.6)
+if tf_bool:
+    print("Text passed numeric ratio filtering")
+else:
+    print("Text failed numeric ratio filtering")
+
+# 2. Privacy desensitization
+pd = PrivacyDesensitization(parsed_data=parsed_data)
+res = pd.replace_ip(
+    token="MyIP"
+)
+print(res)
+
+# 3. Abnormal character cleaning
+ac = AbnormalCleaner(parsed_data=parsed_data)
+res = ac.remove_abnormal_chars()
+res = ac.remove_html_tags()
+res = ac.convert_newlines()
+res = ac.single_space()
+res = ac.tabs_to_spaces()
+res = ac.remove_invisible_chars()
+res = ac.simplify_chinese()
+print(res)
+```
+# Text Segmentation
+```python
+dm.split_data(
+    chunk_size=500,      # Chunk size
+    chunk_overlap=100,    # Overlap length
+    use_langchain=True   # Use LangChain for text segmentation
+)
+
+# When use_langchain is False, use custom segmentation method
+# Using 。！？ as separators, consecutive separators will be merged
+# chunk_size strictly limits the string length
+for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=False).get("content"):
+    print(chunk)
 ```
 
 ### AI Annotation
@@ -164,4 +276,4 @@ This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-⭐ If this project helps you, please give us a star! 
+⭐ If this project helps you, please give us a star!
