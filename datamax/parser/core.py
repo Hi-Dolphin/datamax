@@ -114,13 +114,6 @@ class DataMax:
         """
         Initialize the DataMaxParser with file path and parsing options.
 
-        # <Abandon>
-        # :param use_paddle_ocr: Flag to indicate whether PaddleOCR should be used.
-        # :param use_paddle_gpu: Flag to indicate whether PaddleOCR-GPU should be used.
-        # :param use_got_ocr: Flag to indicate whether GOT-OCR should be used.
-        # :param got_weights_path: GOT-OCR Weights Path.
-        # :param gpu_id: The ID of the GPU to use.
-
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
@@ -145,7 +138,7 @@ class DataMax:
         logger.info(f"cache ttl is {self.ttl}s")
         if self.ttl > 0:
             self._cache[file_name] = {'data': parsed_data, 'ttl': time.time() + self.ttl}
-            logger.info(f"✅ [Cache Updated] Cached data for {file_name}, ttl: {self._cache[file_name]['ttl']}s")
+            logger.info(f"✅ [Cache Updated] Cached data for {file_name}, ttl: {self._cache[file_name]['ttl']}")
 
     def get_data(self):
         """

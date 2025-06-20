@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
 from loguru import logger
-
+import os
 
 class MarkdownParser(BaseLife):
     """
@@ -50,7 +50,7 @@ class MarkdownParser(BaseLife):
             MarkdownOutputVo: Structured output containing the markdown content
         """
         try:
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
 
             # Read markdown content
             md_content = self.read_markdown_file(file_path)

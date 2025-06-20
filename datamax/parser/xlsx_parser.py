@@ -1,4 +1,4 @@
-import logging
+from loguru import logger
 import multiprocessing
 import os
 import time
@@ -10,9 +10,6 @@ import pandas as pd
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 
 warnings.filterwarnings("ignore")
-
-# 配置日志
-logger = logging.getLogger(__name__)
 
 
 class XlsxParser(BaseLife):
@@ -132,7 +129,7 @@ class XlsxParser(BaseLife):
             logger.debug("⚙️ 生成lifecycle信息完成")
 
             # 创建输出对象
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
             output_vo = MarkdownOutputVo(title, mk_content)
             output_vo.add_lifecycle(lifecycle)
 

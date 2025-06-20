@@ -1,23 +1,25 @@
-import logging
+from loguru import logger
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import chardet
-
+from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
+import zipfile
+import re
+import html
 
 # 尝试导入UNO处理器
 try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
 except ImportError:
     HAS_UNO = False
+    logger.warning("⚠️ UNO不可用，回退到传统命令行方式")
 
-# 配置日志
-logger = logging.getLogger(__name__)
 
 
 class DocxParser(BaseLife):
@@ -25,22 +27,22 @@ class DocxParser(BaseLife):
         self,
         file_path: Union[str, list],
         to_markdown: bool = False,
-        use_uno: bool = None,
+        use_uno: bool = True,
     ):
         super().__init__()
         self.file_path = file_path
         self.to_markdown = to_markdown
 
-        # 自动检测是否使用UNO（如果未指定）
-        if use_uno is None:
-            self.use_uno = HAS_UNO
+        # 优先使用UNO（除非明确禁用）
+        if use_uno and HAS_UNO:
+            self.use_uno = True
+            logger.info(f"🚀 DocxParser初始化完成 - 使用UNO API进行单线程高效处理")
         else:
-            self.use_uno = use_uno and HAS_UNO
-
-        if self.use_uno:
-            logger.info(f"🚀 DocxParser初始化完成 - 使用UNO API进行高并发处理")
-        else:
-            logger.info(f"🚀 DocxParser初始化完成 - 使用传统命令行方式")
+            self.use_uno = False
+            if use_uno and not HAS_UNO:
+                logger.warning(f"⚠️ UNO不可用，回退到传统命令行方式")
+            else:
+                logger.info(f"🚀 DocxParser初始化完成 - 使用传统命令行方式")
 
         logger.info(f"📄 文件路径: {file_path}, 转换为markdown: {to_markdown}")
 
@@ -63,13 +65,8 @@ class DocxParser(BaseLife):
 
             except Exception as e:
                 logger.error(f"💥 UNO转换失败: {str(e)}")
-                if (
-                    hasattr(self, "_fallback_to_subprocess")
-                    and self._fallback_to_subprocess
-                ):
-                    logger.warning("⚠️ 回退到传统命令行方式...")
-                    return self._docx_to_txt_subprocess(docx_path, dir_path)
-                raise
+                logger.warning("⚠️ 自动回退到传统命令行方式...")
+                return self._docx_to_txt_subprocess(docx_path, dir_path)
         else:
             # 使用传统的subprocess方式
             return self._docx_to_txt_subprocess(docx_path, dir_path)
@@ -146,11 +143,403 @@ class DocxParser(BaseLife):
             logger.error(f"💥 读取TXT文件时发生错误: {str(e)}")
             raise
 
+    def extract_all_content(self, docx_path: str) -> str:
+        """
+        综合提取DOCX文件的所有内容
+        支持多种DOCX内部格式和存储方式
+        """
+        logger.info(f"🔍 开始综合内容提取: {docx_path}")
+        
+        all_content = []
+        
+        try:
+            with zipfile.ZipFile(docx_path, 'r') as docx:
+                # 1. 检查并提取altChunk内容 (HTML/MHT嵌入)
+                altchunk_content = self._extract_altchunk_content_internal(docx)
+                if altchunk_content:
+                    all_content.append(("altChunk", altchunk_content))
+                
+                # 2. 提取标准document.xml内容
+                standard_content = self._extract_standard_document_content(docx)
+                if standard_content:
+                    all_content.append(("standard", standard_content))
+                
+                # 3. 提取嵌入对象内容 (embeddings)
+                embedded_content = self._extract_embedded_objects(docx)
+                if embedded_content:
+                    all_content.append(("embedded", embedded_content))
+                
+                # 4. 提取头部和脚部内容
+                header_footer_content = self._extract_headers_footers(docx)
+                if header_footer_content:
+                    all_content.append(("header_footer", header_footer_content))
+                
+                # 5. 提取注释和批注
+                comments_content = self._extract_comments(docx)
+                if comments_content:
+                    all_content.append(("comments", comments_content))
+                
+                # 6. 提取文本框和图形对象中的文本
+                textbox_content = self._extract_textbox_content(docx)
+                if textbox_content:
+                    all_content.append(("textboxes", textbox_content))
+        
+        except Exception as e:
+            logger.error(f"💥 综合内容提取失败: {str(e)}")
+            return ""
+        
+        # 合并所有内容
+        if all_content:
+            combined_content = self._combine_extracted_content(all_content)
+            logger.info(f"✅ 综合提取完成，总内容长度: {len(combined_content)} 字符")
+            logger.debug(f"📊 提取到的内容类型: {[item[0] for item in all_content]}")
+            return combined_content
+        
+        return ""
+
+    def _extract_altchunk_content_internal(self, docx_zip: zipfile.ZipFile) -> str:
+        """内部方法：提取altChunk内容，优先使用MHT方式"""
+        try:
+            # 检查document.xml中的altChunk引用
+            if 'word/document.xml' in docx_zip.namelist():
+                doc_xml = docx_zip.read('word/document.xml').decode('utf-8', errors='replace')
+                if 'altChunk' in doc_xml:
+                    logger.info("🔍 检测到altChunk格式")
+                    
+                    # 优先查找MHT文件（更简洁的处理方式）
+                    mht_files = [f for f in docx_zip.namelist() if f.endswith('.mht') and 'word/' in f]
+                    html_files = [f for f in docx_zip.namelist() if f.endswith('.html') and 'word/' in f]
+                    
+                    # 优先处理MHT文件
+                    for filename in mht_files:
+                        logger.info(f"📄 优先处理MHT文件: {filename}")
+                        content = docx_zip.read(filename).decode('utf-8', errors='replace')
+                        return self._extract_html_from_mht(content)
+                    
+                    # 如果没有MHT文件，再处理HTML文件
+                    for filename in html_files:
+                        logger.info(f"📄 处理HTML文件: {filename}")
+                        content = docx_zip.read(filename).decode('utf-8', errors='replace')
+                        return self._html_to_clean_text(content)
+                        
+            return ""
+        except Exception as e:
+            logger.error(f"💥 提取altChunk内容失败: {str(e)}")
+            return ""
+
+    def _extract_standard_document_content(self, docx_zip: zipfile.ZipFile) -> str:
+        """提取标准document.xml内容"""
+        try:
+            if 'word/document.xml' in docx_zip.namelist():
+                doc_xml = docx_zip.read('word/document.xml').decode('utf-8', errors='replace')
+                
+                # 使用正则表达式提取文本内容
+                import xml.etree.ElementTree as ET
+                
+                # 移除命名空间前缀以简化处理
+                doc_xml_clean = re.sub(r'xmlns[^=]*="[^"]*"', '', doc_xml)
+                doc_xml_clean = re.sub(r'w:', '', doc_xml_clean)
+                doc_xml_clean = re.sub(r'[a-zA-Z0-9]+:', '', doc_xml_clean)
+                
+                # 提取所有<t>标签中的文本
+                text_matches = re.findall(r'<t[^>]*>(.*?)</t>', doc_xml_clean, re.DOTALL)
+                if text_matches:
+                    content = ' '.join(text_matches)
+                    content = html.unescape(content)
+                    logger.info(f"📝 从document.xml提取文本: {len(content)} 字符")
+                    return content.strip()
+            return ""
+        except Exception as e:
+            logger.error(f"💥 提取标准文档内容失败: {str(e)}")
+            return ""
+
+    def _extract_embedded_objects(self, docx_zip: zipfile.ZipFile) -> str:
+        """提取嵌入对象内容"""
+        try:
+            embedded_content = []
+            
+            # 查找嵌入的文档对象
+            for filename in docx_zip.namelist():
+                if 'word/embeddings/' in filename:
+                    logger.info(f"📎 找到嵌入对象: {filename}")
+                    # 这里可以根据文件类型进一步处理
+                    # 例如：.docx, .xlsx, .txt等
+                    
+            return ' '.join(embedded_content) if embedded_content else ""
+        except Exception as e:
+            logger.error(f"💥 提取嵌入对象失败: {str(e)}")
+            return ""
+
+    def _extract_headers_footers(self, docx_zip: zipfile.ZipFile) -> str:
+        """提取页眉页脚内容"""
+        try:
+            header_footer_content = []
+            
+            for filename in docx_zip.namelist():
+                if ('word/header' in filename or 'word/footer' in filename) and filename.endswith('.xml'):
+                    logger.debug(f"📄 处理页眉页脚: {filename}")
+                    content = docx_zip.read(filename).decode('utf-8', errors='replace')
+                    
+                    # 提取文本内容
+                    text_matches = re.findall(r'<w:t[^>]*>(.*?)</w:t>', content, re.DOTALL)
+                    if text_matches:
+                        header_footer_text = ' '.join(text_matches)
+                        header_footer_text = html.unescape(header_footer_text)
+                        if header_footer_text.strip():
+                            header_footer_content.append(header_footer_text.strip())
+            
+            if header_footer_content:
+                logger.info(f"📑 提取页眉页脚内容: {len(header_footer_content)} 个")
+            
+            return ' '.join(header_footer_content) if header_footer_content else ""
+        except Exception as e:
+            logger.error(f"💥 提取页眉页脚失败: {str(e)}")
+            return ""
+
+    def _extract_comments(self, docx_zip: zipfile.ZipFile) -> str:
+        """提取注释和批注内容"""
+        try:
+            if 'word/comments.xml' in docx_zip.namelist():
+                comments_xml = docx_zip.read('word/comments.xml').decode('utf-8', errors='replace')
+                
+                # 提取注释文本
+                text_matches = re.findall(r'<w:t[^>]*>(.*?)</w:t>', comments_xml, re.DOTALL)
+                if text_matches:
+                    comments_text = ' '.join(text_matches)
+                    comments_text = html.unescape(comments_text)
+                    logger.info(f"💬 提取注释内容: {len(comments_text)} 字符")
+                    return comments_text.strip()
+            
+            return ""
+        except Exception as e:
+            logger.error(f"💥 提取注释失败: {str(e)}")
+            return ""
+
+    def _extract_textbox_content(self, docx_zip: zipfile.ZipFile) -> str:
+        """提取文本框和图形对象中的文本"""
+        try:
+            textbox_content = []
+            
+            # 查找可能包含文本框的文件
+            for filename in docx_zip.namelist():
+                if 'word/' in filename and filename.endswith('.xml'):
+                    content = docx_zip.read(filename).decode('utf-8', errors='replace')
+                    
+                    # 查找文本框内容 (w:txbxContent)
+                    textbox_matches = re.findall(r'<w:txbxContent[^>]*>(.*?)</w:txbxContent>', content, re.DOTALL)
+                    for match in textbox_matches:
+                        text_matches = re.findall(r'<w:t[^>]*>(.*?)</w:t>', match, re.DOTALL)
+                        if text_matches:
+                            textbox_text = ' '.join(text_matches)
+                            textbox_text = html.unescape(textbox_text)
+                            if textbox_text.strip():
+                                textbox_content.append(textbox_text.strip())
+            
+            if textbox_content:
+                logger.info(f"📦 提取文本框内容: {len(textbox_content)} 个")
+            
+            return ' '.join(textbox_content) if textbox_content else ""
+        except Exception as e:
+            logger.error(f"💥 提取文本框内容失败: {str(e)}")
+            return ""
+
+    def _combine_extracted_content(self, content_list: list) -> str:
+        """合并提取到的各种内容"""
+        combined = []
+        
+        # 按重要性排序内容
+        priority_order = ["altChunk", "standard", "header_footer", "textboxes", "comments", "embedded"]
+        
+        for content_type in priority_order:
+            for item_type, content in content_list:
+                if item_type == content_type and content.strip():
+                    combined.append(content.strip())
+        
+        # 添加其他未分类的内容
+        for item_type, content in content_list:
+            if item_type not in priority_order and content.strip():
+                combined.append(content.strip())
+        
+        return '\n\n'.join(combined) if combined else ""
+
+    def _extract_html_from_mht(self, mht_content: str) -> str:
+        """从MHT内容中提取HTML部分并转换为简洁文本"""
+        try:
+            # MHT文件使用MIME格式，寻找HTML部分
+            lines = mht_content.split('\n')
+            in_html_section = False
+            html_lines = []
+            skip_headers = True
+            
+            for line in lines:
+                # 检测HTML部分开始
+                if 'Content-Type: text/html' in line:
+                    in_html_section = True
+                    skip_headers = True
+                    continue
+                
+                # 在HTML部分中
+                if in_html_section:
+                    # 跳过Content-*头部
+                    if skip_headers and line.strip() and not line.startswith('Content-'):
+                        skip_headers = False
+                    
+                    # 空行表示头部结束，内容开始
+                    if skip_headers and not line.strip():
+                        skip_headers = False
+                        continue
+                    
+                    # 检查是否到达下一个MIME部分
+                    if line.startswith('------=') and len(html_lines) > 0:
+                        # HTML部分结束
+                        break
+                    
+                    # 收集HTML内容
+                    if not skip_headers:
+                        html_lines.append(line)
+            
+            # 合并所有HTML行
+            html_content = '\n'.join(html_lines)
+            
+            # 解码quoted-printable编码
+            if '=3D' in html_content or '=\n' in html_content:
+                try:
+                    import quopri
+                    html_content = quopri.decodestring(html_content.encode()).decode('utf-8', errors='replace')
+                    logger.info("📧 解码quoted-printable编码")
+                except Exception as e:
+                    logger.warning(f"⚠️ quoted-printable解码失败: {str(e)}")
+            
+            logger.debug(f"📄 提取的HTML内容长度: {len(html_content)} 字符")
+            
+            # 转换为简洁文本
+            return self._html_to_clean_text(html_content)
+            
+        except Exception as e:
+            logger.error(f"💥 从MHT提取HTML失败: {str(e)}")
+            return ""
+
+    def _html_to_clean_text(self, html_content: str) -> str:
+        """将HTML内容转换为简洁的纯文本，专门优化MHT内容"""
+        try:
+            # 首先解码HTML实体
+            text = html.unescape(html_content)
+            
+            # 先尝试提取<body>标签内的所有内容
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', text, re.DOTALL | re.IGNORECASE)
+            if body_match:
+                main_content = body_match.group(1)
+                logger.info("📄 提取<body>标签内容")
+            else:
+                main_content = text
+                logger.info("📄 使用全部内容（未找到body标签）")
+            
+            # 特殊处理<pre><code>标签，保持其内部的格式
+            pre_code_blocks = []
+            def preserve_pre_code(match):
+                idx = len(pre_code_blocks)
+                pre_code_blocks.append(match.group(1))
+                return f"__PRE_CODE_{idx}__"
+            
+            main_content = re.sub(r'<pre[^>]*>\s*<code[^>]*>(.*?)</code>\s*</pre>', 
+                                 preserve_pre_code, main_content, flags=re.DOTALL | re.IGNORECASE)
+            
+            # 处理其他HTML结构
+            # 1. 先转换需要保留换行的标签
+            main_content = re.sub(r'<br\s*/?>', '\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</p>', '\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'<p[^>]*>', '', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</div>', '\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'<div[^>]*>', '', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</h[1-6]>', '\n\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'<h[1-6][^>]*>', '', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</li>', '\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'<li[^>]*>', '• ', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</tr>', '\n', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</td>', ' | ', main_content, flags=re.IGNORECASE)
+            main_content = re.sub(r'</th>', ' | ', main_content, flags=re.IGNORECASE)
+            
+            # 2. 移除style和script标签及其内容
+            main_content = re.sub(r'<style[^>]*>.*?</style>', '', main_content, flags=re.DOTALL | re.IGNORECASE)
+            main_content = re.sub(r'<script[^>]*>.*?</script>', '', main_content, flags=re.DOTALL | re.IGNORECASE)
+            
+            # 3. 移除所有剩余的HTML标签
+            main_content = re.sub(r'<[^>]+>', '', main_content)
+            
+            # 4. 解码HTML实体（第二次，确保完全解码）
+            main_content = html.unescape(main_content)
+            
+            # 5. 恢复<pre><code>块的内容
+            for idx, pre_code_content in enumerate(pre_code_blocks):
+                # 清理pre_code内容
+                cleaned_pre_code = html.unescape(pre_code_content)
+                main_content = main_content.replace(f"__PRE_CODE_{idx}__", cleaned_pre_code)
+            
+            # 6. 清理多余的空白字符，但保持段落结构
+            lines = main_content.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                # 清理每行的首尾空格
+                line = line.strip()
+                # 保留非空行
+                if line:
+                    # 清理行内多余空格
+                    line = re.sub(r'[ \t]+', ' ', line)
+                    # 清理表格分隔符多余的空格
+                    line = re.sub(r'\s*\|\s*', ' | ', line)
+                    cleaned_lines.append(line)
+                else:
+                    # 保留空行作为段落分隔
+                    if cleaned_lines and cleaned_lines[-1] != '':
+                        cleaned_lines.append('')
+            
+            # 7. 合并清理后的行
+            main_content = '\n'.join(cleaned_lines)
+            
+            # 8. 最终清理：移除多余的空行
+            main_content = re.sub(r'\n{3,}', '\n\n', main_content)
+            main_content = main_content.strip()
+            
+            logger.info(f"📝 HTML内容转换为简洁文本: {len(main_content)} 字符")
+            
+            return main_content
+            
+        except Exception as e:
+            logger.error(f"💥 HTML转简洁文本失败: {str(e)}")
+            # 如果转换失败，返回原始文本的基础清理版本
+            return re.sub(r'<[^>]+>', '', html_content)
+
+    def _html_to_text(self, html_content: str) -> str:
+        """将HTML内容转换为纯文本（保留此方法用于其他HTML内容）"""
+        # 对于非MHT的HTML内容，使用这个更通用的方法
+        return self._html_to_clean_text(html_content)
+
+    def extract_altchunk_content(self, docx_path: str) -> Optional[str]:
+        """
+        提取包含altChunk的DOCX文件内容 (保持向后兼容)
+        """
+        try:
+            with zipfile.ZipFile(docx_path, 'r') as docx:
+                return self._extract_altchunk_content_internal(docx)
+        except Exception as e:
+            logger.error(f"💥 提取altChunk内容失败: {str(e)}")
+            return None
+
     def read_docx_file(self, docx_path: str) -> str:
         """读取docx文件并转换为文本"""
         logger.info(f"📖 开始读取DOCX文件 - 文件: {docx_path}")
 
         try:
+            # 首先尝试综合提取所有内容
+            comprehensive_content = self.extract_all_content(docx_path)
+            if comprehensive_content and comprehensive_content.strip():
+                logger.info(f"✨ 使用综合提取方式成功，内容长度: {len(comprehensive_content)} 字符")
+                return comprehensive_content
+            
+            # 如果综合提取失败，使用传统转换方式
+            logger.info("🔄 综合提取失败或内容为空，使用传统转换方式")
+            
             with tempfile.TemporaryDirectory() as temp_path:
                 logger.debug(f"📁 创建临时目录: {temp_path}")
 
@@ -163,7 +552,7 @@ class DocxParser(BaseLife):
                 # 转换DOCX为TXT
                 txt_file_path = self.docx_to_txt(str(file_path), str(temp_path))
                 logger.info(f"🎯 DOCX转TXT完成: {txt_file_path}")
-
+                
                 # 读取TXT文件内容
                 content = self.read_txt_file(txt_file_path)
                 logger.info(f"✨ TXT文件内容读取完成，内容长度: {len(content)} 字符")
@@ -201,7 +590,7 @@ class DocxParser(BaseLife):
             if file_size == 0:
                 logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
 
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
             logger.debug(f"🏷️ 提取文件标题: {title}")
 
             # 使用soffice转换为txt后读取内容

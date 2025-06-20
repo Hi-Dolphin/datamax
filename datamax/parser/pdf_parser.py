@@ -11,7 +11,7 @@ from datamax.parser.base import MarkdownOutputVo
 from langchain_community.document_loaders import PyMuPDFLoader
 from loguru import logger
 from datamax.utils.mineru_operator import pdf_processor
-
+import os
 
 class PdfParser(BaseLife):
 
@@ -69,7 +69,7 @@ class PdfParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
 
             if self.use_mineru:
                 output_dir = 'uploaded_files'

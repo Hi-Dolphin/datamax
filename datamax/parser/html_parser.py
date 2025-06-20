@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
 from bs4 import BeautifulSoup
-
+import os
 
 class HtmlParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
@@ -26,7 +26,7 @@ class HtmlParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
             content = self.read_html_file(file_path=file_path)
             mk_content = content
             lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",

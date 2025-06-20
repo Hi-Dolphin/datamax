@@ -1,5 +1,5 @@
 import os
-import logging
+from loguru import logger
 from functools import lru_cache
 from typing import List, Dict, Union
 from pathlib import Path
@@ -85,13 +85,13 @@ class PPtExtractor:
                 for sub_shape in shape.shapes:
                     self.handle_shape(sub_shape, content_list, media_dir, img_map, id, skip_image)
             else:
-                logging.info(f"Unknown shape type: {shape_type}, {type(shape)}")
+                logger.info(f"Unknown shape type: {shape_type}, {type(shape)}")
         except PermissionError as pe:
-            logging.error(f"Permission error: {pe}")
+            logger.error(f"Permission error: {pe}")
         except IOError as ie:
-            logging.error(f"IO error: {ie}")
+            logger.error(f"IO error: {ie}")
         except Exception as e:
-            logging.error(f"Error handling shape: {e}")
+            logger.error(f"Error handling shape: {e}")
 
     def extract(self, presentation_source: Union[FileStorage, Path], id: str, dir: Path, media_dir: Path,
                 skip_image: bool):
@@ -118,13 +118,13 @@ class PPtExtractor:
                     self.handle_shape(shape, page["content_list"], media_dir, img_map, id, skip_image)
                 pages.append(page)
         except FileNotFoundError as fnfe:
-            logging.error(f"File not found: {fnfe}")
+            logger.error(f"File not found: {fnfe}")
         except PermissionError as pe:
-            logging.error(f"Permission error: {pe}")
+            logger.error(f"Permission error: {pe}")
         except IOError as ie:
-            logging.error(f"IO error: {ie}")
+            logger.error(f"IO error: {ie}")
         except Exception as e:
-            logging.error(f"Error extracting presentation: {e}")
+            logger.error(f"Error extracting presentation: {e}")
 
         return pages
 

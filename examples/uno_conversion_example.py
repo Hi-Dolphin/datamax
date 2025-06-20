@@ -37,7 +37,37 @@ from loguru import logger
 from datamax.parser.doc_parser import DocParser
 from datamax.parser.docx_parser import DocxParser
 from datamax.parser.ppt_parser import PPtParser
-from datamax.utils import HAS_UNO, cleanup_uno_managers, get_uno_manager
+from datamax.utils import (
+    HAS_UNO, 
+    cleanup_uno_managers, 
+    get_uno_manager, 
+    pre_create_uno_managers, 
+    warmup_uno_managers,
+    release_uno_manager,
+    uno_manager_context,
+    get_uno_pool
+)
+
+
+def warmup_thread_pool(executor: concurrent.futures.ThreadPoolExecutor, num_tasks: int = None):
+    """预热线程池，让所有线程真正启动起来"""
+    if num_tasks is None:
+        # 默认为线程池的最大工作线程数
+        num_tasks = executor._max_workers
+    
+    def dummy_task(x):
+        """简单的占位任务"""
+        time.sleep(0.001)  # 短暂休眠
+        return x * 2
+    
+    # 提交任务让线程启动
+    futures = [executor.submit(dummy_task, i) for i in range(num_tasks)]
+    
+    # 等待所有任务完成
+    for future in concurrent.futures.as_completed(futures):
+        _ = future.result()
+    
+    logger.debug(f"   ⚡ 线程池预热完成，{num_tasks}个线程已就绪")
 
 
 def convert_document(file_path: str, use_uno: bool = True):
@@ -61,11 +91,19 @@ def convert_document(file_path: str, use_uno: bool = True):
 
         elapsed_time = time.time() - start_time
         logger.info(f"✅ 转换成功: {file_path.name} (耗时: {elapsed_time:.2f}秒)")
+        
+        # 释放UNO管理器（如果使用）
+        if use_uno:
+            release_uno_manager()
+            
         return result
 
     except Exception as e:
         elapsed_time = time.time() - start_time
         logger.error(f"❌ 转换失败: {file_path.name} - {str(e)} (耗时: {elapsed_time:.2f}秒)")
+        # 确保释放管理器
+        if use_uno:
+            release_uno_manager()
         raise
 
 
@@ -122,6 +160,43 @@ def batch_convert_parallel(
 
     total_time = time.time() - start_time
     logger.info(f"⏱️ 并行转换完成，总耗时: {total_time:.2f}秒")
+    return results
+
+
+def batch_convert_parallel_with_executor(
+    file_paths: list, executor: concurrent.futures.ThreadPoolExecutor, use_uno: bool = True
+):
+    """使用提供的线程池执行并行转换（避免重复创建线程池）"""
+    if not HAS_UNO and use_uno:
+        logger.warning("⚠️ UNO API 不可用，将使用传统方式")
+        use_uno = False
+
+    logger.info(f"🚀 使用预创建的线程池转换 {len(file_paths)} 个文档...")
+    start_time = time.time()
+
+    # 如果使用 UNO，预先连接服务
+    if use_uno:
+        manager = get_uno_manager()
+        logger.info("📡 UNO 服务已连接")
+
+    results = []
+    # 提交所有任务
+    future_to_file = {
+        executor.submit(convert_document, file_path, use_uno): file_path
+        for file_path in file_paths
+    }
+
+    # 收集结果
+    for future in concurrent.futures.as_completed(future_to_file):
+        file_path = future_to_file[future]
+        try:
+            result = future.result()
+            results.append(result)
+        except Exception as e:
+            logger.error(f"转换失败: {file_path} - {str(e)}")
+
+    total_time = time.time() - start_time
+    logger.info(f"⏱️ 转换完成，耗时: {total_time:.2f}秒")
     return results
 
 
@@ -344,6 +419,12 @@ def convert_document_with_manager_info(file_path: str, use_uno: bool = True):
         logger.info(
             f"✅ [线程{thread_id}] 转换成功: {os.path.basename(file_path)} (耗时: {elapsed_time:.2f}秒)"
         )
+        
+        # 释放UNO管理器回到池中
+        if use_uno:
+            release_uno_manager()
+            logger.debug(f"♻️ [线程{thread_id}] 已释放UnoManager")
+        
         return result
 
     except Exception as e:
@@ -351,6 +432,9 @@ def convert_document_with_manager_info(file_path: str, use_uno: bool = True):
         logger.error(
             f"❌ [线程{thread_id}] 转换失败: {os.path.basename(file_path)} - {str(e)} (耗时: {elapsed_time:.2f}秒)"
         )
+        # 确保释放管理器
+        if use_uno:
+            release_uno_manager()
         raise
 
 
@@ -386,6 +470,40 @@ def batch_convert_with_manager_info(
 
     total_time = time.time() - start_time
     logger.info(f"⏱️ 并行转换完成，总耗时: {total_time:.2f}秒")
+    return results
+
+
+def batch_convert_with_manager_info_with_executor(
+    file_paths: list, executor: concurrent.futures.ThreadPoolExecutor, use_uno: bool = True
+):
+    """使用提供的线程池执行并行转换并显示管理器信息（避免重复创建线程池）"""
+    if not HAS_UNO and use_uno:
+        logger.warning("⚠️ UNO API 不可用，将使用传统方式")
+        use_uno = False
+
+    logger.info(f"🚀 使用预创建的线程池转换 {len(file_paths)} 个文档...")
+    start_time = time.time()
+
+    results = []
+    # 提交所有任务
+    future_to_file = {
+        executor.submit(
+            convert_document_with_manager_info, file_path, use_uno
+        ): file_path
+        for file_path in file_paths
+    }
+
+    # 收集结果
+    for future in concurrent.futures.as_completed(future_to_file):
+        file_path = future_to_file[future]
+        try:
+            result = future.result()
+            results.append(result)
+        except Exception as e:
+            logger.error(f"转换失败: {file_path} - {str(e)}")
+
+    total_time = time.time() - start_time
+    logger.info(f"⏱️ 转换完成，耗时: {total_time:.2f}秒")
     return results
 
 
@@ -430,61 +548,81 @@ def traditional_stress_test(base_files: list, repeat_count: int = 3):
     # 测试不同线程数的传统方式性能
     thread_configs = [1, 4, 8, 12]
     results = {}
+    baseline_time = None
+    
+    # 提前创建所有线程池
+    logger.info(f"\n🔧 预创建所有线程池...")
+    executors = {}
+    for workers in thread_configs:
+        executors[workers] = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+        logger.info(f"   ✅ 创建{workers}线程池完成")
+        # 预热线程池
+        warmup_thread_pool(executors[workers])
+    
+    logger.info(f"🎉 所有线程池准备就绪，开始测试...\n")
 
-    for max_workers in thread_configs:
-        logger.info(f"\n{'='*80}")
-        logger.info(f"⚡ 测试传统方式 - {max_workers} 线程并行处理")
-        logger.info(f"{'='*80}")
+    try:
+        for max_workers in thread_configs:
+            logger.info(f"\n{'='*80}")
+            logger.info(f"⚡ 测试传统方式 - {max_workers} 线程并行处理")
+            logger.info(f"{'='*80}")
 
-        start_time = time.time()
+            start_time = time.time()
 
-        try:
-            # 使用传统方式进行并行转换
-            converted_results = batch_convert_parallel(
-                expanded_files, max_workers=max_workers, use_uno=False
-            )
+            try:
+                # 使用预创建的线程池进行并行转换
+                converted_results = batch_convert_parallel_with_executor(
+                    expanded_files, executor=executors[max_workers], use_uno=False
+                )
 
-            total_time = time.time() - start_time
-            successful_count = len([r for r in converted_results if r is not None])
+                total_time = time.time() - start_time
+                successful_count = len([r for r in converted_results if r is not None])
 
-            # 计算性能指标
-            avg_time_per_file = total_time / len(expanded_files)
-            throughput = len(expanded_files) / total_time  # 文件/秒
+                # 计算性能指标
+                avg_time_per_file = total_time / len(expanded_files)
+                throughput = len(expanded_files) / total_time  # 文件/秒
 
-            # 理论最优时间（基于单线程时间）
-            if max_workers == 1:
-                baseline_time = total_time
-                efficiency = 1.0
-            else:
-                theoretical_time = baseline_time / max_workers
-                efficiency = theoretical_time / total_time if total_time > 0 else 0
+                # 理论最优时间（基于单线程时间）
+                if max_workers == 1:
+                    baseline_time = total_time
+                    efficiency = 1.0
+                else:
+                    theoretical_time = baseline_time / max_workers
+                    efficiency = theoretical_time / total_time if total_time > 0 else 0
 
-            results[max_workers] = {
-                "total_time": total_time,
-                "successful_count": successful_count,
-                "avg_time_per_file": avg_time_per_file,
-                "throughput": throughput,
-                "efficiency": efficiency,
-                "files_processed": len(expanded_files),
-            }
+                results[max_workers] = {
+                    "total_time": total_time,
+                    "successful_count": successful_count,
+                    "avg_time_per_file": avg_time_per_file,
+                    "throughput": throughput,
+                    "efficiency": efficiency,
+                    "files_processed": len(expanded_files),
+                }
 
-            logger.info(f"📊 性能统计:")
-            logger.info(f"   总耗时: {total_time:.2f}秒")
-            logger.info(f"   成功转换: {successful_count}/{len(expanded_files)}")
-            logger.info(f"   平均时间: {avg_time_per_file:.2f}秒/文件")
-            logger.info(f"   吞吐量: {throughput:.2f}文件/秒")
-            if max_workers > 1:
-                logger.info(f"   并行效率: {efficiency:.2f}x (理想: {max_workers}x)")
-                efficiency_percentage = (efficiency / max_workers) * 100
-                logger.info(f"   效率百分比: {efficiency_percentage:.1f}%")
+                logger.info(f"📊 性能统计:")
+                logger.info(f"   总耗时: {total_time:.2f}秒")
+                logger.info(f"   成功转换: {successful_count}/{len(expanded_files)}")
+                logger.info(f"   平均时间: {avg_time_per_file:.2f}秒/文件")
+                logger.info(f"   吞吐量: {throughput:.2f}文件/秒")
+                if max_workers > 1:
+                    logger.info(f"   并行效率: {efficiency:.2f}x (理想: {max_workers}x)")
+                    efficiency_percentage = (efficiency / max_workers) * 100
+                    logger.info(f"   效率百分比: {efficiency_percentage:.1f}%")
 
-        except Exception as e:
-            logger.error(f"❌ {max_workers}线程测试失败: {str(e)}")
-            results[max_workers] = {
-                "error": str(e),
-                "total_time": 0,
-                "successful_count": 0,
-            }
+            except Exception as e:
+                logger.error(f"❌ {max_workers}线程测试失败: {str(e)}")
+                results[max_workers] = {
+                    "error": str(e),
+                    "total_time": 0,
+                    "successful_count": 0,
+                }
+    finally:
+        # 清理所有线程池
+        logger.info(f"\n🧹 清理线程池...")
+        for workers, executor in executors.items():
+            executor.shutdown(wait=True)
+            logger.info(f"   ✅ {workers}线程池已关闭")
+        logger.info(f"🎉 所有线程池已清理")
 
     # 综合性能分析
     logger.info(f"\n{'='*100}")
@@ -652,65 +790,105 @@ def uno_stress_test(base_files: list, repeat_count: int = 3):
     logger.info(f"   🎯 每个线程将使用独立的UNO服务实例")
     logger.info(f"   🔌 UNO服务端口范围: 2002-2009")
     logger.info(f"   🚀 支持真正的并行处理")
+    
+    # 显示连接池配置信息
+    pool = get_uno_pool()
+    logger.info(f"   📊 连接池最大管理器数: {pool.max_managers}")
+    logger.info(f"   ♻️  支持管理器复用，提高性能")
 
     # 测试不同线程数的UNO性能
     thread_configs = [1, 4, 8, 12]
     results = {}
+    baseline_time = None
+    
+    # 预创建所有UNO管理器
+    max_uno_managers = max(thread_configs)
+    logger.info(f"\n🔧 预创建 {max_uno_managers} 个UNO管理器...")
+    start_time = time.time()
+    created_count = pre_create_uno_managers(max_uno_managers)
+    creation_time = time.time() - start_time
+    logger.info(f"✅ 成功创建 {created_count} 个UNO管理器，耗时 {creation_time:.2f}秒")
+    
+    # 预热UNO管理器
+    logger.info(f"\n⚡ 预热所有UNO管理器...")
+    start_time = time.time()
+    warmup_uno_managers()
+    warmup_time = time.time() - start_time
+    logger.info(f"✅ 预热完成，耗时 {warmup_time:.2f}秒")
+    
+    # 提前创建所有线程池
+    logger.info(f"\n🔧 预创建所有线程池...")
+    executors = {}
+    for workers in thread_configs:
+        executors[workers] = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+        logger.info(f"   ✅ 创建{workers}线程池完成")
+        # 预热线程池
+        warmup_thread_pool(executors[workers])
+    
+    logger.info(f"🎉 所有资源准备就绪，开始测试...\n")
 
-    for max_workers in thread_configs:
-        logger.info(f"\n{'='*80}")
-        logger.info(f"🚀 测试 UNO API - {max_workers} 线程并行处理")
-        logger.info(f"{'='*80}")
+    try:
+        for max_workers in thread_configs:
+            logger.info(f"\n{'='*80}")
+            logger.info(f"🚀 测试 UNO API - {max_workers} 线程并行处理")
+            logger.info(f"{'='*80}")
 
-        start_time = time.time()
+            start_time = time.time()
 
-        try:
-            # 使用UNO进行并行转换，显示管理器信息
-            converted_results = batch_convert_with_manager_info(
-                expanded_files, max_workers=max_workers, use_uno=True
-            )
+            try:
+                # 使用预创建的线程池进行UNO并行转换，显示管理器信息
+                converted_results = batch_convert_with_manager_info_with_executor(
+                    expanded_files, executor=executors[max_workers], use_uno=True
+                )
 
-            total_time = time.time() - start_time
-            successful_count = len([r for r in converted_results if r is not None])
+                total_time = time.time() - start_time
+                successful_count = len([r for r in converted_results if r is not None])
 
-            # 计算性能指标
-            avg_time_per_file = total_time / len(expanded_files)
-            throughput = len(expanded_files) / total_time  # 文件/秒
+                # 计算性能指标
+                avg_time_per_file = total_time / len(expanded_files)
+                throughput = len(expanded_files) / total_time  # 文件/秒
 
-            # 理论最优时间（基于单线程时间）
-            if max_workers == 1:
-                baseline_time = total_time
-                efficiency = 1.0
-            else:
-                theoretical_time = baseline_time / max_workers
-                efficiency = theoretical_time / total_time if total_time > 0 else 0
+                # 理论最优时间（基于单线程时间）
+                if max_workers == 1:
+                    baseline_time = total_time
+                    efficiency = 1.0
+                else:
+                    theoretical_time = baseline_time / max_workers
+                    efficiency = theoretical_time / total_time if total_time > 0 else 0
 
-            results[max_workers] = {
-                "total_time": total_time,
-                "successful_count": successful_count,
-                "avg_time_per_file": avg_time_per_file,
-                "throughput": throughput,
-                "efficiency": efficiency,
-                "files_processed": len(expanded_files),
-            }
+                results[max_workers] = {
+                    "total_time": total_time,
+                    "successful_count": successful_count,
+                    "avg_time_per_file": avg_time_per_file,
+                    "throughput": throughput,
+                    "efficiency": efficiency,
+                    "files_processed": len(expanded_files),
+                }
 
-            logger.info(f"📊 性能统计:")
-            logger.info(f"   总耗时: {total_time:.2f}秒")
-            logger.info(f"   成功转换: {successful_count}/{len(expanded_files)}")
-            logger.info(f"   平均时间: {avg_time_per_file:.2f}秒/文件")
-            logger.info(f"   吞吐量: {throughput:.2f}文件/秒")
-            if max_workers > 1:
-                logger.info(f"   并行效率: {efficiency:.2f}x (理想: {max_workers}x)")
-                efficiency_percentage = (efficiency / max_workers) * 100
-                logger.info(f"   效率百分比: {efficiency_percentage:.1f}%")
+                logger.info(f"📊 性能统计:")
+                logger.info(f"   总耗时: {total_time:.2f}秒")
+                logger.info(f"   成功转换: {successful_count}/{len(expanded_files)}")
+                logger.info(f"   平均时间: {avg_time_per_file:.2f}秒/文件")
+                logger.info(f"   吞吐量: {throughput:.2f}文件/秒")
+                if max_workers > 1:
+                    logger.info(f"   并行效率: {efficiency:.2f}x (理想: {max_workers}x)")
+                    efficiency_percentage = (efficiency / max_workers) * 100
+                    logger.info(f"   效率百分比: {efficiency_percentage:.1f}%")
 
-        except Exception as e:
-            logger.error(f"❌ {max_workers}线程测试失败: {str(e)}")
-            results[max_workers] = {
-                "error": str(e),
-                "total_time": 0,
-                "successful_count": 0,
-            }
+            except Exception as e:
+                logger.error(f"❌ {max_workers}线程测试失败: {str(e)}")
+                results[max_workers] = {
+                    "error": str(e),
+                    "total_time": 0,
+                    "successful_count": 0,
+                }
+    finally:
+        # 清理所有线程池
+        logger.info(f"\n🧹 清理线程池...")
+        for workers, executor in executors.items():
+            executor.shutdown(wait=True)
+            logger.info(f"   ✅ {workers}线程池已关闭")
+        logger.info(f"🎉 所有线程池已清理")
 
     # 综合性能分析
     logger.info(f"\n{'='*100}")
@@ -914,10 +1092,8 @@ def comprehensive_stress_test(base_files: list, repeat_count: int = 3):
 if __name__ == "__main__":
     # 基础测试文件列表
     base_test_files = [
-        "examples/00b33cb2-3cce-40a1-95b7-de7d6935bf66.docx",
-        "examples/EAM资产管理系统应急预案2020-02(新EAM).docx",
-        "examples/中远海运科技_会议纪要_开尔唯OCP&BMS项目_20230523_BMS财务部应收会计调研.docx",
-        "examples/远海码头官网应急预案2020-2.docx",
+        "examples/datamax.doc",
+        "examples/datamax.docx"
     ]
 
     # 检查 UNO 可用性
@@ -934,22 +1110,43 @@ if __name__ == "__main__":
 
         if test_mode == "traditional":
             logger.info("\n⚡ 开始传统LibreOffice方式压力测试...")
-            traditional_stress_test(base_test_files, repeat_count=3)
+            traditional_stress_test(base_test_files, repeat_count=10)
 
         elif test_mode == "uno":
             if HAS_UNO:
                 logger.info("\n🔥 开始UNO API并行性能压力测试...")
-                uno_stress_test(base_test_files, repeat_count=3)
+                uno_stress_test(base_test_files, repeat_count=10)
             else:
                 logger.error("❌ UNO API不可用，无法进行UNO压力测试")
 
         elif test_mode == "comprehensive":
             logger.info("\n🏆 开始综合性能对比测试...")
-            comprehensive_stress_test(base_test_files, repeat_count=3)
+            comprehensive_stress_test(base_test_files, repeat_count=10)
+            
+        elif test_mode == "context":
+            # 演示使用上下文管理器
+            if HAS_UNO:
+                logger.info("\n🎯 演示使用 uno_manager_context 上下文管理器...")
+                
+                for file_path in base_test_files:
+                    if os.path.exists(file_path):
+                        # 使用上下文管理器自动管理UNO资源
+                        with uno_manager_context() as manager:
+                            logger.info(f"📁 使用管理器 (端口: {manager.port}) 转换文件: {file_path}")
+                            
+                            output_path = f"{file_path}.converted.txt"
+                            manager.convert_document(file_path, output_path, "txt")
+                            
+                            logger.info(f"✅ 转换完成: {output_path}")
+                            # 管理器会自动释放回池中
+                            
+                logger.info("🎉 所有文件转换完成，管理器已自动释放")
+            else:
+                logger.error("❌ UNO API不可用")
 
         else:
             logger.error(f"❌ 未知的测试模式: {test_mode}")
-            logger.info("可用模式: traditional, uno, comprehensive")
+            logger.info("可用模式: traditional, uno, comprehensive, context")
     else:
         # 默认进行传统方式压力测试
         logger.info("\n💡 使用参数指定测试模式:")
@@ -962,6 +1159,9 @@ if __name__ == "__main__":
         logger.info(
             "   python examples/uno_conversion_example.py comprehensive  # 综合对比测试"
         )
+        logger.info(
+            "   python examples/uno_conversion_example.py context        # 演示上下文管理器"
+        )
         logger.info("")
         logger.info("⚡ 默认运行传统LibreOffice方式压力测试...")
-        traditional_stress_test(base_test_files, repeat_count=3)
+        traditional_stress_test(base_test_files, repeat_count=10)

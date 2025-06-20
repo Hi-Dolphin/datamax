@@ -222,7 +222,7 @@ dm.save_label_data(res)
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install libreoffice
+apt update && apt install -y libreoffice libreoffice-dev python3-uno
 ```
 
 **Windows:**
@@ -251,6 +251,21 @@ git clone https://github.com/Hi-Dolphin/datamax.git
 cd datamax
 pip install -r requirements.txt
 python setup.py install
+```
+
+### 本地调试
+
+```python
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+
+from datamax import DataMax
+
+# 示例代码
+dm = DataMax(file_path="test.pdf")
+data = dm.get_data()
+print(data)
 ```
 
 

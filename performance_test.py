@@ -5,7 +5,7 @@
 对比传统 soffice 命令行方式和 UNO API 方式的性能
 """
 
-import logging
+from loguru import logger
 import os
 import sys
 import time
@@ -13,10 +13,6 @@ from pathlib import Path
 
 # 确保导入本地开发版本
 sys.path.insert(0, os.path.abspath("."))
-
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-logger = logging.getLogger(__name__)
 
 
 def test_traditional_method(files):

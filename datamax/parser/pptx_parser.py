@@ -33,7 +33,7 @@ class PPtxParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            title = self.get_file_extension(file_path)
+            title = os.path.splitext(os.path.basename(file_path))[0]
             content = self.read_ppt_file(file_path=file_path)
             mk_content = content
             lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",

@@ -1,4 +1,4 @@
-import logging
+from loguru import logger
 import os
 import subprocess
 import threading
@@ -7,32 +7,50 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-# 延迟导入标志
+# 延迟导入标志和锁
 _uno_imported = False
 _import_error = None
-
-logger = logging.getLogger(__name__)
+_import_lock = threading.Lock()
 
 
 def _lazy_import_uno():
-    """延迟导入 UNO 模块，避免与其他库冲突"""
+    """延迟导入 UNO 模块，避免与其他库冲突（线程安全）"""
     global _uno_imported, _import_error
-
+    
+    # 快速检查，避免不必要的锁获取
     if _uno_imported:
         return True
+    
+    with _import_lock:
+        # 双重检查锁定模式
+        if _uno_imported:
+            return True
+            
+        try:
+            # 在这里导入所有 UNO 相关的模块
+            global uno, PropertyValue, NoConnectException
+            import uno
+            from com.sun.star.beans import PropertyValue
+            from com.sun.star.connection import NoConnectException
+            
+            _uno_imported = True
+            logger.info("✅ UNO模块导入成功")
+            return True
+        except ImportError as e:
+            _import_error = e
+            logger.error(f"❌ UNO模块导入失败: {str(e)}")
+            return False
 
-    try:
-        # 在这里导入所有 UNO 相关的模块
-        global uno, PropertyValue, NoConnectException
-        import uno
-        from com.sun.star.beans import PropertyValue
-        from com.sun.star.connection import NoConnectException
 
-        _uno_imported = True
-        return True
-    except ImportError as e:
-        _import_error = e
-        return False
+def ensure_uno_imported():
+    """确保UNO已导入，适用于需要提前导入的场景"""
+    if not _lazy_import_uno():
+        raise ImportError(
+            f"python-uno未安装或无法导入。错误: {_import_error}\n"
+            "请安装LibreOffice并确保python-uno可用。\n"
+            "Ubuntu/Debian: apt-get install libreoffice python3-uno\n"
+            "其他系统请参考: https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
+        )
 
 
 # 检查 UNO 是否可用（但不立即导入）
@@ -40,7 +58,6 @@ def check_uno_available():
     """检查 UNO 是否可用（不会真正导入）"""
     try:
         import importlib.util
-
         spec = importlib.util.find_spec("uno")
         return spec is not None
     except:
@@ -53,9 +70,9 @@ HAS_UNO = check_uno_available()
 class UnoManager:
     """
     UNO管理器，用于管理LibreOffice服务实例和文档转换
-    支持高并发真并行处理
+    单线程版本，适合稳定高效的文档处理
     """
-
+    
     def __init__(self, host: str = "localhost", port: int = 2002, timeout: int = 30):
         """
         初始化UNO管理器
@@ -65,15 +82,9 @@ class UnoManager:
             port: LibreOffice服务端口
             timeout: 连接超时时间（秒）
         """
-        # 延迟导入 UNO
-        if not _lazy_import_uno():
-            raise ImportError(
-                f"python-uno未安装或无法导入。错误: {_import_error}\n"
-                "请安装LibreOffice并确保python-uno可用。\n"
-                "Ubuntu/Debian: apt-get install libreoffice python3-uno\n"
-                "其他系统请参考: https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
-            )
-
+        # 确保UNO已导入（使用线程安全的方式）
+        ensure_uno_imported()
+        
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -84,7 +95,8 @@ class UnoManager:
         self._desktop = None
         self._ctx = None
         self._soffice_process = None
-        logger.info(f"🚀 UnoManager初始化 - 主机: {host}, 端口: {port}")
+        self._connected = False
+        logger.info(f"🚀 UnoManager初始化 - 主机: {host}, 端口: {port} (单线程模式)")
 
     def _start_soffice_service(self):
         """启动LibreOffice服务"""
@@ -136,17 +148,22 @@ class UnoManager:
         except:
             return False
 
+    def is_connected(self) -> bool:
+        """检查是否已连接"""
+        with self._lock:
+            return self._connected and self._desktop is not None
+
     def connect(self):
         """连接到LibreOffice服务"""
         with self._lock:
-            if self._desktop is not None:
+            if self._connected and self._desktop is not None:
                 return  # 已连接
-
+                
             self._start_soffice_service()
-
+            
             logger.info(f"🔌 连接到LibreOffice服务...")
             start_time = time.time()
-
+            
             while time.time() - start_time < self.timeout:
                 try:
                     # 获取组件上下文
@@ -154,23 +171,24 @@ class UnoManager:
                     resolver = local_ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.bridge.UnoUrlResolver", local_ctx
                     )
-
+                    
                     # 连接到LibreOffice
                     self._ctx = resolver.resolve(f"uno:{self.connection_string}")
                     self._desktop = self._ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.frame.Desktop", self._ctx
                     )
-
+                    
+                    self._connected = True
                     logger.info("✅ 成功连接到LibreOffice服务")
                     return
-
+                    
                 except NoConnectException:
                     logger.debug("⏳ 等待LibreOffice服务就绪...")
                     time.sleep(1)
                 except Exception as e:
                     logger.error(f"❌ 连接失败: {str(e)}")
                     time.sleep(1)
-
+                    
             raise TimeoutError(f"连接LibreOffice服务超时（{self.timeout}秒）")
 
     def disconnect(self):
@@ -183,6 +201,7 @@ class UnoManager:
                     pass
                 self._desktop = None
                 self._ctx = None
+                self._connected = False
                 logger.info("🔌 已断开LibreOffice服务连接")
 
     def stop_service(self):
@@ -263,17 +282,55 @@ class UnoManager:
                 properties.append(self._make_property("FilterName", filter_name))
             else:
                 # 根据格式自动选择过滤器
-                filter_map = {
-                    "txt": "Text",
-                    "pdf": "writer_pdf_Export",
-                    "docx": "MS Word 2007 XML",
-                    "pptx": "Impress MS PowerPoint 2007 XML",
-                    "xlsx": "Calc MS Excel 2007 XML",
-                }
-                if output_format in filter_map:
-                    properties.append(
-                        self._make_property("FilterName", filter_map[output_format])
-                    )
+                if output_format == "txt":
+                    # 对于文本格式，尝试多个过滤器
+                    filter_options = [
+                        ("Text (encoded)", "UTF8"),
+                        ("Text", None),
+                        ("HTML (StarWriter)", None)
+                    ]
+                    
+                    success = False
+                    for filter_name, filter_option in filter_options:
+                        try:
+                            properties = []
+                            properties.append(self._make_property("FilterName", filter_name))
+                            if filter_option:
+                                properties.append(self._make_property("FilterOptions", filter_option))
+                            
+                            # 确保输出目录存在
+                            output_dir = os.path.dirname(output_path)
+                            if output_dir and not os.path.exists(output_dir):
+                                os.makedirs(output_dir)
+
+                            # 转换为URL格式
+                            output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
+
+                            # 执行转换
+                            document.storeToURL(output_url, properties)
+                            logger.info(f"✅ 文档转换成功 (使用过滤器: {filter_name}): {output_path}")
+                            success = True
+                            break
+                        except Exception as e:
+                            logger.debug(f"🔄 过滤器 {filter_name} 失败: {str(e)}")
+                            continue
+                    
+                    if not success:
+                        raise Exception(f"所有文本过滤器都失败，无法转换文档: {input_path}")
+                    
+                    return  # 已经完成转换，直接返回
+                else:
+                    # 其他格式使用默认过滤器
+                    filter_map = {
+                        "pdf": "writer_pdf_Export",
+                        "docx": "MS Word 2007 XML",
+                        "pptx": "Impress MS PowerPoint 2007 XML",
+                        "xlsx": "Calc MS Excel 2007 XML",
+                    }
+                    if output_format in filter_map:
+                        properties.append(
+                            self._make_property("FilterName", filter_map[output_format])
+                        )
 
             # 确保输出目录存在
             output_dir = os.path.dirname(output_path)
@@ -295,135 +352,75 @@ class UnoManager:
         return prop
 
 
-# UNO管理器连接池
-_uno_managers = {}
-_managers_lock = threading.Lock()
-_base_port = 2002
-_max_managers = 16
-
-
-class UnoManagerPool:
-    """UNO管理器连接池，支持真正的并行处理"""
-
-    def __init__(self, max_managers: int = 8):
-        self.max_managers = max_managers
-        self.managers = {}
-        self.available_ports = list(range(_base_port, _base_port + max_managers))
-        self.lock = threading.Lock()
-        logger.info(f"🏊 UnoManagerPool初始化 - 最大管理器数: {max_managers}")
-
-    def get_manager(self) -> UnoManager:
-        """获取可用的UNO管理器"""
-        thread_id = threading.current_thread().ident
-
-        with self.lock:
-            # 如果当前线程已有管理器，直接返回
-            if thread_id in self.managers:
-                return self.managers[thread_id]
-
-            # 创建新的管理器
-            if len(self.managers) < self.max_managers and self.available_ports:
-                port = self.available_ports.pop(0)
-                try:
-                    manager = UnoManager(port=port)
-                    manager.connect()
-                    self.managers[thread_id] = manager
-                    logger.info(f"🎯 为线程{thread_id}创建UnoManager (端口: {port})")
-                    return manager
-                except Exception as e:
-                    # 如果创建失败，释放端口
-                    self.available_ports.append(port)
-                    logger.error(f"❌ 创建UnoManager失败: {str(e)}")
-                    raise
-
-            # 如果无法创建新管理器，复用现有的
-            if self.managers:
-                available_manager = next(iter(self.managers.values()))
-                logger.warning(f"⚠️ 线程{thread_id}复用现有UnoManager")
-                return available_manager
-
-            raise Exception("无法获取UNO管理器")
-
-    def release_manager(self, thread_id: int = None):
-        """释放线程的UNO管理器"""
-        if thread_id is None:
-            thread_id = threading.current_thread().ident
-
-        with self.lock:
-            if thread_id in self.managers:
-                manager = self.managers[thread_id]
-                try:
-                    manager.stop_service()
-                    self.available_ports.append(manager.port)
-                    del self.managers[thread_id]
-                    logger.info(f"🔄 释放线程{thread_id}的UnoManager")
-                except Exception as e:
-                    logger.error(f"❌ 释放UnoManager失败: {str(e)}")
-
-    def cleanup_all(self):
-        """清理所有管理器"""
-        with self.lock:
-            for thread_id, manager in list(self.managers.items()):
-                try:
-                    manager.stop_service()
-                except:
-                    pass
-            self.managers.clear()
-            self.available_ports = list(
-                range(_base_port, _base_port + self.max_managers)
-            )
-            logger.info("🧹 清理所有UnoManager")
-
-
-# 全局连接池
-_uno_pool = None
-_pool_lock = threading.Lock()
+# 全局单例UnoManager
+_global_uno_manager: Optional[UnoManager] = None
+_manager_lock = threading.Lock()
 
 
 def get_uno_manager() -> UnoManager:
-    """获取UNO管理器（从连接池）"""
-    global _uno_pool
+    """获取全局单例UNO管理器"""
+    global _global_uno_manager
+    
+    if _global_uno_manager is None:
+        with _manager_lock:
+            if _global_uno_manager is None:
+                _global_uno_manager = UnoManager()
+                logger.info("🎯 创建全局单例UnoManager (单线程模式)")
+                
+    return _global_uno_manager
 
-    with _pool_lock:
-        if _uno_pool is None:
-            _uno_pool = UnoManagerPool(max_managers=8)
 
-    return _uno_pool.get_manager()
+def cleanup_uno_manager():
+    """清理全局UNO管理器"""
+    global _global_uno_manager
+    
+    with _manager_lock:
+        if _global_uno_manager is not None:
+            try:
+                _global_uno_manager.stop_service()
+            except:
+                pass
+            _global_uno_manager = None
+            logger.info("🧹 清理全局UnoManager")
 
 
-def cleanup_uno_managers():
-    """清理所有UNO管理器"""
-    global _uno_pool
-
-    with _pool_lock:
-        if _uno_pool is not None:
-            _uno_pool.cleanup_all()
+@contextmanager
+def uno_manager_context():
+    """UNO管理器上下文管理器，自动获取和管理"""
+    manager = get_uno_manager()
+    try:
+        yield manager
+    finally:
+        # 在单线程模式下，保持连接以提高效率
+        pass
 
 
 def convert_with_uno(
-    input_path: str, output_format: str, output_dir: Optional[str] = None
+    input_path: str, 
+    output_format: str, 
+    output_dir: Optional[str] = None
 ) -> str:
     """
     使用UNO转换文档格式（便捷函数）
-
+    
     Args:
         input_path: 输入文件路径
         output_format: 输出格式
         output_dir: 输出目录（可选，默认为输入文件所在目录）
-
+        
     Returns:
         输出文件路径
     """
     input_path = Path(input_path)
-
+    
     if output_dir is None:
         output_dir = input_path.parent
     else:
         output_dir = Path(output_dir)
-
+        
     output_path = output_dir / f"{input_path.stem}.{output_format}"
-
-    manager = get_uno_manager()
-    manager.convert_document(str(input_path), str(output_path), output_format)
-
+    
+    with uno_manager_context() as manager:
+        manager.convert_document(str(input_path), str(output_path), output_format)
+        
     return str(output_path)
