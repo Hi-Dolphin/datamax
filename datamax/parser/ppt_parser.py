@@ -9,13 +9,45 @@ from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
 from datamax.utils.ppt_extract import PPtExtractor
 
+# 尝试导入UNO处理器
+try:
+    from datamax.utils.uno_handler import convert_with_uno, HAS_UNO
+except ImportError:
+    HAS_UNO = False
+
 
 class PPtParser(BaseLife):
-    def __init__(self, file_path: Union[str, list]):
+    def __init__(self, file_path: Union[str, list], use_uno: bool = None):
         super().__init__()
         self.file_path = file_path
+        
+        # 自动检测是否使用UNO（如果未指定）
+        if use_uno is None:
+            self.use_uno = HAS_UNO
+        else:
+            self.use_uno = use_uno and HAS_UNO
 
     def ppt_to_pptx(self, ppt_path: str, dir_path: str) -> str:
+        if self.use_uno:
+            # 使用UNO API进行转换
+            try:
+                pptx_path = convert_with_uno(ppt_path, "pptx", dir_path)
+                
+                if not os.path.exists(pptx_path):
+                    raise Exception(f"> !!! File conversion failed {ppt_path} ==> {pptx_path}")
+                else:
+                    return pptx_path
+                    
+            except Exception as e:
+                if hasattr(self, '_fallback_to_subprocess') and self._fallback_to_subprocess:
+                    return self._ppt_to_pptx_subprocess(ppt_path, dir_path)
+                raise
+        else:
+            # 使用传统的subprocess方式
+            return self._ppt_to_pptx_subprocess(ppt_path, dir_path)
+    
+    def _ppt_to_pptx_subprocess(self, ppt_path: str, dir_path: str) -> str:
+        """使用subprocess将.ppt文件转换为.pptx文件（传统方式）"""
         cmd = f'soffice --headless --convert-to pptx "{ppt_path}" --outdir "{dir_path}"'
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
