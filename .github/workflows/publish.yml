@@ -23,6 +23,15 @@ on:
     tags:
       - 'v*'
 
+# 添加权限声明
+permissions:
+  contents: write    # 允许创建和修改仓库内容
+  packages: write    # 允许发布包
+  pull-requests: write    # 允许创建和修改PR
+  issues: write      # 允许创建和修改issues
+  actions: read      # 允许读取actions
+  checks: write      # 允许写入检查结果
+
 env:
   PYTHON_VERSION: '3.10'
 
@@ -130,7 +139,7 @@ jobs:
       run: |
         # 检查PyPI上是否已存在该版本
         VERSION="${{ steps.version.outputs.version }}"
-        if pip index versions datamax | grep -q "$VERSION"; then
+        if pip index versions pydatamax | grep -q "$VERSION"; then
           echo "版本 $VERSION 已存在于PyPI"
           echo "should_publish=false" >> $GITHUB_OUTPUT
         else
@@ -151,7 +160,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/datamax
+      url: https://pypi.org/p/pydatamax
 
     steps:
     - name: 检出代码
@@ -238,7 +247,7 @@ jobs:
         path: dist/
 
     - name: 创建GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.validate-and-test.outputs.version }}
         name: DataMax v${{ needs.validate-and-test.outputs.version }}
@@ -247,8 +256,7 @@ jobs:
           dist/*
         draft: false
         prerelease: ${{ contains(needs.validate-and-test.outputs.version, 'rc') }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
   notify:
     name: 发布通知
@@ -261,7 +269,7 @@ jobs:
       if: needs.publish-pypi.result == 'success' && needs.create-release.result == 'success'
       run: |
         echo "🎉 DataMax v${{ needs.validate-and-test.outputs.version }} 发布成功!"
-        echo "📦 PyPI: https://pypi.org/project/datamax/${{ needs.validate-and-test.outputs.version }}/"
+        echo "📦 PyPI: https://pypi.org/project/pydatamax/${{ needs.validate-and-test.outputs.version }}/"
         echo "🏷️ GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ needs.validate-and-test.outputs.version }}"
 
     - name: 发布失败通知
