@@ -1,14 +1,18 @@
-from datamax.utils.data_cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
+from datamax.utils.data_cleaner import (
+    AbnormalCleaner,
+    PrivacyDesensitization,
+    TextFilter,
+)
 from datamax.utils.env_setup import setup_environment
 
 # 条件导入UNO处理器
 try:
     from datamax.utils.uno_handler import (
-        UnoManager, 
-        get_uno_manager, 
-        convert_with_uno,
+        HAS_UNO,
+        UnoManager,
         cleanup_uno_managers,
-        HAS_UNO
+        convert_with_uno,
+        get_uno_manager,
     )
 except ImportError:
     HAS_UNO = False

@@ -12,7 +12,7 @@ from datamax.parser.base import BaseLife, MarkdownOutputVo
 
 # 尝试导入UNO处理器
 try:
-    from datamax.utils.uno_handler import convert_with_uno, HAS_UNO
+    from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
 except ImportError:
     HAS_UNO = False
 
@@ -21,22 +21,27 @@ logger = logging.getLogger(__name__)
 
 
 class DocxParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], to_markdown: bool = False, use_uno: bool = None):
+    def __init__(
+        self,
+        file_path: Union[str, list],
+        to_markdown: bool = False,
+        use_uno: bool = None,
+    ):
         super().__init__()
         self.file_path = file_path
         self.to_markdown = to_markdown
-        
+
         # 自动检测是否使用UNO（如果未指定）
         if use_uno is None:
             self.use_uno = HAS_UNO
         else:
             self.use_uno = use_uno and HAS_UNO
-            
+
         if self.use_uno:
             logger.info(f"🚀 DocxParser初始化完成 - 使用UNO API进行高并发处理")
         else:
             logger.info(f"🚀 DocxParser初始化完成 - 使用传统命令行方式")
-            
+
         logger.info(f"📄 文件路径: {file_path}, 转换为markdown: {to_markdown}")
 
     def docx_to_txt(self, docx_path: str, dir_path: str) -> str:
@@ -48,24 +53,27 @@ class DocxParser(BaseLife):
             try:
                 logger.info("🎯 使用UNO API进行文档转换...")
                 txt_path = convert_with_uno(docx_path, "txt", dir_path)
-                
+
                 if not os.path.exists(txt_path):
                     logger.error(f"❌ 转换后的TXT文件不存在: {txt_path}")
                     raise Exception(f"文件转换失败 {docx_path} ==> {txt_path}")
                 else:
                     logger.info(f"🎉 TXT文件转换成功，文件路径: {txt_path}")
                     return txt_path
-                    
+
             except Exception as e:
                 logger.error(f"💥 UNO转换失败: {str(e)}")
-                if hasattr(self, '_fallback_to_subprocess') and self._fallback_to_subprocess:
+                if (
+                    hasattr(self, "_fallback_to_subprocess")
+                    and self._fallback_to_subprocess
+                ):
                     logger.warning("⚠️ 回退到传统命令行方式...")
                     return self._docx_to_txt_subprocess(docx_path, dir_path)
                 raise
         else:
             # 使用传统的subprocess方式
             return self._docx_to_txt_subprocess(docx_path, dir_path)
-    
+
     def _docx_to_txt_subprocess(self, docx_path: str, dir_path: str) -> str:
         """使用subprocess将.docx文件转换为.txt文件（传统方式）"""
         try:

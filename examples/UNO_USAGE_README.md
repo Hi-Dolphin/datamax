@@ -91,7 +91,7 @@ def convert_document(file_path):
         parser = PPtParser(file_path, use_uno=True)
     else:
         raise ValueError(f"不支持的文件类型: {file_path}")
-    
+
     return parser.parse(file_path)
 
 # 并行转换多个文档
@@ -117,10 +117,10 @@ async def batch_convert_async(file_paths):
     """批量异步转换"""
     # 预先连接服务
     manager = get_uno_manager()
-    
+
     # 创建异步任务
     tasks = [async_convert(fp) for fp in file_paths]
-    
+
     # 并发执行
     results = await asyncio.gather(*tasks)
     return results
@@ -157,7 +157,7 @@ manager.stop_service()  # 停止服务
    ```python
    # CPU 密集型任务
    max_workers = os.cpu_count()
-   
+
    # I/O 密集型任务
    max_workers = os.cpu_count() * 2
    ```
@@ -227,4 +227,4 @@ python examples/uno_conversion_example.py
 
 ## 示例项目
 
-参见 `examples/uno_conversion_example.py` 获取完整的使用示例。 
+参见 `examples/uno_conversion_example.py` 获取完整的使用示例。
