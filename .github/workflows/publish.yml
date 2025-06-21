@@ -181,6 +181,9 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/pydatamax
+    # Trusted Publishing需要的权限
+    permissions:
+      id-token: write
 
     steps:
     - name: 检出代码
@@ -197,15 +200,15 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         repository-url: https://test.pypi.org/legacy/
-        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
         verbose: true
+        attestations: true
 
     - name: 发布到PyPI
       if: ${{ !contains(needs.validate-and-test.outputs.version, 'rc') }}
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
         verbose: true
+        attestations: true
 
   create-release:
     name: 创建GitHub Release
