@@ -234,31 +234,336 @@ jobs:
         git tag -a "v${{ needs.validate-and-test.outputs.version }}" -m "Release v${{ needs.validate-and-test.outputs.version }}"
         git push origin "v${{ needs.validate-and-test.outputs.version }}"
 
-    - name: 生成更新日志
-      id: changelog
+    - name: 收集变更信息
+      id: collect_changes
       run: |
         # 获取上一个标签
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
+        CURRENT_VERSION="v${{ needs.validate-and-test.outputs.version }}"
+        
+        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        
         if [ -n "$PREVIOUS_TAG" ]; then
-          echo "# 更新日志" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "## v${{ needs.validate-and-test.outputs.version }}" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-
-          # 获取提交历史
-          echo "### 更改内容" >> CHANGELOG.md
-          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-
-          # 获取贡献者
-          echo "### 贡献者" >> CHANGELOG.md
-          git log --pretty=format:"- %an" $PREVIOUS_TAG..HEAD | sort -u >> CHANGELOG.md
+          # 收集提交信息
+          echo "=== COMMITS ===" > changes_raw.txt
+          git log --pretty=format:"COMMIT: %s%nAUTHOR: %an <%ae>%nDATE: %ad%nHASH: %h%nBODY: %b%n---" --date=short $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 收集文件变更
+          echo "" >> changes_raw.txt
+          echo "=== FILE CHANGES ===" >> changes_raw.txt
+          git diff --name-status $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 收集详细的文件变更（限制大小）
+          echo "" >> changes_raw.txt
+          echo "=== DETAILED CHANGES ===" >> changes_raw.txt
+          git diff --stat $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 获取仓库信息
+          echo "" >> changes_raw.txt
+          echo "=== REPOSITORY INFO ===" >> changes_raw.txt
+          echo "Repository: ${{ github.repository }}" >> changes_raw.txt
+          echo "Previous Tag: $PREVIOUS_TAG" >> changes_raw.txt
+          echo "Current Version: $CURRENT_VERSION" >> changes_raw.txt
+          echo "Project: DataMax - Python数据处理工具包" >> changes_raw.txt
         else
-          echo "# DataMax v${{ needs.validate-and-test.outputs.version }}" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "首次发布版本" >> CHANGELOG.md
+          echo "=== FIRST RELEASE ===" > changes_raw.txt
+          echo "This is the first release of DataMax" >> changes_raw.txt
         fi
+
+    - name: AI智能总结变更
+      id: ai_summary
+      run: |
+        if [ ! -f "changes_raw.txt" ]; then
+          echo "No changes file found, skipping AI summary"
+          echo "ai_summary_available=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # 创建AI总结脚本
+        cat > ai_summarize.py << 'EOF'
+        import json
+        import sys
+        import os
+        import requests
+        from datetime import datetime
+
+        def summarize_with_openai(changes_text, api_key):
+            """使用OpenAI API进行总结"""
+            try:
+                headers = {
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': 'application/json'
+                }
+                
+                prompt = f"""请作为一个专业的软件发布经理，分析以下Git变更信息，为DataMax（一个Python数据处理工具包）生成专业的版本发布说明。
+
+请用中文输出，格式要求：
+1. 📋 **版本亮点** - 用1-2句话概括本次更新的主要特性
+2. ✨ **新增功能** - 列出新功能，用emoji标记
+3. 🐛 **问题修复** - 列出修复的问题
+4. 🔧 **改进优化** - 列出性能和体验改进
+5. 📚 **文档更新** - 文档相关变更
+6. 🧪 **测试相关** - 测试相关变更
+
+Git变更信息：
+{changes_text}
+
+请生成专业、清晰、用户友好的发布说明，重点突出对用户的价值。"""
+
+                data = {
+                    "model": "gpt-3.5-turbo",
+                    "messages": [
+                        {"role": "system", "content": "你是一个专业的软件发布经理，擅长将技术变更转换为用户友好的发布说明。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 1000,
+                    "temperature": 0.3
+                }
+                
+                response = requests.post('https://api.openai.com/v1/chat/completions', 
+                                       headers=headers, json=data, timeout=30)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return result['choices'][0]['message']['content'].strip()
+                else:
+                    return None
+            except Exception as e:
+                print(f"OpenAI API error: {e}")
+                return None
+
+        def summarize_with_gemini(changes_text, api_key):
+            """使用Google Gemini 2.5 Flash API进行总结"""
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}"
+                
+                prompt = f"""请作为专业的软件发布经理，分析以下Git变更信息，为DataMax（一个Python数据处理工具包）生成专业的版本发布说明。
+
+请用中文输出，格式要求：
+1. 📋 **版本亮点** - 用1-2句话概括本次更新的主要特性和价值
+2. ✨ **新增功能** - 列出新功能，重点说明对用户的价值
+3. 🐛 **问题修复** - 列出修复的问题，说明对用户体验的改善
+4. 🔧 **改进优化** - 列出性能和体验改进
+5. 📚 **文档更新** - 文档相关变更（如果有）
+6. 🧪 **测试相关** - 测试相关变更（如果有）
+
+Git变更信息：
+{changes_text}
+
+请生成专业、清晰、用户友好的发布说明，重点突出对用户的价值和影响。"""
+
+                data = {
+                    "contents": [{
+                        "parts": [{"text": prompt}]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "maxOutputTokens": 1500,
+                        "topP": 0.8,
+                        "topK": 40
+                    }
+                }
+                
+                response = requests.post(url, json=data, timeout=45)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return result['candidates'][0]['content']['parts'][0]['text'].strip()
+                else:
+                    print(f"Gemini API error: {response.status_code}, {response.text}")
+                    return None
+            except Exception as e:
+                print(f"Gemini API error: {e}")
+                return None
+
+        def create_fallback_summary(changes_text):
+            """创建fallback总结"""
+            lines = changes_text.split('\n')
+            commits = []
+            files_changed = 0
+            
+            for line in lines:
+                if line.startswith('COMMIT:'):
+                    commit_msg = line.replace('COMMIT:', '').strip()
+                    if commit_msg and not commit_msg.startswith('Merge'):
+                        commits.append(commit_msg)
+                elif '|' in line and ('+' in line or '-' in line):
+                    files_changed += 1
+            
+            summary = "### 📋 版本亮点\n\n"
+            summary += f"本次更新包含 {len(commits)} 个提交，涉及 {files_changed} 个文件的变更。\n\n"
+            
+            if commits:
+                summary += "### ✨ 主要变更\n\n"
+                for commit in commits[:10]:  # 限制显示数量
+                    if any(keyword in commit.lower() for keyword in ['feat', 'add', '新增', '添加']):
+                        summary += f"- ✨ {commit}\n"
+                    elif any(keyword in commit.lower() for keyword in ['fix', '修复', 'bug']):
+                        summary += f"- 🐛 {commit}\n"
+                    elif any(keyword in commit.lower() for keyword in ['doc', '文档']):
+                        summary += f"- 📚 {commit}\n"
+                    elif any(keyword in commit.lower() for keyword in ['test', '测试']):
+                        summary += f"- 🧪 {commit}\n"
+                    elif any(keyword in commit.lower() for keyword in ['perf', '性能', '优化']):
+                        summary += f"- ⚡ {commit}\n"
+                    else:
+                        summary += f"- 📝 {commit}\n"
+            
+            return summary
+
+        # 主逻辑
+        try:
+            with open('changes_raw.txt', 'r', encoding='utf-8') as f:
+                changes_text = f.read()
+            
+            if not changes_text.strip():
+                print("No changes to summarize")
+                sys.exit(0)
+            
+            ai_summary = None
+            
+            # 优先尝试使用Gemini 2.5 Flash API（免费且性能优秀）
+            gemini_key = os.getenv('GEMINI_API_KEY')
+            if gemini_key:
+                print("Trying Gemini 2.5 Flash API...")
+                ai_summary = summarize_with_gemini(changes_text, gemini_key)
+            
+            # 如果Gemini失败，尝试OpenAI
+            if not ai_summary:
+                openai_key = os.getenv('OPENAI_API_KEY')
+                if openai_key:
+                    print("Trying OpenAI API as fallback...")
+                    ai_summary = summarize_with_openai(changes_text, openai_key)
+            
+            # 如果AI总结失败，使用fallback
+            if not ai_summary:
+                print("AI APIs unavailable, using fallback summary...")
+                ai_summary = create_fallback_summary(changes_text)
+            
+            # 保存总结结果
+            with open('ai_summary.txt', 'w', encoding='utf-8') as f:
+                f.write(ai_summary)
+            
+            print("AI summary generated successfully")
+            
+        except Exception as e:
+            print(f"Error in AI summarization: {e}")
+            # 创建基础总结
+            fallback = create_fallback_summary(changes_text if 'changes_text' in locals() else "")
+            with open('ai_summary.txt', 'w', encoding='utf-8') as f:
+                f.write(fallback)
+        
+        EOF
+        
+        # 运行AI总结
+        python ai_summarize.py
+        
+        if [ -f "ai_summary.txt" ]; then
+          echo "ai_summary_available=true" >> $GITHUB_OUTPUT
+        else
+          echo "ai_summary_available=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    - name: 生成最终的Release Notes
+      id: final_changelog
+      run: |
+        PREVIOUS_TAG="${{ steps.collect_changes.outputs.previous_tag }}"
+        CURRENT_VERSION="${{ steps.collect_changes.outputs.current_version }}"
+        
+        # 创建Release Notes头部
+        cat > CHANGELOG.md << EOF
+        ## 🚀 DataMax v${{ needs.validate-and-test.outputs.version }}
+        
+        > **发布时间**: $(date '+%Y-%m-%d %H:%M:%S')  
+        > **PyPI包**: [pydatamax ${{ needs.validate-and-test.outputs.version }}](https://pypi.org/project/pydatamax/${{ needs.validate-and-test.outputs.version }}/)
+        
+        ### 📦 安装方式
+        
+        \`\`\`bash
+        pip install pydatamax==${{ needs.validate-and-test.outputs.version }}
+        \`\`\`
+        
+        EOF
+        
+        # 添加AI总结内容
+        if [ "${{ steps.ai_summary.outputs.ai_summary_available }}" = "true" ] && [ -f "ai_summary.txt" ]; then
+          echo "" >> CHANGELOG.md
+          cat ai_summary.txt >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+        else
+          # Fallback到原始方法
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "### 📝 更新内容" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "自 $PREVIOUS_TAG 以来的更改:" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            
+            # 分类提交信息
+            git log --pretty=format:"%s|%h" $PREVIOUS_TAG..HEAD | while IFS='|' read -r subject hash; do
+              if echo "$subject" | grep -qi "^feat\|^add\|^新增"; then
+                echo "- ✨ $subject \`$hash\`" >> CHANGELOG.md
+              elif echo "$subject" | grep -qi "^fix\|^修复\|^bug"; then
+                echo "- 🐛 $subject \`$hash\`" >> CHANGELOG.md
+              elif echo "$subject" | grep -qi "^docs\|^文档"; then
+                echo "- 📚 $subject \`$hash\`" >> CHANGELOG.md
+              else
+                echo "- 📝 $subject \`$hash\`" >> CHANGELOG.md
+              fi
+            done
+            echo "" >> CHANGELOG.md
+          else
+            echo "### 🎉 首次发布" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "DataMax 是一个强大的Python数据处理工具包，支持多种文件格式的解析和处理。" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+        fi
+        
+        # 添加贡献者信息
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "### 👥 贡献者" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          git log --pretty=format:"%an|%ae" $PREVIOUS_TAG..HEAD | sort -u | while IFS='|' read -r name email; do
+            if [[ "$email" == *"@users.noreply.github.com" ]]; then
+              username=$(echo "$email" | sed 's/@users.noreply.github.com//')
+              echo "- [@$username](https://github.com/$username)" >> CHANGELOG.md
+            else
+              echo "- $name" >> CHANGELOG.md
+            fi
+          done
+          echo "" >> CHANGELOG.md
+        fi
+        
+        # 添加统计信息和链接
+        cat >> CHANGELOG.md << EOF
+        ### 📊 版本统计
+        
+        EOF
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          COMMIT_COUNT=$(git rev-list --count $PREVIOUS_TAG..HEAD)
+          FILES_CHANGED=$(git diff --name-only $PREVIOUS_TAG..HEAD | wc -l)
+          echo "- 📈 新增提交: $COMMIT_COUNT 个" >> CHANGELOG.md
+          echo "- 📁 文件变更: $FILES_CHANGED 个" >> CHANGELOG.md
+        fi
+        
+        cat >> CHANGELOG.md << EOF
+        
+        ### 🔗 相关链接
+        
+        - 📖 [项目文档](https://github.com/${{ github.repository }})
+        - 🐛 [问题反馈](https://github.com/${{ github.repository }}/issues)
+        - 💬 [讨论区](https://github.com/${{ github.repository }}/discussions)
+        - 📦 [PyPI包](https://pypi.org/project/pydatamax/)
+        
+        ---
+        
+        **完整更新日志**: [\$PREVIOUS_TAG...v${{ needs.validate-and-test.outputs.version }}](https://github.com/${{ github.repository }}/compare/\$PREVIOUS_TAG...v${{ needs.validate-and-test.outputs.version }})
+        EOF
 
     - name: 下载构建产物
       uses: actions/download-artifact@v4
@@ -270,13 +575,14 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.validate-and-test.outputs.version }}
-        name: DataMax v${{ needs.validate-and-test.outputs.version }}
+        name: 🚀 DataMax v${{ needs.validate-and-test.outputs.version }}
         body_path: CHANGELOG.md
         files: |
           dist/*
         draft: false
         prerelease: ${{ contains(needs.validate-and-test.outputs.version, 'rc') }}
         token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        generate_release_notes: true
 
   notify:
     name: 发布通知
