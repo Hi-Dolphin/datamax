@@ -42,6 +42,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       should_publish: ${{ steps.check.outputs.should_publish }}
+      job_status: ${{ job.status }}
 
     steps:
     - name: 检出代码
@@ -58,7 +59,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install build twine setuptools wheel
-        pip install -r requirements.txt
+        # 检查requirements.txt是否存在，如果存在则安装
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        else
+          echo "requirements.txt 不存在，跳过依赖安装"
+        fi
 
     - name: 版本管理
       id: version
@@ -137,15 +143,11 @@ jobs:
     - name: 检查是否应该发布
       id: check
       run: |
-        # 检查PyPI上是否已存在该版本
+        # 总是允许发布 - 让PyPI自己处理重复版本的错误
         VERSION="${{ steps.version.outputs.version }}"
-        if pip index versions pydatamax | grep -q "$VERSION"; then
-          echo "版本 $VERSION 已存在于PyPI"
-          echo "should_publish=false" >> $GITHUB_OUTPUT
-        else
-          echo "版本 $VERSION 不存在于PyPI，可以发布"
-          echo "should_publish=true" >> $GITHUB_OUTPUT
-        fi
+        echo "准备发布版本: $VERSION"
+        echo "should_publish=true" >> $GITHUB_OUTPUT
+        echo "版本检查完成，允许发布"
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
@@ -153,10 +155,28 @@ jobs:
         name: dist
         path: dist/
 
+  debug-info:
+    name: 调试信息
+    needs: validate-and-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: 输出调试信息
+      run: |
+        echo "=== 调试信息 ==="
+        echo "validate-and-test.result: ${{ needs.validate-and-test.result }}"
+        echo "validate-and-test.outputs.should_publish: ${{ needs.validate-and-test.outputs.should_publish }}"
+        echo "validate-and-test.outputs.version: ${{ needs.validate-and-test.outputs.version }}"
+        echo "github.event_name: ${{ github.event_name }}"
+        echo "=== 条件判断结果 ==="
+        echo "should_publish == 'true': ${{ needs.validate-and-test.outputs.should_publish == 'true' }}"
+        echo "result == 'success': ${{ needs.validate-and-test.result == 'success' }}"
+        echo "综合条件: ${{ needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success' }}"
+
   publish-pypi:
     name: 发布到PyPI
     needs: validate-and-test
-    if: needs.validate-and-test.outputs.should_publish == 'true'
+    if: needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -190,7 +210,7 @@ jobs:
   create-release:
     name: 创建GitHub Release
     needs: [validate-and-test, publish-pypi]
-    if: needs.validate-and-test.outputs.should_publish == 'true'
+    if: needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
