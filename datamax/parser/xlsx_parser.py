@@ -8,7 +8,7 @@ from multiprocessing import Queue
 import pandas as pd
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
-
+from datamax.utils.lifecycle_types import LifeType
 warnings.filterwarnings("ignore")
 
 
@@ -107,6 +107,15 @@ class XlsxParser(BaseLife):
         """解析Excel文件的核心方法"""
         logger.info(f"🎬 开始解析Excel文件: {file_path}")
 
+        # —— 生命周期：开始处理 —— #
+        lc_start = self.generate_lifecycle(
+            source_file=file_path,
+            domain="Technology",
+            usage_purpose="Documentation",
+            life_type=LifeType.DATA_PROCESSING,
+        )
+        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+
         try:
             # 使用pandas解析Excel
             logger.info("🐼 使用pandas模式解析Excel")
@@ -119,19 +128,20 @@ class XlsxParser(BaseLife):
 
             logger.info(f"🎊 文件内容解析完成，最终内容长度: {len(mk_content)} 字符")
 
-            # 生成lifecycle信息
-            lifecycle = self.generate_lifecycle(
+            # —— 生命周期：处理完成 —— #
+            lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type="LLM_ORIGIN",
+                life_type=LifeType.DATA_PROCESSED,
             )
-            logger.debug("⚙️ 生成lifecycle信息完成")
+            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
 
-            # 创建输出对象
+            # 创建输出对象并添加两个生命周期
             extension = self.get_file_extension(file_path)
             output_vo = MarkdownOutputVo(extension, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(lc_start)
+            output_vo.add_lifecycle(lc_end)
 
             result = output_vo.to_dict()
             result_queue.put(result)
@@ -142,9 +152,40 @@ class XlsxParser(BaseLife):
             return result
 
         except Exception as e:
+            # —— 生命周期：处理失败 —— #
+            try:
+                lc_fail = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain="Technology",
+                    usage_purpose="Documentation",
+                    life_type=LifeType.DATA_PROCESS_FAILED,
+                )
+                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+                # 如果需要，也可以把它加到 error_result 里：
+                # error_result = {"error": str(e), "file_path": file_path, "lifecycle":[lc_fail.to_dict()]}
+            except Exception:
+                pass
+
+            # —— 生命周期：处理失败 —— #
+            try:
+                lc_fail = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain="Technology",
+                    usage_purpose="Documentation",
+                    life_type=LifeType.DATA_PROCESS_FAILED
+                )
+                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+            except Exception:
+                pass
+
             logger.error(f"💀 解析Excel文件失败: {file_path}, 错误: {str(e)}")
             # 将错误也放入队列
-            error_result = {"error": str(e), "file_path": file_path}
+            error_result = {
+                "error": str(e),
+                "file_path": file_path,
+                # 额外把失败的 lifecycle 也一起返回，测试中可选校验
+                "lifecycle": [lc_fail.to_dict()] if 'lc_fail' in locals() else []
+            }
             result_queue.put(error_result)
             raise
 

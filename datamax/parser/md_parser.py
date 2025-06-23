@@ -1,11 +1,12 @@
 import pathlib
 import sys
 from typing import Union
-
+import loguru
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 from loguru import logger
 import os
 
@@ -52,22 +53,42 @@ class MarkdownParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            # Read markdown content
-            md_content = self.read_markdown_file(file_path)
-
-            # Generate lifecycle metadata
-            lifecycle = self.generate_lifecycle(
+            # 1) 生成“开始处理”生命周期
+            start_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type="LLM_ORIGIN"
+                life_type=LifeType.DATA_PROCESSING
             )
 
-            # Create and return output VO
+            # 2) 读取 Markdown 内容
+            md_content = self.read_markdown_file(file_path)
+
+            # 3) 创建输出 VO，并添加开始事件
             output_vo = MarkdownOutputVo(extension, md_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(start_lc)
+
+            # 4) 生成“处理完成”生命周期
+            end_lc = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESSED
+            )
+            output_vo.add_lifecycle(end_lc)
+
             return output_vo.to_dict()
 
         except Exception as e:
-            logger.error(f"Failed to parse markdown file {file_path}: {e}")
+            loguru.logger.error(f"Failed to parse markdown file {file_path}: {e}")
+            # （可选）记录一次失败生命周期
+            fail_lc = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESS_FAILED
+            )
+            # 如果想在失败时也返回 VO，可以这样做：
+            # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")
+            # output_vo.add_lifecycle(fail_lc)
             raise

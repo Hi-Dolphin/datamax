@@ -1,9 +1,11 @@
 import ebooklib
+import loguru
 from typing import Union
 from bs4 import BeautifulSoup
 from ebooklib import epub
 from datamax.parser.base import BaseLife
 from datamax.parser.base import MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 import os
 
 class EpubParser(BaseLife):
@@ -30,12 +32,44 @@ class EpubParser(BaseLife):
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
             extension = self.get_file_extension(file_path)
+
+            # 1) 开始处理
+            start_lc = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESSING
+            )
+
+            # 2) 读取EPUB内容
             content = self.read_epub_file(file_path=file_path)
             mk_content = content
-            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
-                                                usage_purpose="Documentation", life_type="LLM_ORIGIN")
+
+            # 3) 创建输出 VO 并添加开始事件
             output_vo = MarkdownOutputVo(extension, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(start_lc)
+
+            # 4) 处理完成
+            end_lc = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESSED
+            )
+            output_vo.add_lifecycle(end_lc)
+
             return output_vo.to_dict()
+
         except Exception as e:
-            raise e
+            loguru.logger.error(f"Failed to parse epub file {file_path}: {e}")
+            # 失败时记录一次失败生命周期（可选）
+            fail_lc = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESS_FAILED
+            )
+            # 若需返回 VO：
+            # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")
+            # output_vo.add_lifecycle(fail_lc)
+            raise
