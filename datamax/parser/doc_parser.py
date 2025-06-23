@@ -26,6 +26,21 @@ try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
 except ImportError:
     HAS_UNO = False
+    logger.error(
+        "❌ UNO处理器导入失败！\n"
+        "🔧 解决方案：\n"
+        "1. 安装LibreOffice和python-uno：\n"
+        "   - Ubuntu/Debian: sudo apt-get install libreoffice python3-uno\n"
+        "   - CentOS/RHEL: sudo yum install libreoffice python3-uno\n"
+        "   - macOS: brew install libreoffice\n"
+        "   - Windows: 下载并安装LibreOffice\n"
+        "2. 确保Python可以访问uno模块：\n"
+        "   - Linux: export PYTHONPATH=/usr/lib/libreoffice/program:$PYTHONPATH\n"
+        "   - Windows: 添加LibreOffice\\program到系统PATH\n"
+        "3. 验证安装：python -c 'import uno'\n"
+        "4. 如果仍有问题，请查看完整文档：\n"
+        "   https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
+    )
 
 
 class DocParser(BaseLife):
@@ -46,7 +61,11 @@ class DocParser(BaseLife):
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
-                logger.warning(f"⚠️ UNO不可用，回退到传统命令行方式")
+                logger.warning(
+                    f"⚠️ UNO不可用，回退到传统命令行方式\n"
+                    f"💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
+                    f"📖 请参考上述错误信息中的安装指南"
+                )
             else:
                 logger.info(f"🚀 DocParser初始化完成 - 使用传统命令行方式")
 
@@ -265,52 +284,78 @@ class DocParser(BaseLife):
             return ""
 
     def _clean_extracted_text(self, text: str) -> str:
-        """清理提取的文本，移除控制字符和格式化，但保留中文"""
+        """清理提取的文本，彻底移除所有XML标签和控制字符，只保留纯文本"""
         try:
-            # 移除NULL字符和其他控制字符（但不移除换行等）
+            # 1. 解码HTML/XML实体
+            text = html.unescape(text)
+            
+            # 2. 移除所有XML/HTML标签
+            text = re.sub(r'<[^>]+>', '', text)
+            
+            # 3. 移除XML命名空间前缀
+            text = re.sub(r'\b\w+:', '', text)
+            
+            # 4. 移除NULL字符和其他控制字符
             text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
             
-            # 移除连续的特殊字符（但保留中文和常用标点）
-            # 修改正则表达式，确保不会误删中文
-            text = re.sub(r'[^\w\s\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af，。！？；：""''（）【】《》、·…—.,!?;:()-]+', ' ', text)
+            # 5. 移除特殊的XML字符序列
+            text = re.sub(r'&[a-zA-Z]+;', '', text)
+            text = re.sub(r'&#\d+;', '', text)
+            text = re.sub(r'&#x[0-9a-fA-F]+;', '', text)
             
-            # 移除过长的无意义字符序列（通常是乱码）
-            text = re.sub(r'[\x80-\xff]{10,}', ' ', text)
+            # 6. 保留有意义的字符，移除其他特殊字符
+            # 保留：中文、日文、韩文、英文、数字、常用标点和空白
+            allowed_chars = (
+                r'\w\s'  # 字母数字和空白
+                r'\u4e00-\u9fff'  # 中文
+                r'\u3040-\u30ff'  # 日文
+                r'\uac00-\ud7af'  # 韩文
+                r'，。！？；：""''（）【】《》、·…—'  # 中文标点
+                r'.,!?;:()[\]{}"\'`~@#$%^&*+=\-_/\\'  # 英文标点和常用符号
+            )
             
-            # 移除重复的空白
-            text = re.sub(r'\s+', ' ', text)
-            text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+            # 使用更严格的过滤，但保留所有有意义的字符
+            cleaned_text = ''.join(char for char in text if re.match(f'[{allowed_chars}]', char))
             
-            # 确保段落分隔
-            lines = text.split('\n')
+            # 7. 移除过长的无意义字符序列（通常是二进制垃圾）
+            cleaned_text = re.sub(r'([^\s\u4e00-\u9fff])\1{5,}', r'\1', cleaned_text)
+            
+            # 8. 清理多余的空白，但保留段落结构
+            cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)  # 多个空格/制表符变为单个空格
+            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)  # 多个空行变为双空行
+            cleaned_text = re.sub(r'^\s+|\s+$', '', cleaned_text, flags=re.MULTILINE)  # 移除行首行尾空白
+            
+            # 9. 进一步清理：移除独立的标点符号行
+            lines = cleaned_text.split('\n')
             cleaned_lines = []
             
             for line in lines:
                 line = line.strip()
                 if line:
-                    # 检查行是否主要是乱码
-                    printable_chars = sum(1 for c in line if c.isprintable() or '\u4e00' <= c <= '\u9fff')
-                    total_chars = len(line)
+                    # 检查行是否主要是有意义的内容
+                    # 计算中文、英文字母和数字的比例
+                    meaningful_chars = sum(1 for c in line if (
+                        c.isalnum() or '\u4e00' <= c <= '\u9fff'
+                    ))
                     
-                    # 如果可打印字符（包括中文）占比超过60%，则保留该行
-                    if total_chars > 0 and printable_chars / total_chars > 0.6:
+                    # 如果有意义字符占比超过30%，或者行长度小于5（可能是标题），则保留
+                    if (len(line) < 5 or 
+                        (meaningful_chars > 0 and meaningful_chars / len(line) > 0.3)):
                         cleaned_lines.append(line)
-                elif cleaned_lines and cleaned_lines[-1]:
-                    cleaned_lines.append('')  # 保留段落分隔
+                elif cleaned_lines and cleaned_lines[-1]:  # 保留段落分隔
+                    cleaned_lines.append('')
             
             result = '\n'.join(cleaned_lines).strip()
             
-            # 最后检查：如果结果太短或包含太多乱码，返回空
-            if len(result) < 20:
+            # 10. 最终检查
+            if len(result) < 10:
+                logger.warning("⚠️ 清理后的文本过短，可能存在问题")
                 return ""
             
-            # 检查乱码比例
-            weird_chars = sum(1 for c in result if ord(c) > 127 and not ('\u4e00' <= c <= '\u9fff' or c in '，。！？；：""''（）【】《》、·…—'))
-            if len(result) > 0 and weird_chars / len(result) > 0.3:
-                logger.warning(f"⚠️ 文本包含过多乱码字符 ({weird_chars}/{len(result)})")
-                # 尝试只保留ASCII和中文部分
-                result = re.sub(r'[^\x00-\x7f\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af，。！？；：""''（）【】《》、·…—\s]+', ' ', result)
-                result = re.sub(r'\s+', ' ', result).strip()
+            # 检查是否还包含XML标签
+            if re.search(r'<[^>]+>', result):
+                logger.warning("⚠️ 清理后仍包含XML标签，进行二次清理")
+                result = re.sub(r'<[^>]+>', '', result)
             
             return result
             
@@ -355,7 +400,20 @@ class DocParser(BaseLife):
                     return txt_path
 
             except Exception as e:
-                logger.error(f"💥 UNO转换失败: {str(e)}")
+                logger.error(
+                    f"💥 UNO转换失败: {str(e)}\n"
+                    f"🔍 诊断信息：\n"
+                    f"   - 错误类型: {type(e).__name__}\n"
+                    f"   - LibreOffice是否已安装？尝试运行: soffice --version\n"
+                    f"   - Python UNO模块是否可用？尝试: python -c 'import uno'\n"
+                    f"   - 是否有其他LibreOffice实例在运行？\n"
+                    f"   - 文件权限是否正确？\n"
+                    f"🔧 可能的解决方案：\n"
+                    f"   1. 确保LibreOffice正确安装\n"
+                    f"   2. 关闭所有LibreOffice进程\n"
+                    f"   3. 检查文件权限和路径\n"
+                    f"   4. 尝试手动运行: soffice --headless --convert-to txt \"{doc_path}\""
+                )
                 logger.warning("⚠️ 自动回退到传统命令行方式...")
                 return self._doc_to_txt_subprocess(doc_path, dir_path)
         else:

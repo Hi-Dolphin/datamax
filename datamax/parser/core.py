@@ -87,7 +87,7 @@ class ParserFactory:
                 )
             elif parser_class_name == 'DocxParser' or parser_class_name == 'DocParser':
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown
+                    file_path=file_path, to_markdown=to_markdown, use_uno=True
                 )
             elif parser_class_name == 'XlsxParser':
                 return parser_class(
