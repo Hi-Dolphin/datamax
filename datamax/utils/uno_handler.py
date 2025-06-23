@@ -125,12 +125,23 @@ class UnoManager:
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             logger.info(f"⏳ 等待LibreOffice服务启动...")
-            time.sleep(5)  # 给服务一些启动时间
-
-            if self._check_soffice_running():
-                logger.info("✅ LibreOffice服务启动成功")
-            else:
-                raise Exception("LibreOffice服务启动失败")
+            
+            # 智能等待：轮询检查服务状态，给不同性能机器弹性时间
+            start_time = time.time()
+            check_interval = 1  # 每1秒检查一次
+            max_wait_time = 30    # 最大等待30秒
+            
+            while time.time() - start_time < max_wait_time:
+                if self._check_soffice_running():
+                    elapsed = time.time() - start_time
+                    logger.info(f"✅ LibreOffice服务启动成功 (耗时 {elapsed:.1f}秒)")
+                    return
+                    
+                logger.debug(f"🔄 服务未就绪，继续等待... (已等待 {time.time() - start_time:.1f}秒)")
+                time.sleep(check_interval)
+            
+            # 超时仍未启动
+            raise Exception(f"LibreOffice服务启动超时 (等待了{max_wait_time}秒)")
 
         except Exception as e:
             logger.error(f"❌ 启动LibreOffice服务失败: {str(e)}")
