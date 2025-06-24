@@ -584,7 +584,8 @@ class DocParser(BaseLife):
             if file_size == 0:
                 logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
 
-            title = os.path.splitext(os.path.basename(file_path))[0]
+            # 🏷️ 提取文件标题（改用扩展名）
+            title = self.get_file_extension(file_path)
             logger.debug(f"🏷️ 提取文件标题: {title}")
 
             # 读取文件内容
