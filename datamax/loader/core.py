@@ -37,10 +37,9 @@ class DataLoader:
                 return []
         elif os.path.isdir(local_file_path):
             access_path = []
-            # 递归处理当前目录下的所有文件和子目录
+            #Recursively process all files and subdirectories under the current directory. 
             for item in os.listdir(local_file_path):
                 item_path = os.path.join(local_file_path, item)
-                # 递归调用静态方法处理每个文件和子目录
                 item_results = DataLoader.load_from_file(item_path)
                 access_path.extend(item_results)
             return access_path
