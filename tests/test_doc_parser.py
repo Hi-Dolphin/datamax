@@ -144,7 +144,7 @@ class TestDocParser:
             
             result = parser.parse("test.doc")
             
-            assert result["title"] == "doc"
+            assert result["extension"] == "doc"
             assert result["content"] == "文档内容测试"
             assert "lifecycle" in result
             mock_read.assert_called_once_with(doc_path="test.doc")
@@ -174,7 +174,7 @@ class TestDocParser:
             
             result = parser.parse("test.doc")
             
-            assert result["title"] == "doc"
+            assert result["extension"] == "doc"
             assert result["content"] == "标题\n内容"  # format_as_markdown在这种情况下保持原样
             assert "lifecycle" in result
 
@@ -204,7 +204,7 @@ class TestDocParser:
         with patch.object(parser, 'read_doc_file', return_value="这是一个测试文档\n包含多行内容"):
             result = parser.parse(str(doc_file))
             
-            assert result["title"] == "doc"
+            assert result["extension"] == "doc"
             assert "这是一个测试文档" in result["content"]
             assert result["lifecycle"][0]["life_metadata"]["source_file"] == str(doc_file)
 

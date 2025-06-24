@@ -107,7 +107,7 @@ class PPtParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            title = os.path.splitext(os.path.basename(file_path))[0]
+            extension = self.get_file_extension(file_path)
             content = self.read_ppt_file(file_path=file_path)
             # clean_text = clean_original_text(content)
             mk_content = content
@@ -117,7 +117,7 @@ class PPtParser(BaseLife):
                 usage_purpose="Documentation",
                 life_type="LLM_ORIGIN",
             )
-            output_vo = MarkdownOutputVo(title, mk_content)
+            output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lifecycle)
             return output_vo.to_dict()
         except Exception:

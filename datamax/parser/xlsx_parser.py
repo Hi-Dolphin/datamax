@@ -129,8 +129,8 @@ class XlsxParser(BaseLife):
             logger.debug("⚙️ 生成lifecycle信息完成")
 
             # 创建输出对象
-            title = os.path.splitext(os.path.basename(file_path))[0]
-            output_vo = MarkdownOutputVo(title, mk_content)
+            extension = self.get_file_extension(file_path)
+            output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lifecycle)
 
             result = output_vo.to_dict()

@@ -723,9 +723,9 @@ class DocxParser(BaseLife):
             if file_size == 0:
                 logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
 
-            # 🏷️ 提取文件标题（改用扩展名）
-            title = self.get_file_extension(file_path)
-            logger.debug(f"🏷️ 提取文件标题: {title}")
+            # 🏷️ 提取文件扩展名
+            extension = self.get_file_extension(file_path)
+            logger.debug(f"🏷️ 提取文件扩展名: {extension}")
 
             # 使用soffice转换为txt后读取内容
             logger.info("📝 使用soffice转换DOCX为TXT并读取内容")
@@ -754,7 +754,7 @@ class DocxParser(BaseLife):
             )
             logger.debug("⚙️ 生成lifecycle信息完成")
 
-            output_vo = MarkdownOutputVo(title, mk_content)
+            output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lifecycle)
 
             result = output_vo.to_dict()
