@@ -262,7 +262,7 @@ class PrivacyDesensitization:
         # Bank card
         self.parsed_data = self.replace_bank_id(
             self.parsed_data, token="COSCO_NUMBER"
-        )  # nosec B106 - 这是数据脱敏标记，不是密码
+        )  # nosec B106 - This is a data desensitization tag, not a password
 
         return self.parsed_data
 
