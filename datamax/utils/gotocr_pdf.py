@@ -18,11 +18,11 @@ from transformers import AutoTokenizer
 
 fitz = try_import("fitz")
 
-DEFAULT_IMAGE_TOKEN = "<image>"  # nosec B105 - 这是技术常量，不是密码
-DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"  # nosec B105 - 这是技术常量，不是密码
+DEFAULT_IMAGE_TOKEN = "<image>"  # nosec B105 - technical const,not a passward
+DEFAULT_IMAGE_PATCH_TOKEN = "<imgpad>"  # nosec B105 - technical const,not a passward
 
-DEFAULT_IM_START_TOKEN = "<img>"  # nosec B105 - 这是技术常量，不是密码
-DEFAULT_IM_END_TOKEN = "</img>"  # nosec B105 - 这是技术常量，不是密码
+DEFAULT_IM_START_TOKEN = "<img>"  # nosec B105 - technical const,not a passward
+DEFAULT_IM_END_TOKEN = "</img>"  # nosec B105 - technical const,not a passward
 
 translation_table = str.maketrans(punctuation_dict)
 
@@ -50,7 +50,7 @@ def covert_pdf_to_image(image_path: str):
     with fitz.open(image_path) as pdf:
         for pg in range(0, pdf.page_count):
             page = pdf[pg]
-            mat = fitz.Matrix(4, 4)  # 全程放大四倍
+            mat = fitz.Matrix(4, 4)  # Magnify by four times throughout the process
             pm = page.get_pixmap(matrix=mat, alpha=False)
             # if pm.width > 2000 or pm.height > 2000:
             #     pm = page.get_pixmap(matrix=fitz.Matrix(1, 1), alpha=False)
@@ -64,16 +64,16 @@ def covert_pdf_to_image(image_path: str):
     output = "output"
     img_paths = []
     for index, pdf_img in enumerate(imgs):
-        # 图片处理
+        # img processing
 
         gray_img = cv2.cvtColor(pdf_img, cv2.COLOR_BGR2GRAY)
 
-        # 二值化处理
+        # Binarization processing
         _, binary_img = cv2.threshold(
             gray_img, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
         )
 
-        # 去噪
+        # denoise
         filtered_img = cv2.medianBlur(binary_img, 3)
         processed_img = filtered_img
 
@@ -100,7 +100,7 @@ def initialize_model(model_path: str = "./GOT_weights/", gpu_id: int = 6):
     model_name = os.path.expanduser(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-    # 加载模型
+    # load model
     model = GOTQwenForCausalLM.from_pretrained(
         model_name,
         low_cpu_mem_usage=True,
@@ -109,13 +109,13 @@ def initialize_model(model_path: str = "./GOT_weights/", gpu_id: int = 6):
         pad_token_id=151643,
     ).eval()
 
-    # 确保模型和张量都移动到目标设备
+    # Ensure that both the model and the tensor are moved to the target device.
     device = torch.device(f"cuda:{gpu_id}")
     model.to(device=device, dtype=torch.bfloat16)
 
-    # 确保分词器的输出也在目标设备上
-    tokenizer.model_max_length = 512  # 设置最大长度，根据需要调整
-    tokenizer.padding_side = "right"  # 设置填充方向，根据需要调整
+    # Ensure that the output of the tokenizer is also on the target device.
+    tokenizer.model_max_length = 512  # maxlength，adjust to need
+    tokenizer.padding_side = "right"  # padding side，adjust to need
 
     return model, tokenizer
 
