@@ -229,6 +229,96 @@ class DataMax:
         else:
             return cleaned_text
 
+    def complete_api_url(input_url):
+        """
+        Automatically complete the API URL path for the website
+        
+        parameters:
+            input_url (str): The partial URL or domain provided by the user
+            
+        return:
+            str: The completed full API URL
+        
+        rules:
+            1.Original version preservation (no duplication)
+            2./chat/completions as default endpoint
+            3.Special-case handling for unique API paths
+        """
+        input_url = input_url.strip().rstrip('/')
+        
+        # Special API endpoint mapping (non-standard routes)
+        special_services = {
+            # Anthropic
+            'api.anthropic.com': '/v1/messages',
+
+            # 智谱AI
+            'api.bigmodel.cn': '/api/paas/v3/model-api/chatglm_pro/sse-invoke',
+            
+            # 商汤日日新
+            'api.sensenova.cn': '/v1/llm/chat-completions',
+            
+            # 阿里云通义千问
+            'dashscope.aliyuncs.com': '/api/v1/services/aigc/text-generation/generation',
+            
+            # Cohere
+            'api.cohere.ai': '/v1/chat',
+        }
+        
+        def get_domain(url):
+            # Extract the domain name portion
+            if '://' in url:
+                url = url.split('://')[1]
+            return url.split('/')[0].lower()
+        
+        def extract_version(path):
+            # Extract version information from the path
+            parts = path.split('/')
+            for part in parts:
+                if part.startswith('v') and part[1:].isdigit():
+                    return part
+            return None
+        
+        # Check if URL is complete with endpoint
+        if any(x in input_url for x in ['/completions', '/messages', '/generate', '/chat', '/invoke']):
+            return input_url
+        
+        domain = get_domain(input_url)
+        
+        # Special service processing
+        if domain in special_services:
+            if '://' in input_url:
+                scheme = input_url.split('://')[0]
+                rest = input_url.split('://')[1]
+                domain_part = rest.split('/')[0]
+                return f"{scheme}://{domain_part}{special_services[domain]}"
+            else:
+                return f"https://{domain}{special_services[domain]}"
+        
+        # Handle version-included cases
+        if '://' in input_url:
+            scheme, rest = input_url.split('://', 1)
+            parts = rest.split('/')
+            domain_part = parts[0]
+            version = extract_version(rest)
+            
+            if version:
+                # Skip versioning-already versioned
+                return f"{scheme}://{domain_part}/{version}/chat/completions"
+            else:
+                # Add default v1 when unversioned
+                return f"{scheme}://{domain_part}/v1/chat/completions"
+        else:
+            parts = input_url.split('/')
+            domain_part = parts[0]
+            version = extract_version(input_url)
+            
+            if version:
+                # Skip versioning-already versioned
+                return f"https://{domain_part}/{version}/chat/completions"
+            else:
+                # Add default v1 when unversioned
+                return f"https://{domain_part}/v1/chat/completions"
+    
     def get_pre_label(self,
                       api_key: str,
                       base_url: str,
@@ -238,6 +328,8 @@ class DataMax:
                       question_number: int = 5,
                       max_workers: int = 5,
                       messages: List[Dict[str, str]] = None):
+        base_url=self.complete_api_url(base_url)
+
         return generatr_qa_pairs(
             api_key=api_key,
             base_url=base_url,
