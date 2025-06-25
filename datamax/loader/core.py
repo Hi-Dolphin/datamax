@@ -37,16 +37,11 @@ class DataLoader:
                 return []
         elif os.path.isdir(local_file_path):
             access_path = []
-            for root, dirs, files in os.walk(local_file_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    if os.path.exists(file_path):
-                        if os.access(file_path, os.R_OK):
-                            access_path.append(file_path)
-                        else:
-                            continue
-                    else:
-                        continue
+            #Recursively process all files and subdirectories under the current directory. 
+            for item in os.listdir(local_file_path):
+                item_path = os.path.join(local_file_path, item)
+                item_results = DataLoader.load_from_file(item_path)
+                access_path.extend(item_results)
             return access_path
         else:
             return []
@@ -117,3 +112,4 @@ class DataLoader:
                                         url_expires_time=expires,
                                         aliyun_oss_url_prefix=aliyun_oss_url_prefix,
                                         csnt_url_prefix=csnt_url_prefix)
+            

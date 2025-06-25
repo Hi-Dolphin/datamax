@@ -31,19 +31,19 @@ class PdfProcessor:
 
         # 处理流程
         ds = PymuDocDataset(pdf_bytes)
-        markdown_path = os.path.join(local_md_dir, f"{name_without_suff}.md")  # 完整路径
-        image_dir = os.path.basename(local_image_dir)  # 保持相对路径为 "images"
+        markdown_path = os.path.join(local_md_dir, f"{name_without_suff}.md")  # absolute path
+        image_dir = os.path.basename(local_image_dir)  # keep relative path as  "images"
 
         if ds.classify() == SupportedPdfParseMethod.OCR:
             ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
                 md_writer,
-                os.path.basename(markdown_path),  # 文件名部分
+                os.path.basename(markdown_path),  # filename
                 image_dir
             )
         else:
             ds.apply(doc_analyze, ocr=False).pipe_txt_mode(image_writer).dump_md(
                 md_writer,
-                os.path.basename(markdown_path),  # 文件名部分
+                os.path.basename(markdown_path),  # filename
                 image_dir
             )
 
@@ -54,7 +54,7 @@ class PdfProcessor:
 
 pdf_processor = PdfProcessor()
 
-# 使用示例
+# usage example
 if __name__ == "__main__":
     # pdf_processor = PdfProcessor()
     print(pdf_processor.process_pdf(

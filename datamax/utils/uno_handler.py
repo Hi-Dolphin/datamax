@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-# 延迟导入标志和锁
+# delayed import of lock and flag
 _uno_imported = False
 _import_error = None
 _import_lock = threading.Lock()
@@ -17,17 +17,17 @@ def _lazy_import_uno():
     """延迟导入 UNO 模块，避免与其他库冲突（线程安全）"""
     global _uno_imported, _import_error
     
-    # 快速检查，避免不必要的锁获取
+    # quick check,avoiding unnacessary acquisition of lock
     if _uno_imported:
         return True
     
     with _import_lock:
-        # 双重检查锁定模式
+        # double check lock mode
         if _uno_imported:
             return True
             
         try:
-            # 在这里导入所有 UNO 相关的模块
+            # import module relate to UNO
             global uno, PropertyValue, NoConnectException
             import uno
             from com.sun.star.beans import PropertyValue
@@ -53,7 +53,7 @@ def ensure_uno_imported():
         )
 
 
-# 检查 UNO 是否可用（但不立即导入）
+# check if uno is available(not importing immediately）
 def check_uno_available():
     """检查 UNO 是否可用（不会真正导入）"""
     try:
@@ -82,7 +82,7 @@ class UnoManager:
             port: LibreOffice服务端口
             timeout: 连接超时时间（秒）
         """
-        # 确保UNO已导入（使用线程安全的方式）
+        # Ensure that UNO has been imported (in a thread-safe manner)
         ensure_uno_imported()
         
         self.host = host
@@ -102,12 +102,12 @@ class UnoManager:
         """启动LibreOffice服务"""
         logger.info(f"🌟 启动LibreOffice服务，监听端口 {self.port}...")
 
-        # 检查是否已有服务在运行
+        # check if soffice running
         if self._check_soffice_running():
             logger.info("✅ LibreOffice服务已在运行")
             return
 
-        # 启动新的服务实例
+        # new a soffice
         cmd = [
             "soffice",
             "--headless",
@@ -126,10 +126,10 @@ class UnoManager:
             )
             logger.info(f"⏳ 等待LibreOffice服务启动...")
             
-            # 智能等待：轮询检查服务状态，给不同性能机器弹性时间
+            # Intelligent waiting: Polling to check service status, providing flexible time for machines of different performance levels.
             start_time = time.time()
-            check_interval = 1  # 每1秒检查一次
-            max_wait_time = 30    # 最大等待30秒
+            check_interval = 1  # checking every sec
+            max_wait_time = 30    # wait for max 30 sec
             
             while time.time() - start_time < max_wait_time:
                 if self._check_soffice_running():
@@ -140,7 +140,7 @@ class UnoManager:
                 logger.debug(f"🔄 服务未就绪，继续等待... (已等待 {time.time() - start_time:.1f}秒)")
                 time.sleep(check_interval)
             
-            # 超时仍未启动
+            # overtime
             raise Exception(f"LibreOffice服务启动超时 (等待了{max_wait_time}秒)")
 
         except Exception as e:
@@ -168,7 +168,7 @@ class UnoManager:
         """连接到LibreOffice服务"""
         with self._lock:
             if self._connected and self._desktop is not None:
-                return  # 已连接
+                return  # connected
                 
             self._start_soffice_service()
             
@@ -177,13 +177,13 @@ class UnoManager:
             
             while time.time() - start_time < self.timeout:
                 try:
-                    # 获取组件上下文
+                    # get context
                     local_ctx = uno.getComponentContext()
                     resolver = local_ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.bridge.UnoUrlResolver", local_ctx
                     )
                     
-                    # 连接到LibreOffice
+                    # connect to LibreOffice
                     self._ctx = resolver.resolve(f"uno:{self.connection_string}")
                     self._desktop = self._ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.frame.Desktop", self._ctx
@@ -240,10 +240,10 @@ class UnoManager:
         """
         self.connect()
 
-        # 将路径转换为URL格式
+        # converse path to URL
         file_url = uno.systemPathToFileUrl(os.path.abspath(file_path))
 
-        # 打开文档
+        # open file
         properties = []
         properties.append(self._make_property("Hidden", True))
         properties.append(self._make_property("ReadOnly", True))
@@ -285,16 +285,16 @@ class UnoManager:
             if document is None:
                 raise Exception(f"无法打开文档: {input_path}")
 
-            # 准备输出属性
+            # prepare to output properties
             properties = []
 
-            # 设置过滤器
+            # set filter
             if filter_name:
                 properties.append(self._make_property("FilterName", filter_name))
             else:
-                # 根据格式自动选择过滤器
+                # choose filter by format
                 if output_format == "txt":
-                    # 对于文本格式，尝试多个过滤器
+                    # multi-filter for multi-files
                     filter_options = [
                         ("Text (encoded)", "UTF8"),
                         ("Text", None),
@@ -309,15 +309,15 @@ class UnoManager:
                             if filter_option:
                                 properties.append(self._make_property("FilterOptions", filter_option))
                             
-                            # 确保输出目录存在
+                            # ensuring that the output directory exists.
                             output_dir = os.path.dirname(output_path)
                             if output_dir and not os.path.exists(output_dir):
                                 os.makedirs(output_dir)
 
-                            # 转换为URL格式
+                            # converse to URL
                             output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
 
-                            # 执行转换
+                            # conversing
                             document.storeToURL(output_url, properties)
                             logger.info(f"✅ 文档转换成功 (使用过滤器: {filter_name}): {output_path}")
                             success = True
@@ -329,9 +329,9 @@ class UnoManager:
                     if not success:
                         raise Exception(f"所有文本过滤器都失败，无法转换文档: {input_path}")
                     
-                    return  # 已经完成转换，直接返回
+                    return  # converted,return
                 else:
-                    # 其他格式使用默认过滤器
+                    # Other formats use the default filter
                     filter_map = {
                         "pdf": "writer_pdf_Export",
                         "docx": "MS Word 2007 XML",
@@ -343,15 +343,15 @@ class UnoManager:
                             self._make_property("FilterName", filter_map[output_format])
                         )
 
-            # 确保输出目录存在
+            # ensuring that the output directory exists
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir)
 
-            # 转换为URL格式
+            # converse to URL
             output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
 
-            # 执行转换
+            # conversing
             document.storeToURL(output_url, properties)
             logger.info(f"✅ 文档转换成功: {output_path}")
 
@@ -363,7 +363,7 @@ class UnoManager:
         return prop
 
 
-# 全局单例UnoManager
+# global Singleton UnoManager
 _global_uno_manager: Optional[UnoManager] = None
 _manager_lock = threading.Lock()
 
@@ -402,7 +402,7 @@ def uno_manager_context():
     try:
         yield manager
     finally:
-        # 在单线程模式下，保持连接以提高效率
+        # Maintain connections to improve efficiency in single-threaded mode
         pass
 
 
