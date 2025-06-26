@@ -5,7 +5,7 @@ from datamax.utils import setup_environment
 
 setup_environment(use_gpu=True)
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-from datamax.parser.base import MarkdownOutputVo
+
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
@@ -18,17 +18,25 @@ class ImageParser(BaseLife):
         super().__init__()
         self.file_path = file_path
 
-    def parse(self, file_path: str) -> MarkdownOutputVo:
+    def parse(self, file_path: str):
         try:
-            title = os.path.splitext(os.path.basename(file_path))[0]
-            output_pdf_path = f'{os.path.basename(file_path).strip(title)}.pdf'
-            image = Image.open(file_path)
-            image.save(output_pdf_path, 'PDF', resolution=100.0)
+            # 【1】改用 pathlib.Path.stem 获取“基础名”
+            base_name = pathlib.Path(file_path).stem
+            output_pdf_path = f"{base_name}.pdf"
+
+            # 转换图片为 PDF
+            img = Image.open(file_path)
+            img.save(output_pdf_path, "PDF", resolution=100.0)
+
+            # 委托 PdfParser 解析，传入扩展名已由 PdfParser 内部获取
             pdf_parser = PdfParser(output_pdf_path, use_mineru=True)
-            output_vo = pdf_parser.parse(output_pdf_path)
+            result = pdf_parser.parse(output_pdf_path)
+
+            # 清理临时文件
             if os.path.exists(output_pdf_path):
-                # shutil.rmtree(f'uploaded_files/markdown')
                 os.remove(output_pdf_path)
-            return output_vo
-        except Exception as e:
-            raise e
+
+            return result
+
+        except Exception:
+            raise

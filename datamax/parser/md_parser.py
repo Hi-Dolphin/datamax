@@ -50,7 +50,7 @@ class MarkdownParser(BaseLife):
             MarkdownOutputVo: Structured output containing the markdown content
         """
         try:
-            title = os.path.splitext(os.path.basename(file_path))[0]
+            extension = self.get_file_extension(file_path)
 
             # Read markdown content
             md_content = self.read_markdown_file(file_path)
@@ -64,7 +64,7 @@ class MarkdownParser(BaseLife):
             )
 
             # Create and return output VO
-            output_vo = MarkdownOutputVo(title, md_content)
+            output_vo = MarkdownOutputVo(extension, md_content)
             output_vo.add_lifecycle(lifecycle)
             return output_vo.to_dict()
 

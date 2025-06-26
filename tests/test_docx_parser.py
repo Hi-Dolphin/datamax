@@ -144,7 +144,7 @@ class TestDocxParser:
             
             result = parser.parse("test.docx")
             
-            assert result["title"] == "docx"
+            assert result["extension"] == "docx"
             assert result["content"] == "DOCX文档内容测试"
             assert "lifecycle" in result
             mock_read.assert_called_once_with(docx_path="test.docx")
@@ -174,7 +174,7 @@ class TestDocxParser:
             
             result = parser.parse("test.docx")
             
-            assert result["title"] == "docx"
+            assert result["extension"] == "docx"
             assert result["content"] == "DOCX标题\n内容段落"  # format_as_markdown在这种情况下保持原样
             assert "lifecycle" in result
 
@@ -202,7 +202,7 @@ class TestDocxParser:
             
             # 应该仍然能够解析，只是会有警告
             result = parser.parse("test.txt")
-            assert result["title"] == "txt"
+            assert result["extension"] == "txt"
 
     @patch('datamax.parser.docx_parser.os.path.exists')
     @patch('datamax.parser.docx_parser.os.path.getsize')
@@ -227,7 +227,7 @@ class TestDocxParser:
             mock_lifecycle.return_value = mock_lifecycle_obj
             
             result = parser.parse("empty.docx")
-            assert result["title"] == "docx"
+            assert result["extension"] == "docx"
             assert result["content"] == ""
 
     def test_format_as_markdown(self):
@@ -256,7 +256,7 @@ class TestDocxParser:
         with patch.object(parser, 'read_docx_file', return_value="这是一个测试DOCX文档\n包含多行内容"):
             result = parser.parse(str(docx_file))
             
-            assert result["title"] == "docx"
+            assert result["extension"] == "docx"
             assert "这是一个测试DOCX文档" in result["content"]
             assert result["lifecycle"][0]["life_metadata"]["source_file"] == str(docx_file)
 

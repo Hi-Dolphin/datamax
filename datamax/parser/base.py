@@ -37,8 +37,8 @@ class MarkdownOutputVo:
     Markdown output conversion
     """
 
-    def __init__(self, title: str, content: str):
-        self.title: str = title  # File type
+    def __init__(self, extension: str, content: str):
+        self.extension: str = extension  # File type
         self.content: str = content  # Markdown content
         self.lifecycle: List[LifeCycle] = []  # Life cycle data
 
@@ -47,7 +47,7 @@ class MarkdownOutputVo:
 
     def to_dict(self):
         data_dict = {
-            'title': self.title,
+            'extension': self.extension,
             'content': self.content,
             'lifecycle': [lc.to_dict() for lc in self.lifecycle]
         }
