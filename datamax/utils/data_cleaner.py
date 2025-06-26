@@ -230,9 +230,20 @@ class PrivacyDesensitization:
     
     def replace_bank_id(self, token="COSCO_NUMBER"):
         # Match bank card numbers and replace
-        self.parsed_data = self.replace_bank_id(
-            self.parsed_data, token=token
-        )  
+        BANK_ID_PATTERN = r'\b(?:(?:\d{4}[ -]?){4}\d{3}|(?:\d{4}[ -]?){3}\d{4}|(?:4\d{3}|5[1-5]\d{2}|6[045]\d{2})(?:[ -]?\d{4}){3}|3[47]\d{2}[ -]?\d{6}[ -]?\d{5})\b'
+        def luhn_check(card_number):
+            digits = [int(d) for d in card_number if d.isdigit()]
+            if len(digits) not in (13, 15, 16, 19):
+                return False
+            checksum = sum(digits[-1::-2])
+            checksum += sum(sum(divmod(d * 2, 10)) for d in digits[-2::-2])
+            return checksum % 10 == 0
+
+        bank_card_numbers = re.findall(BANK_ID_PATTERN, self.parsed_data)
+        
+        for card_number in bank_card_numbers:
+            if luhn_check(card_number):
+                self.parsed_data = re.sub(card_number, token, self.parsed_data)
         return self.parsed_data
     
     def replace_phone_number(self, token="COSCO_NUMBER"):
@@ -252,6 +263,8 @@ class PrivacyDesensitization:
 
     def replace_number(self):
         # Replace all types of numeric private data
+        # Bank card
+        self.parsed_data = self.replace_bank_id(token="BANK_ID")  # nosec B106 - 这是数据脱敏标记，不是密码
 
         # Landline + mobile phone
         self.parsed_data = jio.replace_phone_number(self.parsed_data, "COSCO_NUMBER")
@@ -259,11 +272,7 @@ class PrivacyDesensitization:
         self.parsed_data = jio.replace_qq(self.parsed_data, "COSCO_NUMBER")
         # ID card
         self.parsed_data = jio.replace_id_card(self.parsed_data, "COSCO_NUMBER")
-        # Bank card
-        self.parsed_data = self.replace_bank_id(
-            self.parsed_data, token="COSCO_NUMBER"
-        )  # nosec B106 - This is a data desensitization tag, not a password
-
+        
         return self.parsed_data
 
     def to_private(self):

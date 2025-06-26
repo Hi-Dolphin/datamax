@@ -35,7 +35,6 @@ class ParserFactory:
             file_path: str,
             use_mineru: bool = False,
             to_markdown: bool = False,
-            timeout: int = 1200
     ):
         """
         Create a parser instance based on the file extension.
@@ -43,7 +42,6 @@ class ParserFactory:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
-        :param timeout: Timeout for the request .(only supported files in .xlsx format)
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -91,8 +89,7 @@ class ParserFactory:
                 )
             elif parser_class_name == 'XlsxParser':
                 return parser_class(
-                    file_path=file_path,
-                    timeout=timeout
+                    file_path=file_path
                 )
             else:
                 return parser_class(
@@ -108,7 +105,6 @@ class DataMax:
                  file_path: Union[str, list] = '',
                  use_mineru: bool = False,
                  to_markdown: bool = False,
-                 timeout: int = 1200,
                  ttl: int = 3600
                  ):
         """
@@ -117,7 +113,6 @@ class DataMax:
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
-        :param timeout: Timeout for the request.
         :param ttl: Time to live for the cache.
         """
         self.file_path = file_path
@@ -125,7 +120,6 @@ class DataMax:
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
-        self.timeout = timeout
         self._cache = {}
         self.ttl = ttl
     
@@ -393,8 +387,7 @@ class DataMax:
             parser = ParserFactory.create_parser(
                 use_mineru=self.use_mineru,
                 file_path=file_path,
-                to_markdown=self.to_markdown,
-                timeout=self.timeout
+                to_markdown=self.to_markdown
             )
             if parser:
                 return parser.parse(file_path=file_path)

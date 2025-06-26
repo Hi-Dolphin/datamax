@@ -15,11 +15,10 @@ warnings.filterwarnings("ignore")
 class XlsxParser(BaseLife):
     """XLSX解析器 - 使用pandas读取并转换为markdown，支持多进程处理"""
 
-    def __init__(self, file_path, timeout):
+    def __init__(self, file_path):
         super().__init__()
         self.file_path = file_path
-        self.timeout = timeout
-        logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}, 超时: {timeout}s")
+        logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}")
 
     def _parse_with_pandas(self, file_path: str) -> str:
         """使用pandas读取Excel并转换为markdown"""
@@ -150,7 +149,7 @@ class XlsxParser(BaseLife):
 
     def parse(self, file_path: str) -> dict:
         """解析Excel文件 - 支持多进程和超时控制"""
-        logger.info(f"🚀 启动Excel解析进程 - 文件: {file_path}, 超时: {self.timeout}s")
+        logger.info(f"🚀 启动Excel解析进程 - 文件: {file_path}")
 
         try:
             # 验证文件存在
@@ -168,42 +167,6 @@ class XlsxParser(BaseLife):
             )
             process.start()
             logger.debug(f"⚡ 启动子进程，PID: {process.pid}")
-
-            start_time = time.time()
-
-            # 等待解析完成或超时
-            while time.time() - start_time < self.timeout:
-                elapsed_time = int(time.time() - start_time)
-                logger.debug(f"⏱️ 等待解析完成... {elapsed_time}s")
-
-                if not process.is_alive():
-                    logger.debug("✅ 子进程已完成")
-                    break
-
-                if not result_queue.empty():
-                    result = result_queue.get()
-                    process.join()  # 等待进程正常结束
-
-                    # 检查是否是错误结果
-                    if "error" in result:
-                        logger.error(f"💥 子进程返回错误: {result['error']}")
-                        raise Exception(result["error"])
-
-                    logger.info(f"🎉 Excel解析成功完成，耗时: {elapsed_time}s")
-                    return result
-
-                time.sleep(1)
-            else:
-                # 超时处理
-                logger.error(f"⏰ 解析超时 ({self.timeout}s)，终止进程")
-                process.terminate()
-                process.join(timeout=5)  # 给进程5秒时间优雅退出
-
-                if process.is_alive():
-                    logger.error("💀 强制杀死进程")
-                    process.kill()
-
-                raise TimeoutError(f"Excel解析超时: {file_path}")
 
         except Exception as e:
             logger.error(
