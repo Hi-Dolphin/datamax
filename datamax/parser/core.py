@@ -279,7 +279,7 @@ class DataMax:
             return None
         
         # Check if URL is complete with endpoint
-        if any(x in input_url for x in ['/completions', '/messages', '/generate', '/chat', '/invoke']):
+        if any(x in input_url for x in ['/completions', '/messages', '/generate', '/invoke']):
             return input_url
         
         domain = get_domain(input_url)
