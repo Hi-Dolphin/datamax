@@ -20,19 +20,19 @@ class ImageParser(BaseLife):
 
     def parse(self, file_path: str):
         try:
-            # 【1】改用 pathlib.Path.stem 获取“基础名”
+            # 【1】Use pathlib.Path.stem to get the "base name"
             base_name = pathlib.Path(file_path).stem
             output_pdf_path = f"{base_name}.pdf"
 
-            # 转换图片为 PDF
+            # Convert image to PDF
             img = Image.open(file_path)
             img.save(output_pdf_path, "PDF", resolution=100.0)
 
-            # 委托 PdfParser 解析，传入扩展名已由 PdfParser 内部获取
+            # Delegate parsing to PdfParser, the extension is handled internally by PdfParser
             pdf_parser = PdfParser(output_pdf_path, use_mineru=True)
             result = pdf_parser.parse(output_pdf_path)
 
-            # 清理临时文件
+            # Clean up temporary files
             if os.path.exists(output_pdf_path):
                 os.remove(output_pdf_path)
 
