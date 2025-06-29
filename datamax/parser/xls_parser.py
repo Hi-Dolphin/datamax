@@ -1,8 +1,9 @@
-from datamax.parser.base import MarkdownOutputVo
-from datamax.parser.base import BaseLife
-from datamax.utils.lifecycle_types import LifeType
-import pandas as pd
 import warnings
+
+import pandas as pd
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 
 warnings.filterwarnings("ignore")
 

@@ -1,14 +1,11 @@
-import pathlib
-import sys
 from typing import Union
+
 import loguru
-ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
-sys.path.insert(0, str(ROOT_DIR))
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
-from datamax.utils.lifecycle_types import LifeType
 from loguru import logger
-import os
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
+
 
 class MarkdownParser(BaseLife):
     """
@@ -16,9 +13,10 @@ class MarkdownParser(BaseLife):
     Handles .md and .markdown file extensions.
     """
 
-    def __init__(self,
-                 file_path: Union[str, list],
-                 ):
+    def __init__(
+        self,
+        file_path: Union[str, list],
+    ):
         super().__init__()
         self.file_path = file_path
 
@@ -34,7 +32,7 @@ class MarkdownParser(BaseLife):
             str: Content of the markdown file
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading markdown file {file_path}: {e}")
@@ -58,7 +56,7 @@ class MarkdownParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSING
+                life_type=LifeType.DATA_PROCESSING,
             )
 
             # 2) 读取 Markdown 内容
@@ -73,7 +71,7 @@ class MarkdownParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSED
+                life_type=LifeType.DATA_PROCESSED,
             )
             output_vo.add_lifecycle(end_lc)
 
@@ -86,7 +84,7 @@ class MarkdownParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESS_FAILED
+                life_type=LifeType.DATA_PROCESS_FAILED,
             )
             # 如果想在失败时也返回 VO，可以这样做：
             # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")

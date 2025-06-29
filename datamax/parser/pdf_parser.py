@@ -1,25 +1,22 @@
 import os
-import pathlib
-import sys
 import subprocess
 from typing import Union
 
-ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
-sys.path.insert(0, str(ROOT_DIR))
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
-from datamax.utils.lifecycle_types import LifeType
 from langchain_community.document_loaders import PyMuPDFLoader
 from loguru import logger
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.mineru_operator import pdf_processor
-import os
+
 
 class PdfParser(BaseLife):
 
-    def __init__(self,
-                 file_path: Union[str, list],
-                 use_mineru: bool = False,
-                 ):
+    def __init__(
+        self,
+        file_path: Union[str, list],
+        use_mineru: bool = False,
+    ):
         super().__init__()
 
         self.file_path = file_path
@@ -28,17 +25,25 @@ class PdfParser(BaseLife):
     def mineru_process(self, input_pdf_filename, output_dir):
         proc = None
         try:
-            logger.info(f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!")
-            command = ['magic-pdf', '-p', input_pdf_filename, '-o', output_dir]
-            proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info(
+                f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!"
+            )
+            command = ["magic-pdf", "-p", input_pdf_filename, "-o", output_dir]
+            proc = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
 
             # 等待命令执行完成
             stdout, stderr = proc.communicate()
             # 检查命令是否成功执行
             if proc.returncode != 0:
-                raise Exception(f"mineru failed with return code {proc.returncode}: {stderr.decode()}")
+                raise Exception(
+                    f"mineru failed with return code {proc.returncode}: {stderr.decode()}"
+                )
 
-            logger.info(f"Markdown saved in {output_dir}, input file is {input_pdf_filename}")
+            logger.info(
+                f"Markdown saved in {output_dir}, input file is {input_pdf_filename}"
+            )
 
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -54,14 +59,16 @@ class PdfParser(BaseLife):
                 if proc.poll() is None:
                     proc.kill()
                     proc.wait()
-                    logger.info("The process was terminated due to timeout or completion.")
+                    logger.info(
+                        "The process was terminated due to timeout or completion."
+                    )
 
     @staticmethod
     def read_pdf_file(file_path) -> str:
         try:
             pdf_loader = PyMuPDFLoader(file_path)
             pdf_documents = pdf_loader.load()
-            result_text = ''
+            result_text = ""
             for page in pdf_documents:
                 result_text += page.page_content
             return result_text
@@ -81,20 +88,20 @@ class PdfParser(BaseLife):
             extension = self.get_file_extension(file_path)
 
             if self.use_mineru:
-                output_dir = 'uploaded_files'
+                output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
                 # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
                 # if os.path.exists(output_mineru):
                 #     pass
                 # else:
-                    # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
+                # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
                 # mk_content = open(output_mineru, 'r', encoding='utf-8').read()
 
                 # todo: 是否有必要跟api的默认保存路径保持一致
-                output_mineru = f'{output_dir}/markdown/{output_folder_name}.md'
+                output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
 
                 if os.path.exists(output_mineru):
-                    mk_content = open(output_mineru, 'r', encoding='utf-8').read()
+                    mk_content = open(output_mineru, "r", encoding="utf-8").read()
                 else:
                     mk_content = pdf_processor.process_pdf(file_path)
             else:
@@ -125,8 +132,10 @@ class PdfParser(BaseLife):
             )
             logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
 
-            raise Exception({
-                "error": str(e),
-                "file_path": file_path,
-                "lifecycle": [lc_fail.to_dict()],
-            })
+            raise Exception(
+                {
+                    "error": str(e),
+                    "file_path": file_path,
+                    "lifecycle": [lc_fail.to_dict()],
+                }
+            )

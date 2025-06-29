@@ -1,10 +1,11 @@
-import os
 from typing import Union
-from pptx import Presentation
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
-from datamax.utils.lifecycle_types import LifeType
+
 from loguru import logger
+from pptx import Presentation
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
+
 
 class PptxParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
@@ -14,20 +15,12 @@ class PptxParser(BaseLife):
     @staticmethod
     def read_ppt_file(file_path: str):
         try:
-            content = ''
+            content = ""
             prs = Presentation(file_path)
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if shape.has_text_frame:
-                        content += shape.text + '\n'
-                    # if shape.shape_type == 13:
-                    #     if not os.path.exists("extracted_images"):
-                    #         os.makedirs("extracted_images")
-                    #     image = shape.image
-                    #     image_filename = f'extracted_images/image_{shape.shape_id}.{image.ext}'
-                    #     with open(image_filename, 'wb') as img_file:
-                    #         img_file.write(image.blob)
-                    #     content += ('[' + image_filename + ']')
+                        content += shape.text + "\n"
             return content
         except Exception:
             raise
@@ -71,8 +64,10 @@ class PptxParser(BaseLife):
             )
             logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
 
-            raise Exception({
-                "error": str(e),
-                "file_path": file_path,
-                "lifecycle": [lc_fail.to_dict()],
-            })
+            raise Exception(
+                {
+                    "error": str(e),
+                    "file_path": file_path,
+                    "lifecycle": [lc_fail.to_dict()],
+                }
+            )

@@ -1,12 +1,14 @@
+import os
+from typing import Union
+
 import ebooklib
 import loguru
-from typing import Union
 from bs4 import BeautifulSoup
 from ebooklib import epub
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
-import os
+
 
 class EpubParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
@@ -20,10 +22,10 @@ class EpubParser(BaseLife):
             content = ""
             for item in book.get_items():
                 if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    chapter_content = item.get_content().decode('utf-8')
-                    soup = BeautifulSoup(chapter_content, 'html.parser')
+                    chapter_content = item.get_content().decode("utf-8")
+                    soup = BeautifulSoup(chapter_content, "html.parser")
                     text = soup.get_text()
-                    text = text.replace('\u3000', ' ')
+                    text = text.replace("\u3000", " ")
                     content += text
             return content
         except Exception as e:
@@ -38,7 +40,7 @@ class EpubParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSING
+                life_type=LifeType.DATA_PROCESSING,
             )
 
             # 2) 读取EPUB内容
@@ -54,7 +56,7 @@ class EpubParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSED
+                life_type=LifeType.DATA_PROCESSED,
             )
             output_vo.add_lifecycle(end_lc)
 
@@ -67,7 +69,7 @@ class EpubParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESS_FAILED
+                life_type=LifeType.DATA_PROCESS_FAILED,
             )
             # 若需返回 VO：
             # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")

@@ -1,9 +1,10 @@
-import chardet
 from typing import Union
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
+
+import chardet
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
-import os
+
 
 class TxtParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
@@ -13,9 +14,9 @@ class TxtParser(BaseLife):
     @staticmethod
     def detect_encoding(file_path: str):
         try:
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 result = chardet.detect(f.read())
-                return result['encoding']
+                return result["encoding"]
         except Exception as e:
             raise e
 
@@ -28,7 +29,7 @@ class TxtParser(BaseLife):
         """
         try:
             encoding = TxtParser.detect_encoding(file_path)
-            with open(file_path, 'r', encoding=encoding) as file:
+            with open(file_path, "r", encoding=encoding) as file:
                 return file.read()
         except Exception as e:
             raise e
@@ -42,7 +43,7 @@ class TxtParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSING
+                life_type=LifeType.DATA_PROCESSING,
             )
 
             # 2) 读取文件内容
@@ -58,7 +59,7 @@ class TxtParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESSED
+                life_type=LifeType.DATA_PROCESSED,
             )
             output_vo.add_lifecycle(lc_end)
 
@@ -70,7 +71,7 @@ class TxtParser(BaseLife):
                 source_file=file_path,
                 domain="Technology",
                 usage_purpose="Documentation",
-                life_type=LifeType.DATA_PROCESS_FAILED
+                life_type=LifeType.DATA_PROCESS_FAILED,
             )
             # （可选）如果希望在失败时也返回 VO，可在这里构造空 content 的 VO 并加入 lc_fail
             raise

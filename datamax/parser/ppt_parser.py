@@ -2,15 +2,16 @@ import os
 import shutil
 import subprocess
 import tempfile
-from loguru import logger
 from pathlib import Path
 from typing import Union
 
 import chardet
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
-from datamax.utils.ppt_extract import PPtExtractor
 from datamax.utils.lifecycle_types import LifeType
+from datamax.utils.ppt_extract import PPtExtractor
+
 # 尝试导入UNO处理器
 try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
@@ -146,8 +147,10 @@ class PptParser(BaseLife):
             logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
 
             # 返回包含失败生命周期的异常信息
-            raise Exception({
-                "error": str(e),
-                "file_path": file_path,
-                "lifecycle": [lc_fail.to_dict()],
-            })
+            raise Exception(
+                {
+                    "error": str(e),
+                    "file_path": file_path,
+                    "lifecycle": [lc_fail.to_dict()],
+                }
+            )

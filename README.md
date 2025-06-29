@@ -52,7 +52,7 @@ qa_data = dm.get_pre_label(
     question_number=5,     # 每块生成问题数
     max_workers=5          # 并发数
 )
-dm.save_label_data(res)
+dm.save_label_data(qa_data)
 ```
 
 ## 📖 Detailed Documentation
@@ -254,6 +254,58 @@ cd datamax
 pip install -r requirements.txt
 python setup.py install
 ```
+
+### Developer Mode
+
+For developers who want to contribute to the project or make modifications, we recommend using developer mode for a better development experience.
+
+#### Setup Developer Mode
+
+```bash
+# Clone the repository
+git clone https://github.com/Hi-Dolphin/datamax.git
+cd datamax
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in developer mode
+pip install -e .
+```
+
+#### Benefits of Developer Mode
+
+- **Live Updates**: Changes to source code are immediately reflected without reinstallation
+- **Easy Testing**: Test your modifications instantly
+- **Debugging**: Better debugging experience with direct access to source code
+- **Development Workflow**: Seamless integration with your development environment
+
+#### Development Commands
+
+```bash
+# Run tests
+pytest
+
+# Install development dependencies
+pip install -r requirements-dev.txt  # if available
+
+# Check code style
+flake8 datamax/
+black datamax/
+
+# Build package
+python setup.py sdist bdist_wheel
+```
+
+#### Making Changes
+
+After installing in developer mode, you can:
+
+1. Edit source code in the `datamax/` directory
+2. Changes are automatically available when you import the module
+3. Test your changes immediately without reinstalling
+4. Submit pull requests with your improvements
 
 ## 📋 System Requirements
 

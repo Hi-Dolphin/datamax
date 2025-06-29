@@ -1,21 +1,22 @@
-from loguru import logger
+import html
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union, Optional
-import struct
-import re
-import html
+from typing import Union
 
 import chardet
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+
 # 尝试导入OLE相关库（用于读取DOC内部结构）
 try:
     import olefile
+
     HAS_OLEFILE = True
 except ImportError:
     HAS_OLEFILE = False
@@ -77,36 +78,36 @@ class DocParser(BaseLife):
         支持多种DOC内部格式和存储方式
         """
         logger.info(f"🔍 开始综合内容提取: {doc_path}")
-        
+
         all_content = []
-        
+
         try:
             # 1. 尝试使用OLE解析提取内容（如果可用）
             if HAS_OLEFILE:
                 ole_content = self._extract_ole_content(doc_path)
                 if ole_content:
                     all_content.append(("ole", ole_content))
-            
+
             # 2. 尝试提取嵌入对象
             embedded_content = self._extract_embedded_objects(doc_path)
             if embedded_content:
                 all_content.append(("embedded", embedded_content))
-            
+
             # 3. 如果上述方法都没有提取到内容，使用传统转换
             if not all_content:
                 logger.info("🔄 使用传统转换方式提取内容")
                 return ""  # 返回空，让调用者使用传统方式
-            
+
             # 检查内容质量，特别是对于WPS文件
             for content_type, content in all_content:
                 if content and self._check_content_quality(content):
                     logger.info(f"✅ 使用 {content_type} 内容提取成功")
                     return content
-            
+
             # 如果所有内容质量都不佳，返回空
             logger.warning("⚠️ 所有提取方式的内容质量都不佳")
             return ""
-            
+
         except Exception as e:
             logger.error(f"💥 综合内容提取失败: {str(e)}")
             return ""
@@ -116,36 +117,36 @@ class DocParser(BaseLife):
         try:
             ole = olefile.OleFileIO(doc_path)
             logger.info(f"📂 成功打开OLE文件: {doc_path}")
-            
+
             # 列出所有流
             streams = ole.listdir()
             logger.debug(f"📋 可用的OLE流: {streams}")
-            
+
             # 检查是否是WPS生成的文件
-            is_wps = any('WpsCustomData' in str(stream) for stream in streams)
+            is_wps = any("WpsCustomData" in str(stream) for stream in streams)
             if is_wps:
                 logger.info("📝 检测到WPS DOC文件，建议使用传统转换方式")
                 # 对于WPS文件，OLE解析可能不可靠，返回空让其使用传统方式
                 ole.close()
                 return ""
-            
+
             all_texts = []
-            
+
             # 尝试提取WordDocument流
-            if ole.exists('WordDocument'):
+            if ole.exists("WordDocument"):
                 try:
-                    word_stream = ole.openstream('WordDocument').read()
+                    word_stream = ole.openstream("WordDocument").read()
                     logger.info(f"📄 WordDocument流大小: {len(word_stream)} 字节")
                     text = self._parse_word_stream(word_stream)
                     if text:
                         all_texts.append(text)
                 except Exception as e:
                     logger.error(f"💥 解析WordDocument流失败: {str(e)}")
-            
+
             # 尝试读取其他可能包含文本的流
             text_content = []
             for entry in ole.listdir():
-                if any(name in str(entry) for name in ['Text', 'Content', 'Body']):
+                if any(name in str(entry) for name in ["Text", "Content", "Body"]):
                     try:
                         stream = ole.openstream(entry)
                         data = stream.read()
@@ -155,19 +156,19 @@ class DocParser(BaseLife):
                             text_content.append(decoded)
                     except:
                         continue
-            
+
             if text_content:
-                combined = '\n'.join(text_content)
+                combined = "\n".join(text_content)
                 logger.info(f"📄 从OLE流中提取文本: {len(combined)} 字符")
                 return self._clean_extracted_text(combined)
-            
+
             ole.close()
-            
+
             return ""
-            
+
         except Exception as e:
             logger.warning(f"⚠️ OLE解析失败: {str(e)}")
-        
+
         return ""
 
     def _parse_word_stream(self, data: bytes) -> str:
@@ -176,25 +177,38 @@ class DocParser(BaseLife):
             # DOC文件格式复杂，这里提供基础的文本提取
             # 查找文本片段
             text_parts = []
-            
+
             # 尝试多种编码，特别注意中文编码
-            for encoding in ['utf-16-le', 'utf-8', 'gbk', 'gb18030', 'gb2312', 'big5', 'cp936', 'cp1252']:
+            for encoding in [
+                "utf-16-le",
+                "utf-8",
+                "gbk",
+                "gb18030",
+                "gb2312",
+                "big5",
+                "cp936",
+                "cp1252",
+            ]:
                 try:
-                    decoded = data.decode(encoding, errors='ignore')
+                    decoded = data.decode(encoding, errors="ignore")
                     # 检查是否包含合理的中文字符
-                    chinese_chars = len([c for c in decoded if '\u4e00' <= c <= '\u9fff'])
+                    chinese_chars = len(
+                        [c for c in decoded if "\u4e00" <= c <= "\u9fff"]
+                    )
                     if chinese_chars > 10 or (decoded and len(decoded.strip()) > 50):
                         # 过滤出可打印字符，但保留中文
                         cleaned = self._filter_printable_text(decoded)
                         if cleaned and len(cleaned.strip()) > 20:
                             text_parts.append(cleaned)
-                            logger.debug(f"📝 使用编码 {encoding} 成功解码，包含 {chinese_chars} 个中文字符")
+                            logger.debug(
+                                f"📝 使用编码 {encoding} 成功解码，包含 {chinese_chars} 个中文字符"
+                            )
                             break
                 except:
                     continue
-            
-            return '\n'.join(text_parts) if text_parts else ""
-            
+
+            return "\n".join(text_parts) if text_parts else ""
+
         except Exception as e:
             logger.error(f"💥 解析Word流失败: {str(e)}")
             return ""
@@ -204,50 +218,67 @@ class DocParser(BaseLife):
         result = []
         for char in text:
             # 保留中文字符
-            if '\u4e00' <= char <= '\u9fff':
+            if "\u4e00" <= char <= "\u9fff":
                 result.append(char)
             # 保留日文字符
-            elif '\u3040' <= char <= '\u30ff':
+            elif "\u3040" <= char <= "\u30ff":
                 result.append(char)
             # 保留韩文字符
-            elif '\uac00' <= char <= '\ud7af':
+            elif "\uac00" <= char <= "\ud7af":
                 result.append(char)
             # 保留ASCII可打印字符和空白字符
             elif char.isprintable() or char.isspace():
                 result.append(char)
             # 保留常用标点符号
-            elif char in '，。！？；：""''（）【】《》、·…—':
+            elif char in '，。！？；：""' "（）【】《》、·…—":
                 result.append(char)
-        
-        return ''.join(result)
+
+        return "".join(result)
 
     def _try_decode_bytes(self, data: bytes) -> str:
         """尝试使用多种编码解码字节数据"""
         # 优先尝试中文编码
-        encodings = ['utf-8', 'gbk', 'gb18030', 'gb2312', 'big5', 'utf-16-le', 'utf-16-be', 'cp936', 'cp1252', 'latin-1']
-        
+        encodings = [
+            "utf-8",
+            "gbk",
+            "gb18030",
+            "gb2312",
+            "big5",
+            "utf-16-le",
+            "utf-16-be",
+            "cp936",
+            "cp1252",
+            "latin-1",
+        ]
+
         # 首先尝试使用chardet检测编码
         try:
             import chardet
+
             detected = chardet.detect(data)
-            if detected['encoding'] and detected['confidence'] > 0.7:
-                encodings.insert(0, detected['encoding'])
-                logger.debug(f"🔍 检测到编码: {detected['encoding']} (置信度: {detected['confidence']})")
+            if detected["encoding"] and detected["confidence"] > 0.7:
+                encodings.insert(0, detected["encoding"])
+                logger.debug(
+                    f"🔍 检测到编码: {detected['encoding']} (置信度: {detected['confidence']})"
+                )
         except:
             pass
-        
+
         for encoding in encodings:
             try:
-                decoded = data.decode(encoding, errors='ignore')
+                decoded = data.decode(encoding, errors="ignore")
                 # 检查是否包含有意义的文本（包括中文）
-                if decoded and (any(c.isalnum() for c in decoded) or any('\u4e00' <= c <= '\u9fff' for c in decoded)):
+                if decoded and (
+                    any(c.isalnum() for c in decoded)
+                    or any("\u4e00" <= c <= "\u9fff" for c in decoded)
+                ):
                     # 进一步清理文本
                     cleaned = self._filter_printable_text(decoded)
                     if cleaned and len(cleaned.strip()) > 10:
                         return cleaned
             except:
                 continue
-        
+
         return ""
 
     def _extract_embedded_objects(self, doc_path: str) -> str:
@@ -255,30 +286,33 @@ class DocParser(BaseLife):
         try:
             if not HAS_OLEFILE:
                 return ""
-            
+
             embedded_content = []
-            
+
             with olefile.OleFileIO(doc_path) as ole:
                 # 查找嵌入的对象
                 for entry in ole.listdir():
-                    entry_name = '/'.join(entry)
-                    
+                    entry_name = "/".join(entry)
+
                     # 检查是否是嵌入对象
-                    if any(pattern in entry_name.lower() for pattern in ['object', 'embed', 'package']):
+                    if any(
+                        pattern in entry_name.lower()
+                        for pattern in ["object", "embed", "package"]
+                    ):
                         logger.info(f"📎 找到嵌入对象: {entry_name}")
                         try:
                             stream = ole.openstream(entry)
                             data = stream.read()
-                            
+
                             # 尝试提取文本内容
                             text = self._try_decode_bytes(data)
                             if text and len(text.strip()) > 20:
                                 embedded_content.append(text.strip())
                         except:
                             continue
-            
-            return '\n\n'.join(embedded_content) if embedded_content else ""
-            
+
+            return "\n\n".join(embedded_content) if embedded_content else ""
+
         except Exception as e:
             logger.warning(f"⚠️ 提取嵌入对象失败: {str(e)}")
             return ""
@@ -288,77 +322,87 @@ class DocParser(BaseLife):
         try:
             # 1. 解码HTML/XML实体
             text = html.unescape(text)
-            
+
             # 2. 移除所有XML/HTML标签
-            text = re.sub(r'<[^>]+>', '', text)
-            
+            text = re.sub(r"<[^>]+>", "", text)
+
             # 3. 移除XML命名空间前缀
-            text = re.sub(r'\b\w+:', '', text)
-            
+            text = re.sub(r"\b\w+:", "", text)
+
             # 4. 移除NULL字符和其他控制字符
-            text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
-            
+            text = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]", "", text)
+
             # 5. 移除特殊的XML字符序列
-            text = re.sub(r'&[a-zA-Z]+;', '', text)
-            text = re.sub(r'&#\d+;', '', text)
-            text = re.sub(r'&#x[0-9a-fA-F]+;', '', text)
-            
+            text = re.sub(r"&[a-zA-Z]+;", "", text)
+            text = re.sub(r"&#\d+;", "", text)
+            text = re.sub(r"&#x[0-9a-fA-F]+;", "", text)
+
             # 6. 保留有意义的字符，移除其他特殊字符
             # 保留：中文、日文、韩文、英文、数字、常用标点和空白
             allowed_chars = (
-                r'\w\s'  # 字母数字和空白
-                r'\u4e00-\u9fff'  # 中文
-                r'\u3040-\u30ff'  # 日文
-                r'\uac00-\ud7af'  # 韩文
-                r'，。！？；：""''（）【】《》、·…—'  # 中文标点
+                r"\w\s"  # 字母数字和空白
+                r"\u4e00-\u9fff"  # 中文
+                r"\u3040-\u30ff"  # 日文
+                r"\uac00-\ud7af"  # 韩文
+                r'，。！？；：""'
+                "（）【】《》、·…—"  # 中文标点
                 r'.,!?;:()[\]{}"\'`~@#$%^&*+=\-_/\\'  # 英文标点和常用符号
             )
-            
+
             # 使用更严格的过滤，但保留所有有意义的字符
-            cleaned_text = ''.join(char for char in text if re.match(f'[{allowed_chars}]', char))
-            
+            cleaned_text = "".join(
+                char for char in text if re.match(f"[{allowed_chars}]", char)
+            )
+
             # 7. 移除过长的无意义字符序列（通常是二进制垃圾）
-            cleaned_text = re.sub(r'([^\s\u4e00-\u9fff])\1{5,}', r'\1', cleaned_text)
-            
+            cleaned_text = re.sub(r"([^\s\u4e00-\u9fff])\1{5,}", r"\1", cleaned_text)
+
             # 8. 清理多余的空白，但保留段落结构
-            cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)  # 多个空格/制表符变为单个空格
-            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)  # 多个空行变为双空行
-            cleaned_text = re.sub(r'^\s+|\s+$', '', cleaned_text, flags=re.MULTILINE)  # 移除行首行尾空白
-            
+            cleaned_text = re.sub(
+                r"[ \t]+", " ", cleaned_text
+            )  # 多个空格/制表符变为单个空格
+            cleaned_text = re.sub(
+                r"\n\s*\n\s*\n+", "\n\n", cleaned_text
+            )  # 多个空行变为双空行
+            cleaned_text = re.sub(
+                r"^\s+|\s+$", "", cleaned_text, flags=re.MULTILINE
+            )  # 移除行首行尾空白
+
             # 9. 进一步清理：移除独立的标点符号行
-            lines = cleaned_text.split('\n')
+            lines = cleaned_text.split("\n")
             cleaned_lines = []
-            
+
             for line in lines:
                 line = line.strip()
                 if line:
                     # 检查行是否主要是有意义的内容
                     # 计算中文、英文字母和数字的比例
-                    meaningful_chars = sum(1 for c in line if (
-                        c.isalnum() or '\u4e00' <= c <= '\u9fff'
-                    ))
-                    
+                    meaningful_chars = sum(
+                        1 for c in line if (c.isalnum() or "\u4e00" <= c <= "\u9fff")
+                    )
+
                     # 如果有意义字符占比超过30%，或者行长度小于5（可能是标题），则保留
-                    if (len(line) < 5 or 
-                        (meaningful_chars > 0 and meaningful_chars / len(line) > 0.3)):
+                    if len(line) < 5 or (
+                        meaningful_chars > 0 and meaningful_chars / len(line) > 0.3
+                    ):
                         cleaned_lines.append(line)
                 elif cleaned_lines and cleaned_lines[-1]:  # 保留段落分隔
-                    cleaned_lines.append('')
-            
-            result = '\n'.join(cleaned_lines).strip()
-            
+                    cleaned_lines.append("")
+
+            result = "\n".join(cleaned_lines).strip()
+
             # 10. 最终检查
             if len(result) < 10:
                 logger.warning("⚠️ 清理后的文本过短，可能存在问题")
                 return ""
-            
+
             # 检查是否还包含XML标签
-            if re.search(r'<[^>]+>', result):
+            if re.search(r"<[^>]+>", result):
                 logger.warning("⚠️ 清理后仍包含XML标签，进行二次清理")
-                result = re.sub(r'<[^>]+>', '', result)
-            
+                result = re.sub(r"<[^>]+>", "", result)
+
             return result
-            
+
         except Exception as e:
             logger.error(f"💥 清理文本失败: {str(e)}")
             return text
@@ -366,25 +410,27 @@ class DocParser(BaseLife):
     def _combine_extracted_content(self, content_list: list) -> str:
         """合并提取到的各种内容"""
         combined = []
-        
+
         # 按优先级排序内容
         priority_order = ["ole", "embedded", "converted", "fallback"]
-        
+
         for content_type in priority_order:
             for item_type, content in content_list:
                 if item_type == content_type and content.strip():
                     combined.append(content.strip())
-        
+
         # 添加其他未分类的内容
         for item_type, content in content_list:
             if item_type not in priority_order and content.strip():
                 combined.append(content.strip())
-        
-        return '\n\n'.join(combined) if combined else ""
+
+        return "\n\n".join(combined) if combined else ""
 
     def doc_to_txt(self, doc_path: str, dir_path: str) -> str:
         """将.doc文件转换为.txt文件"""
-        logger.info(f"🔄 开始转换DOC文件为TXT - 源文件: {doc_path}, 输出目录: {dir_path}")
+        logger.info(
+            f"🔄 开始转换DOC文件为TXT - 源文件: {doc_path}, 输出目录: {dir_path}"
+        )
 
         if self.use_uno:
             # 使用UNO API进行转换
@@ -412,7 +458,7 @@ class DocParser(BaseLife):
                     f"   1. 确保LibreOffice正确安装\n"
                     f"   2. 关闭所有LibreOffice进程\n"
                     f"   3. 检查文件权限和路径\n"
-                    f"   4. 尝试手动运行: soffice --headless --convert-to txt \"{doc_path}\""
+                    f'   4. 尝试手动运行: soffice --headless --convert-to txt "{doc_path}"'
                 )
                 logger.warning("⚠️ 自动回退到传统命令行方式...")
                 return self._doc_to_txt_subprocess(doc_path, dir_path)
@@ -435,13 +481,17 @@ class DocParser(BaseLife):
             if exit_code == 0:
                 logger.info(f"✅ DOC到TXT转换成功 - 退出码: {exit_code}")
                 if stdout:
-                    logger.debug(f"📄 转换输出: {stdout.decode('utf-8', errors='replace')}")
+                    logger.debug(
+                        f"📄 转换输出: {stdout.decode('utf-8', errors='replace')}"
+                    )
             else:
                 encoding = chardet.detect(stderr)["encoding"]
                 if encoding is None:
                     encoding = "utf-8"
                 error_msg = stderr.decode(encoding, errors="replace")
-                logger.error(f"❌ DOC到TXT转换失败 - 退出码: {exit_code}, 错误信息: {error_msg}")
+                logger.error(
+                    f"❌ DOC到TXT转换失败 - 退出码: {exit_code}, 错误信息: {error_msg}"
+                )
                 raise Exception(
                     f"Error Output (detected encoding: {encoding}): {error_msg}"
                 )
@@ -503,14 +553,16 @@ class DocParser(BaseLife):
                 if comprehensive_content and comprehensive_content.strip():
                     # 检查内容质量
                     if self._check_content_quality(comprehensive_content):
-                        logger.info(f"✨ 使用综合提取方式成功，内容长度: {len(comprehensive_content)} 字符")
+                        logger.info(
+                            f"✨ 使用综合提取方式成功，内容长度: {len(comprehensive_content)} 字符"
+                        )
                         return comprehensive_content
                     else:
                         logger.warning("⚠️ 综合提取的内容质量不佳，尝试其他方式")
-            
+
             # 降级到传统转换方式
             logger.info("🔄 使用传统转换方式")
-            
+
             with tempfile.TemporaryDirectory() as temp_path:
                 logger.debug(f"📁 创建临时目录: {temp_path}")
 
@@ -544,23 +596,29 @@ class DocParser(BaseLife):
         """检查提取内容的质量"""
         if not content or len(content) < 50:
             return False
-        
+
         # 计算乱码字符比例
         total_chars = len(content)
         # 可识别字符：ASCII、中文、日文、韩文、常用标点
-        recognizable = sum(1 for c in content if (
-            c.isascii() or
-            '\u4e00' <= c <= '\u9fff' or  # 中文
-            '\u3040' <= c <= '\u30ff' or  # 日文
-            '\uac00' <= c <= '\ud7af' or  # 韩文
-            c in '，。！？；：""''（）【】《》、·…—\n\r\t '
-        ))
-        
+        recognizable = sum(
+            1
+            for c in content
+            if (
+                c.isascii()
+                or "\u4e00" <= c <= "\u9fff"  # 中文
+                or "\u3040" <= c <= "\u30ff"  # 日文
+                or "\uac00" <= c <= "\ud7af"  # 韩文
+                or c in '，。！？；：""' "（）【】《》、·…—\n\r\t "
+            )
+        )
+
         # 如果可识别字符占比低于70%，认为质量不佳
         if recognizable / total_chars < 0.7:
-            logger.warning(f"⚠️ 内容质量检查失败：可识别字符比例 {recognizable}/{total_chars} = {recognizable/total_chars:.2%}")
+            logger.warning(
+                f"⚠️ 内容质量检查失败：可识别字符比例 {recognizable}/{total_chars} = {recognizable/total_chars:.2%}"
+            )
             return False
-        
+
         return True
 
     def parse(self, file_path: str):
@@ -590,7 +648,6 @@ class DocParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Documentation",
             )
-
 
             # 🏷️ 提取文件扩展名
             extension = self.get_file_extension(file_path)
@@ -652,7 +709,9 @@ class DocParser(BaseLife):
             logger.error(f"🔒 文件权限错误: {str(e)}")
             raise Exception(f"无权限访问文件: {file_path}")
         except Exception as e:
-            logger.error(f"💀 解析DOC文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {str(e)}")
+            logger.error(
+                f"💀 解析DOC文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {str(e)}"
+            )
             raise
 
     def format_as_markdown(self, content: str) -> str:
@@ -679,10 +738,10 @@ class DocParser(BaseLife):
         """从WPS的WordDocument流中提取文本（使用更宽松的策略）"""
         try:
             text_parts = []
-            
+
             # WPS文件可能使用不同的编码和结构
             # 尝试多种策略提取文本
-            
+
             # 策略1：尝试找到连续的文本块
             # 查找看起来像文本的字节序列
             i = 0
@@ -690,18 +749,24 @@ class DocParser(BaseLife):
                 # 查找可能的文本开始位置
                 if i + 2 < len(data):
                     # 检查是否是Unicode文本（小端序）
-                    if data[i+1] == 0 and 32 <= data[i] <= 126:
+                    if data[i + 1] == 0 and 32 <= data[i] <= 126:
                         # 可能是ASCII字符的Unicode编码
                         text_block = bytearray()
                         j = i
-                        while j + 1 < len(data) and data[j+1] == 0 and 32 <= data[j] <= 126:
+                        while (
+                            j + 1 < len(data)
+                            and data[j + 1] == 0
+                            and 32 <= data[j] <= 126
+                        ):
                             text_block.append(data[j])
                             j += 2
                         if len(text_block) > 10:
-                            text_parts.append(text_block.decode('ascii', errors='ignore'))
+                            text_parts.append(
+                                text_block.decode("ascii", errors="ignore")
+                            )
                         i = j
                     # 检查是否是UTF-8或GBK中文
-                    elif 0xe0 <= data[i] <= 0xef or 0x81 <= data[i] <= 0xfe:
+                    elif 0xE0 <= data[i] <= 0xEF or 0x81 <= data[i] <= 0xFE:
                         # 可能是多字节字符
                         text_block = bytearray()
                         j = i
@@ -712,9 +777,11 @@ class DocParser(BaseLife):
                             j += 1
                         if len(text_block) > 20:
                             # 尝试解码
-                            for encoding in ['utf-8', 'gbk', 'gb18030', 'gb2312']:
+                            for encoding in ["utf-8", "gbk", "gb18030", "gb2312"]:
                                 try:
-                                    decoded = text_block.decode(encoding, errors='ignore')
+                                    decoded = text_block.decode(
+                                        encoding, errors="ignore"
+                                    )
                                     if decoded and len(decoded.strip()) > 10:
                                         text_parts.append(decoded)
                                         break
@@ -725,15 +792,15 @@ class DocParser(BaseLife):
                         i += 1
                 else:
                     i += 1
-            
+
             # 合并文本部分
             if text_parts:
-                combined = '\n'.join(text_parts)
+                combined = "\n".join(text_parts)
                 return self._clean_extracted_text(combined)
-            
+
             # 如果上述方法失败，回退到原始方法
             return self._parse_word_stream(data)
-            
+
         except Exception as e:
             logger.error(f"💥 解析WPS流失败: {str(e)}")
             return ""

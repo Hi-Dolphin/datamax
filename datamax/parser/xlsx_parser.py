@@ -1,4 +1,3 @@
-from loguru import logger
 import multiprocessing
 import os
 import time
@@ -6,9 +5,11 @@ import warnings
 from multiprocessing import Queue
 
 import pandas as pd
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+
 warnings.filterwarnings("ignore")
 
 
@@ -84,7 +85,9 @@ class XlsxParser(BaseLife):
                     markdown_content = "*工作表为空*"
                     logger.warning("⚠️ 工作表为空")
 
-            logger.info(f"🎊 pandas转换完成，markdown内容长度: {len(markdown_content)} 字符")
+            logger.info(
+                f"🎊 pandas转换完成，markdown内容长度: {len(markdown_content)} 字符"
+            )
             logger.debug(f"👀 前200字符预览: {markdown_content[:200]}...")
 
             return markdown_content
@@ -171,7 +174,7 @@ class XlsxParser(BaseLife):
                     source_file=file_path,
                     domain="Technology",
                     usage_purpose="Documentation",
-                    life_type=LifeType.DATA_PROCESS_FAILED
+                    life_type=LifeType.DATA_PROCESS_FAILED,
                 )
                 logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
             except Exception:
@@ -183,7 +186,7 @@ class XlsxParser(BaseLife):
                 "error": str(e),
                 "file_path": file_path,
                 # 额外把失败的 lifecycle 也一起返回，测试中可选校验
-                "lifecycle": [lc_fail.to_dict()] if 'lc_fail' in locals() else []
+                "lifecycle": [lc_fail.to_dict()] if "lc_fail" in locals() else [],
             }
             result_queue.put(error_result)
             raise

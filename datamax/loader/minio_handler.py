@@ -1,11 +1,12 @@
 import os
-from dotenv import load_dotenv
+import re
 from datetime import timedelta
+
+from dotenv import load_dotenv
+from loguru import logger
 from minio import Minio
 from minio.commonconfig import Tags
 from minio.error import S3Error
-from loguru import logger
-import re
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ class MinIOClient:
                 self.endpoint,
                 access_key=self.access_key,
                 secret_key=self.secret_key,
-                secure=self.secure
+                secure=self.secure,
             )
             return client
         except S3Error as e:
@@ -55,7 +56,9 @@ class MinIOClient:
         if self.client:
             try:
                 self.client.fput_object(bucket_name, object_name, file_path)
-                logger.info(f"File '{file_path}' uploaded to bucket '{bucket_name}' as '{object_name}'.")
+                logger.info(
+                    f"File '{file_path}' uploaded to bucket '{bucket_name}' as '{object_name}'."
+                )
             except S3Error as e:
                 raise
 
@@ -63,15 +66,18 @@ class MinIOClient:
         if self.client:
             try:
                 self.client.fget_object(bucket_name, object_name, file_path)
-                logger.info(f"Object '{object_name}' from bucket '{bucket_name}' downloaded to '{file_path}'.")
+                logger.info(
+                    f"Object '{object_name}' from bucket '{bucket_name}' downloaded to '{file_path}'."
+                )
                 return file_path
             except Exception as e:
                 try:
                     illegal_chars = r'[\/:*?"<>|]'
-                    file_path = re.sub(illegal_chars, '_', file_path)
+                    file_path = re.sub(illegal_chars, "_", file_path)
                     self.client.fget_object(bucket_name, object_name, file_path)
                     logger.info(
-                        f"Object {object_name} from bucket {bucket_name} downloaded to {file_path}'.")
+                        f"Object {object_name} from bucket {bucket_name} downloaded to {file_path}'."
+                    )
                     return file_path
                 except Exception as e:
                     raise
@@ -81,7 +87,9 @@ class MinIOClient:
             try:
                 result_list = []
                 if prefix:
-                    objects = self.client.list_objects(bucket_name, recursive=True, prefix=prefix)
+                    objects = self.client.list_objects(
+                        bucket_name, recursive=True, prefix=prefix
+                    )
                 else:
                     objects = self.client.list_objects(bucket_name, recursive=True)
                 logger.info(f"Objects in bucket '{bucket_name}':")
@@ -99,8 +107,7 @@ class MinIOClient:
                 raise
 
     def calculate_bucket_stats(self, bucket_name, prefix):
-        objects = self.client.list_objects(bucket_name,
-                                           prefix=prefix, recursive=True)
+        objects = self.client.list_objects(bucket_name, prefix=prefix, recursive=True)
         total_size = 0
         object_count = 0
 
@@ -115,14 +122,16 @@ class MinIOClient:
     def get_objects(self, bucket_name, object_name):
         try:
             response = self.client.get_object(bucket_name, object_name)
-            content = response.read().decode('utf-8')
+            content = response.read().decode("utf-8")
             return content
         except Exception as e:
             raise
 
     def get_object_tag(self, bucket_name, object_name):
         try:
-            tags = self.client.get_object_tags(bucket_name=bucket_name, object_name=object_name)
+            tags = self.client.get_object_tags(
+                bucket_name=bucket_name, object_name=object_name
+            )
             return tags
         except Exception as e:
             raise
@@ -130,7 +139,9 @@ class MinIOClient:
     def update_object_tag(self, bucket_name, object_name, tags):
         try:
             tags_obj = Tags.new_object_tags()
-            tag_info = self.get_object_tag(bucket_name=bucket_name, object_name=object_name)
+            tag_info = self.get_object_tag(
+                bucket_name=bucket_name, object_name=object_name
+            )
             if tag_info is None:
                 tag_info = {}
                 for tag_dict in tags:
@@ -142,7 +153,9 @@ class MinIOClient:
 
                 for k, v in tag_info.items():
                     tags_obj[k] = v
-                self.client.set_object_tags(bucket_name=bucket_name, object_name=object_name, tags=tags_obj)
+                self.client.set_object_tags(
+                    bucket_name=bucket_name, object_name=object_name, tags=tags_obj
+                )
             else:
                 for tag_dict in tags:
                     for tag_key, tag_value in tag_dict.items():
@@ -153,20 +166,26 @@ class MinIOClient:
 
                 for k, v in tag_info.items():
                     tags_obj[k] = v
-                self.client.set_object_tags(bucket_name=bucket_name, object_name=object_name, tags=tags_obj)
+                self.client.set_object_tags(
+                    bucket_name=bucket_name, object_name=object_name, tags=tags_obj
+                )
             return tag_info
         except Exception as e:
             raise
 
     def reset_object_tag(self, bucket_name, object_name):
         try:
-            self.client.delete_object_tags(bucket_name=bucket_name, object_name=object_name)
+            self.client.delete_object_tags(
+                bucket_name=bucket_name, object_name=object_name
+            )
             return True
         except Exception as e:
             raise
 
     def get_object_tmp_link(self, bucket_name, object_name, expires):
         try:
-            return self.client.presigned_get_object(bucket_name, object_name, expires=timedelta(days=expires))
+            return self.client.presigned_get_object(
+                bucket_name, object_name, expires=timedelta(days=expires)
+            )
         except Exception as e:
             raise
