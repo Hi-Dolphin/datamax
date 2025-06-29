@@ -52,7 +52,7 @@ qa_data = dm.get_pre_label(
     question_number=5,     # 每块生成问题数
     max_workers=5          # 并发数
 )
-dm.save_label_data(qa_data)  # Save the labeled data returned from the pre-labeling process
+dm.save_label_data(qa_data)      # Save the tagging data returned by the pre tagging process
 ```
 
 ## 📖 Detailed Documentation
