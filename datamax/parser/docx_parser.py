@@ -9,6 +9,7 @@ from typing import Union, Optional
 import chardet
 from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 import zipfile
 import re
 import html
@@ -726,7 +727,13 @@ class DocxParser(BaseLife):
             # 🏷️ 提取文件扩展名
             extension = self.get_file_extension(file_path)
             logger.debug(f"🏷️ 提取文件扩展名: {extension}")
-
+            # 1) 处理开始：生成 DATA_PROCESSING 事件
+            lc_start = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                life_type=LifeType.DATA_PROCESSING,
+                usage_purpose="Parsing",
+            )
             # 使用soffice转换为txt后读取内容
             logger.info("📝 使用soffice转换DOCX为TXT并读取内容")
             content = self.read_docx_file(docx_path=file_path)
@@ -746,16 +753,23 @@ class DocxParser(BaseLife):
             if not mk_content.strip():
                 logger.warning(f"⚠️ 解析出的内容为空: {file_path}")
 
-            lifecycle = self.generate_lifecycle(
+            # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED 事件
+            lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain="Technology",
-                usage_purpose="Documentation",
-                life_type="LLM_ORIGIN",
+                life_type=(
+                    LifeType.DATA_PROCESSED
+                    if mk_content.strip()
+                    else LifeType.DATA_PROCESS_FAILED
+                ),
+                usage_purpose="Parsing",
             )
-            logger.debug("⚙️ 生成lifecycle信息完成")
+            logger.debug("⚙️ 生成生命周期事件完成")
 
+            # 3) 封装输出并添加生命周期
             output_vo = MarkdownOutputVo(extension, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(lc_start)
+            output_vo.add_lifecycle(lc_end)
 
             result = output_vo.to_dict()
             logger.info(f"🏆 DOCX文件解析完成: {file_path}")

@@ -12,7 +12,7 @@ import html
 import chardet
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
-
+from datamax.utils.lifecycle_types import LifeType
 # 尝试导入OLE相关库（用于读取DOC内部结构）
 try:
     import olefile
@@ -583,6 +583,14 @@ class DocParser(BaseLife):
 
             if file_size == 0:
                 logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
+            # 生命周期：Data Processing 开始
+            lc_start = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                life_type=LifeType.DATA_PROCESSING,
+                usage_purpose="Documentation",
+            )
+
 
             # 🏷️ 提取文件扩展名
             extension = self.get_file_extension(file_path)
@@ -600,6 +608,17 @@ class DocParser(BaseLife):
             else:
                 mk_content = content
                 logger.info("📝 保持原始文本格式")
+            # 3) 生命周期：Data Processed or Failed
+            lc_end = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                life_type=(
+                    LifeType.DATA_PROCESSED
+                    if mk_content.strip()
+                    else LifeType.DATA_PROCESS_FAILED
+                ),
+                usage_purpose="Documentation",
+            )
 
             logger.info(f"🎊 文件内容解析完成，最终内容长度: {len(mk_content)} 字符")
 
@@ -616,7 +635,9 @@ class DocParser(BaseLife):
             logger.debug("⚙️ 生成lifecycle信息完成")
 
             output_vo = MarkdownOutputVo(extension, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(lc_start)
+            output_vo.add_lifecycle(lc_end)
+            # output_vo.add_lifecycle(lc_origin)
 
             result = output_vo.to_dict()
             logger.info(f"🏆 DOC文件解析完成: {file_path}")
