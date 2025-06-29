@@ -1,0 +1,30 @@
+Metadata-Version: 2.0
+Name: zipfile36
+Version: 0.1.3
+Summary: Read and write ZIP files - backport of the zipfile module from Python 3.6
+Home-page: https://gitlab.com/takluyver/zipfile36
+Author: Thomas Kluyver
+Author-email: thomas@kluyver.me.uk
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: License :: OSI Approved :: Python Software Foundation License
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: System :: Archiving :: Compression
+
+This is a backport of the zipfile module from Python 3.6, which contains some
+improvements.
+
+Installation::
+
+    pip install zipfile36
+
+Suggested usage:
+
+.. code:: python
+
+    if sys.version_info >= (3, 6):
+        import zipfile
+    else:
+        import zipfile36 as zipfile
+
+

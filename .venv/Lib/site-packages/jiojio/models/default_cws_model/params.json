@@ -1,0 +1,8 @@
+{
+    "word_max":4,
+    "word_min":2,
+    "norm_text":true,
+    "convert_num_letter":true,
+    "normalize_num_letter":false,
+    "convert_exception":true
+}
