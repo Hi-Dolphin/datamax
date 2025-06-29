@@ -128,7 +128,7 @@ test.py
 # venv
 venv/
 venv*/
-examples/parser_examples.py
+examples/*
 # scripts
 security_report.json
 README_CI_CD.md

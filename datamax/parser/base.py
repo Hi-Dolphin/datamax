@@ -1,17 +1,20 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
-from datamax.utils.tokenizer import DashScopeClient
-from typing import Union, List
+from typing import Dict, List, Union
+
 from datamax.utils.lifecycle_types import LifeType
+from datamax.utils.tokenizer import DashScopeClient
+
 
 class LifeCycle:
     """
     Life cycle class
     """
 
-    def __init__(self, update_time: str, life_type: list, life_metadata: Dict[str, str]):
+    def __init__(
+        self, update_time: str, life_type: list, life_metadata: Dict[str, str]
+    ):
         self.update_time = update_time  # Update time
         self.life_type = life_type  # Life cycle type
         self.life_metadata = life_metadata  # Life cycle metadata
@@ -22,14 +25,14 @@ class LifeCycle:
         self.life_metadata.update(life_metadata)
 
     def __str__(self):
-        metadata_str = ', '.join(f'{k}: {v}' for k, v in self.life_metadata.items())
-        return f'update_time: {self.update_time}, life_type: {self.life_type}, life_metadata: {{{metadata_str}}}'
+        metadata_str = ", ".join(f"{k}: {v}" for k, v in self.life_metadata.items())
+        return f"update_time: {self.update_time}, life_type: {self.life_type}, life_metadata: {{{metadata_str}}}"
 
     def to_dict(self):
         return {
-            'update_time': self.update_time,
-            'life_type': self.life_type,
-            'life_metadata': self.life_metadata
+            "update_time": self.update_time,
+            "life_type": self.life_type,
+            "life_metadata": self.life_metadata,
         }
 
 
@@ -48,9 +51,9 @@ class MarkdownOutputVo:
 
     def to_dict(self):
         data_dict = {
-            'extension': self.extension,
-            'content': self.content,
-            'lifecycle': [lc.to_dict() for lc in self.lifecycle]
+            "extension": self.extension,
+            "content": self.content,
+            "lifecycle": [lc.to_dict() for lc in self.lifecycle],
         }
         return data_dict
 
@@ -62,7 +65,7 @@ class BaseLife:
     def generate_lifecycle(
         source_file: str,
         domain: str,
-        life_type: Union[LifeType, str, List[Union[LifeType,str]]],
+        life_type: Union[LifeType, str, List[Union[LifeType, str]]],
         usage_purpose: str,
     ) -> LifeCycle:
         """
@@ -76,8 +79,7 @@ class BaseLife:
 
         # 2) 如果是枚举，就取它的 value
         life_list: List[str] = [
-            lt.value if isinstance(lt, LifeType) else lt
-            for lt in raw
+            lt.value if isinstance(lt, LifeType) else lt for lt in raw
         ]
 
         update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

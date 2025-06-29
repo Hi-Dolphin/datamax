@@ -31,15 +31,15 @@ class AbnormalCleaner:
         """
         Extract reference entries and assign to self.parsed_data
         (Original text will be replaced with extracted references, each item on a separate line)
-        
+
         Returns:
             str: Extracted reference text (same as self.parsed_data)
         """
         patterns = [
-            r'([A-Z][a-z]+(?:, [A-Z](?:\.[a-z]*)?)+(?: et al\.)? $\d{4}$[^\n]+)',  # APA format
-            r'($$\d+$$[^\n]+)',                                                      # Numbered references like [1]
-            r'(DOI:\s?\S+|https?://\S+)',                                            # DOI/URL
-            r'([A-Z][a-z]+, [A-Z]\.?,? & [A-Z][a-z]+, [A-Z]\. \d{4}[^\n]+)'           # Multi-author APA
+            r"([A-Z][a-z]+(?:, [A-Z](?:\.[a-z]*)?)+(?: et al\.)? $\d{4}$[^\n]+)",  # APA format
+            r"($$\d+$$[^\n]+)",  # Numbered references like [1]
+            r"(DOI:\s?\S+|https?://\S+)",  # DOI/URL
+            r"([A-Z][a-z]+, [A-Z]\.?,? & [A-Z][a-z]+, [A-Z]\. \d{4}[^\n]+)",  # Multi-author APA
         ]
         references = []
         for pattern in patterns:
@@ -47,9 +47,11 @@ class AbnormalCleaner:
                 references.extend(re.findall(pattern, self.parsed_data))
             except re.error as e:
                 print(f"Regex error {pattern}: {e}")
-        
+
         # Assign extraction results to parsed_data (each item on a separate line)
-        self.parsed_data = "\n".join(list(set(references)))  # Deduplicate and merge into string
+        self.parsed_data = "\n".join(
+            list(set(references))
+        )  # Deduplicate and merge into string
         return self.parsed_data
 
     # Exception cleaning class
@@ -164,19 +166,19 @@ class TextFilter:
         """Filter by word repetition rate"""
         if not isinstance(self.parsed_data, str):
             return False
-            
+
         text = str(self.parsed_data)
-        bi_grams = [text[i:i+2] for i in range(0, len(text)-1, 2)]
+        bi_grams = [text[i : i + 2] for i in range(0, len(text) - 1, 2)]
         word_count = len(bi_grams)
         if word_count == 0:
             print("No words found.")
             return False
-    
+
         word_freq = Counter(bi_grams)
         most_common_word, most_common_count = word_freq.most_common(1)[0]
         repetition_rate = most_common_count / word_count
         print(f"Word repetition rate: {repetition_rate}")
-    
+
         return repetition_rate <= threshold
 
     def filter_by_char_count(self, min_chars=30, max_chars=500000):
@@ -227,10 +229,11 @@ class PrivacyDesensitization:
         # Customer service hotlines are not easy to match and are not considered private data
         self.parsed_data = re.sub(r"\d+-\d+-\d+", token, self.parsed_data)
         return self.parsed_data
-    
+
     def replace_bank_id(self, token="COSCO_NUMBER"):
         # Match bank card numbers and replace
-        BANK_ID_PATTERN = r'\b(?:(?:\d{4}[ -]?){4}\d{3}|(?:\d{4}[ -]?){3}\d{4}|(?:4\d{3}|5[1-5]\d{2}|6[045]\d{2})(?:[ -]?\d{4}){3}|3[47]\d{2}[ -]?\d{6}[ -]?\d{5})\b'
+        BANK_ID_PATTERN = r"\b(?:(?:\d{4}[ -]?){4}\d{3}|(?:\d{4}[ -]?){3}\d{4}|(?:4\d{3}|5[1-5]\d{2}|6[045]\d{2})(?:[ -]?\d{4}){3}|3[47]\d{2}[ -]?\d{6}[ -]?\d{5})\b"
+
         def luhn_check(card_number):
             digits = [int(d) for d in card_number if d.isdigit()]
             if len(digits) not in (13, 15, 16, 19):
@@ -240,20 +243,20 @@ class PrivacyDesensitization:
             return checksum % 10 == 0
 
         bank_card_numbers = re.findall(BANK_ID_PATTERN, self.parsed_data)
-        
+
         for card_number in bank_card_numbers:
             if luhn_check(card_number):
                 self.parsed_data = re.sub(card_number, token, self.parsed_data)
         return self.parsed_data
-    
+
     def replace_phone_number(self, token="COSCO_NUMBER"):
         # Match phone numbers and replace
         self.parsed_data = jio.replace_phone_number(self.parsed_data, token)
         return self.parsed_data
-    
+
     def replace_qq(self, token="COSCO_NUMBER"):
         # Match QQ numbers and replace
-        self.parsed_data = jio.replace_qq(self.parsed_data,token)
+        self.parsed_data = jio.replace_qq(self.parsed_data, token)
         return self.parsed_data
 
     def replace_id_card(self, token="COSCO_NUMBER"):
@@ -264,7 +267,9 @@ class PrivacyDesensitization:
     def replace_number(self):
         # Replace all types of numeric private data
         # Bank card
-        self.parsed_data = self.replace_bank_id(token="BANK_ID")  # nosec B106 - 这是数据脱敏标记，不是密码
+        self.parsed_data = self.replace_bank_id(
+            token="BANK_ID"
+        )  # nosec B106 - 这是数据脱敏标记，不是密码
 
         # Landline + mobile phone
         self.parsed_data = jio.replace_phone_number(self.parsed_data, "COSCO_NUMBER")
@@ -272,7 +277,7 @@ class PrivacyDesensitization:
         self.parsed_data = jio.replace_qq(self.parsed_data, "COSCO_NUMBER")
         # ID card
         self.parsed_data = jio.replace_id_card(self.parsed_data, "COSCO_NUMBER")
-        
+
         return self.parsed_data
 
     def to_private(self):

@@ -1,6 +1,7 @@
 import pandas as pd
-from datamax.utils.lifecycle_types import LifeType
+
 from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 
 
 class CsvParser(BaseLife):

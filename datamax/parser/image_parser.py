@@ -1,21 +1,24 @@
 import os
 import pathlib
 import sys
+
 from datamax.utils import setup_environment
 
 setup_environment(use_gpu=True)
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
+from PIL import Image
+
 from datamax.parser.base import BaseLife
 from datamax.parser.pdf_parser import PdfParser
 from datamax.utils.lifecycle_types import LifeType
-from PIL import Image
+
 
 class ImageParser(BaseLife):
-    def __init__(self,file_path: str):
+    def __init__(self, file_path: str):
         super().__init__()
         self.file_path = file_path
 
@@ -62,7 +65,6 @@ class ImageParser(BaseLife):
             lifecycle.insert(0, lc_start.to_dict())
             lifecycle.append(lc_end.to_dict())
             result["lifecycle"] = lifecycle
-
 
             return result
 

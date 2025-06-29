@@ -1,14 +1,10 @@
 from typing import Union
-import pathlib
-import sys
 
-ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
-sys.path.insert(0, str(ROOT_DIR))
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
-from datamax.utils.lifecycle_types import LifeType
 from bs4 import BeautifulSoup
-import os
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
+
 
 class HtmlParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
@@ -18,10 +14,10 @@ class HtmlParser(BaseLife):
     @staticmethod
     def read_html_file(file_path: str) -> str:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 data = f.read()
-                soup = BeautifulSoup(data, 'html.parser')
-                return soup.get_text(separator='\n', strip=True)
+                soup = BeautifulSoup(data, "html.parser")
+                return soup.get_text(separator="\n", strip=True)
         except Exception:
             raise
 

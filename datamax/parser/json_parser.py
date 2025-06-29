@@ -3,6 +3,7 @@ import json
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
+
 class JsonParser(BaseLife):
 
     def __init__(self, file_path):

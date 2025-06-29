@@ -1,2 +1,3 @@
-from .core import DataMax
 from loguru import logger
+
+from .core import DataMax
