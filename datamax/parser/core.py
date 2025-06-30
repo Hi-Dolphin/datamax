@@ -262,6 +262,49 @@ class DataMax:
         else:
             return cleaned_text
 
+    def complete_api_url(self, base_url):
+        """
+        Automatically complete the API URL path for the website
+        
+        rules:
+            1. /chat/completions as default endpoint
+            2. Only add version if not already present in path
+        """
+        base_url = base_url.strip().rstrip('/')
+
+        def has_version(path_parts):
+            """Check if path contains a version number"""
+            return any(part.startswith('v') and part[1:].isdigit() for part in path_parts)
+
+        if not base_url.startswith('https://'):
+            if base_url.startswith('http://'):
+                base_url = base_url.replace('http://', 'https://')
+            else:
+                base_url = f'https://{base_url}'
+
+        # Check if URL is complete with endpoint
+        if any(x in base_url for x in ['/completions']):
+            return base_url
+
+        # Split URL into components
+        parts = base_url.split('/')
+        domain_part = parts[2]
+        path_parts = parts[3:] if len(parts) > 3 else []
+
+        # Check if path already has a version
+        if has_version(path_parts):
+            # Join path parts and clean trailing slash
+            path = '/'.join(path_parts).rstrip('/')
+            # Remove any existing /chat or /completions parts
+            path = path.replace('/chat', '')
+            # Re-add single /chat/completions
+            return f"https://{domain_part}/{path}/chat/completions"
+        else:
+            # Add default version and endpoint (original logic)
+            path = '/'.join(path_parts).rstrip('/')
+            return f"https://{domain_part}/{path}/v1/chat/completions" if path \
+                else f"https://{domain_part}/v1/chat/completions"
+
     def get_pre_label(
         self,
         api_key: str,
@@ -308,6 +351,9 @@ class DataMax:
             content = processed_data
         else:
             raise ValueError("Unable to extract content field from processed data")
+
+        # complete url
+        base_url=self.complete_api_url(base_url)
 
         # Generate QA pairs using content instead of reading files
         return generate_qa_from_content(
