@@ -4,6 +4,8 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Optional, List, Any
+import uuid
 
 import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -19,7 +21,7 @@ lock = threading.Lock()
 def get_system_prompt_for_match_label(tags_json, question):
     system_prompt = f"""
     # Role: 标签匹配专家
-    - Description: 你是一名标签匹配专家，擅长根据给定的标签数组和问题数组，将问题打上最合适的领域标签。你熟悉标签的层级结构，并能根据问题的内容优先匹配二级标签，若无法匹配则匹配一级标签，最后打上“其他”标签。
+    - Description: 你是一名标签匹配专家，擅长根据给定的标签数组和问题数组，将问题打上最合适的领域标签。你熟悉标签的层级结构，并能根据问题的内容优先匹配二级标签，若无法匹配则匹配一级标签，若无法匹配最后打上"其他"标签。
 
     ### Skill:
     1. 熟悉标签层级结构，能够准确识别一级和二级标签。
@@ -30,14 +32,14 @@ def get_system_prompt_for_match_label(tags_json, question):
 
     ## Goals:
     1. 将问题数组中的每个问题打上最合适的领域标签。
-    2. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上“其他”标签。
+    2. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。
     3. 确保输出格式符合要求，不改变原有数据结构。
     4. 提供高效的标签匹配算法，确保处理大规模数据时的性能。
     5. 确保标签匹配的准确性和一致性。
 
     ## OutputFormat:
     1. 输出结果必须是一个数组，每个元素包含 question、和 label 字段。
-    2. label 字段必须是根据标签数组匹配到的标签，若无法匹配则打上“其他”标签。
+    2. label 字段必须是根据标签数组匹配到的标签，若无法匹配则打上"其他"标签。
     3. 不改变原有数据结构，只新增 label 字段。
 
     ## 标签json：
@@ -51,9 +53,9 @@ def get_system_prompt_for_match_label(tags_json, question):
 
     ## Workflow:
     1. Take a deep breath and work on this problem step-by-step.
-    2. 首先，读取标签数组和问题数组。
+    2. 首先，仔细分析每个问题的核心内容和关键词。
     3. 然后，遍历问题数组中的每个问题，根据问题的内容匹配标签数组中的标签。
-    4. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上“其他”标签。
+    4. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。
     5. 将匹配到的标签添加到问题对象中，确保不改变原有数据结构。
     6. 最后，输出结果数组，确保格式符合要求。
 
@@ -61,10 +63,13 @@ def get_system_prompt_for_match_label(tags_json, question):
     ## Constrains:
     1. 只新增一个 label 字段，不改变其他任何格式和数据。
     2. 必须按照规定格式返回结果。
-    3. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上“其他”标签。
+    3. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。尽量不匹配"其他"标签。
     4. 确保标签匹配的准确性和一致性。
-    5. 匹配的标签必须在标签数组中存在，如果不存在，就打上 其他 
-    7. 输出结果必须是一个数组，每个元素包含 question、label 字段（只输出这个，不要输出任何其他无关内容）
+    5. 匹配的标签必须来自标签数组，如果无法匹配任何标签，就打上"其他"标签。
+    6. 输出结果必须是一个数组，每个元素包含 question、label 字段（只输出这个，不要输出任何其他无关内容）。
+    7. 仔细分析问题内容，寻找与标签的语义关联。
+    8. 如果问题内容与多个标签相关，选择最匹配的一个。
+    9. 考虑问题的核心主题和关键词，进行精确匹配。
 
     ## Output Example:
     ```json
@@ -72,6 +77,10 @@ def get_system_prompt_for_match_label(tags_json, question):
             {{
                 "question": "XSS为什么会在2003年后引起人们更多关注并被OWASP列为威胁榜首？",
                 "label": "2.2 XSS攻击"
+            }},
+            {{
+                "question": "这个问题与现有标签都不相关",
+                "label": "其他"
             }}
         ]
     ```
@@ -339,13 +348,15 @@ def llm_generator(
             output = result["choices"][0]["message"]["content"]
             if type == "question":
                 fmt_output = extract_json_from_llm_output(output)
+                return fmt_output if fmt_output is not None else []
             else:
-                return output
-            return fmt_output
+                return [output] if output else []
         return []
 
     except Exception as e:
-        print(f"LLM提取关键词失败: {e, e.__traceback__.tb_lineno}")
+        print(f"LLM提取关键词失败: {e}")
+        if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+            print(f"错误行号: {e.__traceback__.tb_lineno}")
         return []
 
 
@@ -357,19 +368,32 @@ def process_match_tags(
     questions: list,
     tags_json: list,
     temperature: float = 0.7,
-    top_p: float = 0.9
+    top_p: float = 0.9,
+    max_workers: int = 3
 ):
-    prompt = get_system_prompt_for_match_label(tags_json, questions)
-    logger.info(f"开始生成问题匹配标签...")
-    q_match_list = llm_generator(
-        api_key=api_key,
-        model=model,
-        base_url=base_url,
-        prompt=prompt,
-        type="question",
-    )
-    logger.success(f"问题匹配标签生成成功, 共生成 {len(q_match_list)} 个问题")
-    return q_match_list
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    logger.info(f"开始并发生成问题匹配标签... (max_workers={max_workers})")
+    results = []
+    def match_one_question(q):
+        prompt = get_system_prompt_for_match_label(tags_json, [q])
+        match = llm_generator(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            prompt=prompt,
+            type="question",
+        )
+        # llm_generator return a list, only one question is passed, take the first one
+        return match[0] if match else {"question": q, "label": "其他"}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_q = {executor.submit(match_one_question, q): q for q in questions}
+        for future in as_completed(future_to_q):
+            res = future.result()
+            print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
+            results.append(res)
+    logger.success(f"问题匹配标签生成成功, 共生成 {len(results)} 个问题")
+    return results
 
 
 
@@ -407,14 +431,14 @@ def process_domain_tree(
     # Parse LLM response
     if "choices" in result and len(result["choices"]) > 0:
         output = result["choices"][0]["message"]["content"]
-        # 保存结果
+        # save result
         if output:
             json_output = extract_json_from_llm_output(output)
-            with open("./tags.json", "w", encoding="utf-8") as f:
-                json.dump(json_output, f, ensure_ascii=False, indent=2)
-            logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
-
-        return output
+            if json_output is not None:
+                with open("./tags.json", "w", encoding="utf-8") as f:
+                    json.dump(json_output, f, ensure_ascii=False, indent=2)
+                logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
+                return json_output
 
     return []
 
@@ -507,6 +531,33 @@ def process_answers(
     return qa_pairs
 
 
+# find tagpath by label
+
+def find_tagpath_by_label(domain_tree, label, path=None):
+    if path is None:
+        path = []
+    
+    # check if domain_tree is a list
+    if not isinstance(domain_tree, list):
+        logger.warning(f"domain_tree 不是列表类型: {type(domain_tree)}")
+        return None
+        
+    for node in domain_tree:
+        if not isinstance(node, dict):
+            continue
+        current_label = node.get('label')
+        current_path = path + [current_label]
+        if current_label == label:
+            return '/'.join(current_path)
+        # recursive find child node
+        if 'child' in node and isinstance(node['child'], list):
+            result = find_tagpath_by_label(node['child'], label, current_path)
+            if result:
+                return result
+    return None
+
+
+
 def generatr_qa_pairs(
     question_info: list,
     api_key: str,
@@ -515,8 +566,8 @@ def generatr_qa_pairs(
     question_number=5,
     message: list = None,
     max_workers=5,
+    domain_tree=None,  
 ):
-    # 3. Generate answers using multi-threading
     qa_pairs = process_answers(
         question_items=question_info,
         message=message,
@@ -529,72 +580,99 @@ def generatr_qa_pairs(
         f"完成! 共生成 {len(qa_pairs)} 个问答对"
     )
     res_list = []
-    for question, answer in qa_pairs.items():
-        qa_entry = {"instruction": question, "input": "", "output": answer}
+    for q in question_info:
+        question = q["question"]
+        label = q.get("label", "")
+        answer = qa_pairs.get(question, "")
+        tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
+        qid = q.get("qid", "")
+        qa_entry = {
+            "qid": qid,
+            "instruction": question,
+            "input": "",
+            "output": answer,
+            "label": label,
+            "tag-path": tag_path,
+            "method": "text"
+        }
         res_list.append(qa_entry)
     return res_list
 
 
 if __name__ == "__main__":
-    # 文本分块
+    # split text into chunks
     page_content = load_and_split_markdown(
-        md_path=r"C:\Users\cykro\Desktop\文档整理\知识图谱\知识图谱概要设计.md",
+        md_path=r"C:\Users\lysnoir\OneDrive\桌面\15349549.md",
         chunk_size=500,
         chunk_overlap=100,
     )
 
-    # 生成领域树
+    # generate domain tree
     domain_tree = process_domain_tree(
-        api_key="sk-xxx",
+        api_key="sk-0079be2ceda64ece81e0810e2b6c7be9",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        model="qwen-max",
+        model="qwen-plus",
         text=page_content,
         temperature=0.7,
         top_p=0.9,
     )
 
-    # 生成提问 question_info 中包含chuck信息 和 问题
-    # question_info 是最大的问题集 会根据领域树的修改 进行调整
+    # generate question_info containing chuck and questions
+    # question_info is the largest question set, will be adjusted according to the modification of the domain tree
     question_info = process_questions(
         page_content=page_content,
-        question_number=5,
-        max_workers=5,
-        api_key="sk-xxx",
+        question_number=5,  
+        max_workers=10,  
+        api_key="sk-0079be2ceda64ece81e0810e2b6c7be9",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        model="qwen-max",
+        model="qwen-plus",
     )
+
+    # add unique id to each question
+    for q in question_info:
+        q["qid"] = str(uuid.uuid4())
 
     if not question_info:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
 
-    # 判断tag文件是否存在
+    # if tags.json exists, filter question_info
     if not os.path.exists("./tags.json"):
         logger.info("tags.json 文件不存在, 未进行打标")
     else:
-        # 存在进行过滤
+        # if tags.json exists, filter question_info
         with open("./tags.json", "r", encoding="utf-8") as f:
             tags_json = json.load(f)
-        # 问题匹配标签 q_match_list必然小于等于question_info中的问题
+        # question matching label q_match_list must be less than or equal to the questions in question_info
         q_match_list = process_match_tags(
-            api_key="sk-xxx",
+            api_key="sk-0079be2ceda64ece81e0810e2b6c7be9",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            model="qwen-max",
+            model="qwen-plus",
             tags_json=domain_tree,
-            questions= [q["question"] for q in question_info]
+            questions= [q["question"] for q in question_info],
+            max_workers=3
         )
         logger.info(f"问题匹配标签完成, 结果是: {q_match_list}")
-        # 获取过滤后的question_info
+        # merge label to question_info
+        label_map = {item["question"]: item.get("label", "") for item in q_match_list}
+        for q in question_info:
+            q["label"] = label_map.get(q["question"], "")
+        # generate unique id-label mapping and save
+        qid_label_map = {q["qid"]: q.get("label", "") for q in question_info}
+        with open("question_id_label_map.json", "w", encoding="utf-8") as f:
+            json.dump(qid_label_map, f, ensure_ascii=False, indent=2)
+        # get filtered question_info
         q_list = [i["question"] for i in question_info]
-        question_info = [{"question": q["question"], "page": q["page"]} for q in question_info if q["question"] in q_list]
+        question_info = [{"question": q["question"], "page": q["page"], "qid": q["qid"], "label": q["label"]} for q in question_info if q["question"] in q_list]
 
-    # 生成问题答案
+    # final answer
     r = generatr_qa_pairs(
         question_info=question_info,
-        api_key="sk-xxx",
+        api_key="sk-0079be2ceda64ece81e0810e2b6c7be9",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        model_name="qwen-max",
-        question_number=5,
-        max_workers=5,
+        model_name="qwen-plus",
+        question_number=5,  
+        max_workers=10,  
+        domain_tree=domain_tree
         # message=[]
     )
 
