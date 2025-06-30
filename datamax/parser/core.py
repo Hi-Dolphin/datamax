@@ -51,6 +51,7 @@ class ParserFactory:
             ".md": "MarkdownParser",
             ".docx": "DocxParser",
             ".doc": "DocParser",
+            ".wps": "WpsParser",
             ".epub": "EpubParser",
             ".html": "HtmlParser",
             ".txt": "TxtParser",
@@ -85,7 +86,7 @@ class ParserFactory:
                     file_path=file_path,
                     use_mineru=use_mineru,
                 )
-            elif parser_class_name == "DocxParser" or parser_class_name == "DocParser":
+            elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
                     file_path=file_path, to_markdown=to_markdown, use_uno=True
                 )
