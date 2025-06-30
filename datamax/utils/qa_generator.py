@@ -390,7 +390,7 @@ def process_match_tags(
         future_to_q = {executor.submit(match_one_question, q): q for q in questions}
         for future in as_completed(future_to_q):
             res = future.result()
-            print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
+            #print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
             results.append(res)
     logger.success(f"问题匹配标签生成成功, 共生成 {len(results)} 个问题")
     return results
