@@ -11,8 +11,8 @@ warnings.filterwarnings("ignore")
 class XlsParser(BaseLife):
     """xlsx or xls table use markitdown from Microsoft  so magic for table!"""
 
-    def __init__(self, file_path):
-        super().__init__()
+    def __init__(self, file_path, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
@@ -20,7 +20,7 @@ class XlsParser(BaseLife):
             # 🏷️ 解析开始
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -32,7 +32,7 @@ class XlsParser(BaseLife):
             # 🏷️ 解析完成
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -46,7 +46,7 @@ class XlsParser(BaseLife):
             # ❌ 解析失败
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )

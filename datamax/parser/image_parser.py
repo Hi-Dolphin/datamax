@@ -4,8 +4,7 @@ import sys
 
 from datamax.utils import setup_environment
 
-setup_environment(use_gpu=True)
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+
 
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
@@ -18,8 +17,11 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class ImageParser(BaseLife):
-    def __init__(self, file_path: str):
-        super().__init__()
+    def __init__(self, file_path: str, use_gpu: bool = False, domain: str = "Technology"):
+        super().__init__(domain=domain)
+        if use_gpu:
+            setup_environment(use_gpu=True)
+            os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
         self.file_path = file_path
 
     def parse(self, file_path: str):
@@ -28,7 +30,7 @@ class ImageParser(BaseLife):
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -51,7 +53,7 @@ class ImageParser(BaseLife):
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if content.strip()

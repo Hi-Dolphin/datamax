@@ -106,6 +106,7 @@ class DataMax(BaseLife):
         use_mineru: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
+        domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -115,6 +116,7 @@ class DataMax(BaseLife):
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         """
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
@@ -243,7 +245,7 @@ class DataMax(BaseLife):
         # 2) 触发“清洗开始”
         lc_start = self.generate_lifecycle(
             source_file=self.file_path,
-            domain="Technology",
+            domain=self.domain,
             life_type=LifeType.DATA_CLEANING,
             usage_purpose="Data Cleaning",
         ).to_dict()
@@ -261,7 +263,7 @@ class DataMax(BaseLife):
             # 4) 清洗成功，触发“清洗完成”
             lc_end = self.generate_lifecycle(
                 source_file=self.file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_CLEANED,
                 usage_purpose="Data Cleaning",
             ).to_dict()
@@ -270,7 +272,7 @@ class DataMax(BaseLife):
             # 5) 清洗失败，触发“清洗失败”
             lc_fail = self.generate_lifecycle(
                 source_file=self.file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_CLEAN_FAILED,
                 usage_purpose="Data Cleaning",
             ).to_dict()
@@ -338,7 +340,7 @@ class DataMax(BaseLife):
         self.parsed_data.setdefault("lifecycle", []).append(
             self.generate_lifecycle(
                 source_file=self.file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_LABELLING,
                 usage_purpose="Labeling",
             ).to_dict()
@@ -360,7 +362,7 @@ class DataMax(BaseLife):
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
-                    domain="Technology",
+                    domain=self.domain,
                     life_type=LifeType.DATA_LABELLED,
                     usage_purpose="Labeling",
                 ).to_dict()
@@ -371,7 +373,7 @@ class DataMax(BaseLife):
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
-                    domain="Technology",
+                    domain=self.domain,
                     life_type=LifeType.DATA_LABEL_FAILED,
                     usage_purpose="Labeling",
                 ).to_dict()

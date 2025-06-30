@@ -16,8 +16,9 @@ class MarkdownParser(BaseLife):
     def __init__(
         self,
         file_path: Union[str, list],
+        domain: str = "Technology"
     ):
-        super().__init__()
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -54,7 +55,7 @@ class MarkdownParser(BaseLife):
             # 1) 生成“开始处理”生命周期
             start_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -69,7 +70,7 @@ class MarkdownParser(BaseLife):
             # 4) 生成“处理完成”生命周期
             end_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -82,7 +83,7 @@ class MarkdownParser(BaseLife):
             # （可选）记录一次失败生命周期
             fail_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
