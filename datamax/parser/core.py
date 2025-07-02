@@ -76,6 +76,8 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
+            if parser_class_name != 'PdfParser' and use_mineru == True:
+                raise ValueError("MinerU is only supported for PDF files")
 
             # Special handling for PdfParser arguments
             if parser_class_name == 'PdfParser':
