@@ -19,6 +19,7 @@ class ModelInvoker:
         self.client = None
 
     def invoke_model(self, api_key, base_url, model_name, messages):
+        base_url = qa_gen.complete_api_url(base_url)
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -38,6 +39,7 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -85,15 +87,16 @@ class ParserFactory:
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    domain=domain,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser":
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True
+                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
             else:
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
 
         except (ImportError, AttributeError) as e:
             raise e
@@ -179,7 +182,8 @@ class DataMax(BaseLife):
                     and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
-                    return self._cache[file_name]["data"]
+                    self.parsed_data = self._cache[file_name]["data"]
+                    return self.parsed_data
                 else:
                     logger.info(
                         f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -346,8 +350,9 @@ class DataMax(BaseLife):
             ).to_dict()
         )
         try:
+            base_url = qa_gen.complete_api_url(base_url)
             data = qa_gen.generate_qa_from_content(
-            content=content,
+            content=text,
             api_key=api_key,
             base_url=base_url,
             model_name=model_name,
@@ -541,6 +546,7 @@ class DataMax(BaseLife):
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                domain=self.domain,
             )
             if parser:
                 return parser.parse(file_path=file_path)
