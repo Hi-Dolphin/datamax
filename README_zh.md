@@ -211,7 +211,7 @@ qa_data = dm.get_pre_label(
     max_workers=5          # 并发数
 )
 # 保存结果
-dm.save_label_data(res)
+dm.save_label_data(qa_data)
 ```
 
 ## ⚙️ 环境配置
@@ -232,12 +232,11 @@ apt update && apt install -y libreoffice libreoffice-dev python3-uno
 #### MinerU（高级PDF解析）
 
 ```bash
-# 创建虚拟环境
-conda create -n mineru python=3.10
-conda activate mineru
-
-# 安装MinerU
+# 1.安装MinerU
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
+
+# 2.安装模型
+python datamax/download_models.py
 ```
 
 详细配置请参考 [MinerU文档](https://github.com/opendatalab/MinerU)
@@ -287,7 +286,7 @@ print(data)
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
-
+- 💬 微信交流群：<br><img src='img_v3_02nl_8c3a7330-b09c-403f-8eb0-be22710030cg.png' width=300>
 ---
 
 ⭐ 如果这个项目对您有帮助，请给我们一个星标！
