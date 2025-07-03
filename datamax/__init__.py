@@ -1,2 +1,2 @@
 from .parser import DataMax
-from .parser.core import use_bespkelabs
+from .parser.bespokelabs_adapter import use_bespkelabs, use_bespkelabs_autolabel
