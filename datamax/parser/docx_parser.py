@@ -42,8 +42,9 @@ class DocxParser(BaseLife):
         file_path: Union[str, list],
         to_markdown: bool = False,
         use_uno: bool = True,
+        domain: str = "Technology",
     ):
-        super().__init__()
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.to_markdown = to_markdown
 
@@ -804,7 +805,7 @@ class DocxParser(BaseLife):
             # 1) 处理开始：生成 DATA_PROCESSING 事件
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -830,7 +831,7 @@ class DocxParser(BaseLife):
             # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED 事件
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if mk_content.strip()

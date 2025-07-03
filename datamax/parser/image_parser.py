@@ -6,8 +6,7 @@ from datamax.utils import setup_environment
 import dashscope
 from typing import Optional
 
-setup_environment(use_gpu=True)
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
@@ -41,12 +40,21 @@ class ImageParser(BaseLife):
     def __init__(
         self,
         file_path: str,
+        use_gpu: bool = False,
+        domain: str = "Technology",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model_name: Optional[str] = None,
+        model_name: Optional[str] = "qwen-vl-plus",
         system_prompt: Optional[str] = "You are a helpful assistant that accurately describes images in detail.",
         use_mllm: bool = False
     ):
+        # 初始化 BaseLife，记录 domain
+        super().__init__(domain=domain)
+
+        # 可选的 GPU 环境设置
+        if use_gpu:
+            setup_environment(use_gpu=True)
+            os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
         """
         Initialize the ImageParser with optional Qwen model configuration.
         
@@ -58,7 +66,6 @@ class ImageParser(BaseLife):
             system_prompt: System prompt for the model (default: descriptive prompt)
             use_mllm: Whether to use Qwen model for image parsing (default: False)
         """
-        super().__init__()
         self.file_path = file_path
         self.api_key = api_key
         self.base_url = base_url
@@ -137,10 +144,10 @@ class ImageParser(BaseLife):
             base_name = pathlib.Path(self.file_path).stem
 
             # 1) 处理开始：生成 DATA_PROCESSING 事件
-            extension = self.get_file_extension(file_path)
+            extension = self.get_file_extension(self.file_path)
             lc_start = self.generate_lifecycle(
-                source_file=file_path,
-                domain="Technology",
+                source_file=self.file_path,
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -158,8 +165,8 @@ class ImageParser(BaseLife):
             # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
-                source_file=file_path,
-                domain="Technology",
+                source_file=self.file_path,
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if content.strip()

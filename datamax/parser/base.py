@@ -57,9 +57,38 @@ class MarkdownOutputVo:
         }
         return data_dict
 
+# ========== 新增：预置领域列表 ==========
+PREDEFINED_DOMAINS = [
+    "Technology",
+    "Finance",
+    "Health",
+    "Education",
+    "Legal",
+    "Marketing",
+    "Sales",
+    "Entertainment",
+    "Science",
+    # … 如有需要可以继续扩展
+]
 
 class BaseLife:
     tk_client = DashScopeClient()
+    def __init__(self, *, domain: str = "Technology", **kwargs):
+        """
+        BaseLife 初始化：接收 domain 并做校验／警告，
+        其余参数向上层传递（如果有父类的话）。
+        """
+        # 1) 预置列表校验
+        if domain not in PREDEFINED_DOMAINS:
+            # 你也可以换成 logger.warning
+            print(f"⚠️ 域 “{domain}” 不在预置列表，将按自定义处理。")
+        # 2) 保存域
+        self.domain = domain
+
+        # 3) 如果有父类 __init__，就把其余参数透传
+        super_init = getattr(super(), "__init__", None)
+        if callable(super_init):
+            super_init(**kwargs)
 
     @staticmethod
     def generate_lifecycle(
