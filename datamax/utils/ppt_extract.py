@@ -1,17 +1,18 @@
 import os
-from loguru import logger
 from functools import lru_cache
-from typing import List, Dict, Union
 from pathlib import Path
+from typing import Dict, List, Union
+
+from loguru import logger
 from PIL.Image import Image
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.shapes.base import BaseShape as Shape
-from pptx.shapes.picture import Picture
 from pptx.shapes.graphfrm import GraphicFrame
 from pptx.shapes.group import GroupShape
+from pptx.shapes.picture import Picture
 from pptx.slide import Slide
-from pptx.table import Table, _Row, _Cell
+from pptx.table import Table, _Cell, _Row
 from werkzeug.datastructures import FileStorage
 
 
@@ -25,7 +26,15 @@ class PPtExtractor:
             raise ValueError("img_name must be a string")
         return f"media/{id}/{img_name}"
 
-    def handle_shape(self, shape: Shape, content_list: List[Dict[str, str]], media_dir: Path, img_map: Dict[Path, str], id: str, skip_image: bool):
+    def handle_shape(
+        self,
+        shape: Shape,
+        content_list: List[Dict[str, str]],
+        media_dir: Path,
+        img_map: Dict[Path, str],
+        id: str,
+        skip_image: bool,
+    ):
         if not isinstance(shape, Shape):
             raise ValueError("Invalid shape object")
         if not isinstance(content_list, list):
@@ -53,7 +62,9 @@ class PPtExtractor:
                 shape: Picture
                 image: Image = shape.image
                 image_bytes = image.blob
-                img_path = media_dir.resolve().joinpath(f"pic-{len(img_map)}.{image.ext}")
+                img_path = media_dir.resolve().joinpath(
+                    f"pic-{len(img_map)}.{image.ext}"
+                )
                 if not media_dir.exists():
                     media_dir.mkdir(parents=True, exist_ok=True)
                 if not os.access(media_dir, os.W_OK):
@@ -76,14 +87,18 @@ class PPtExtractor:
                         md += "\n|"
                     for col in row.cells:
                         cell: _Cell = col
-                        md += " " + cell.text.replace("\r", " ").replace("\n", " ") + " |"
+                        md += (
+                            " " + cell.text.replace("\r", " ").replace("\n", " ") + " |"
+                        )
                     md += "\n"
                 md += "\n"
                 content_list.append({"type": "md", "data": md})
             elif shape_type == MSO_SHAPE_TYPE.GROUP:
                 shape: GroupShape
                 for sub_shape in shape.shapes:
-                    self.handle_shape(sub_shape, content_list, media_dir, img_map, id, skip_image)
+                    self.handle_shape(
+                        sub_shape, content_list, media_dir, img_map, id, skip_image
+                    )
             else:
                 logger.info(f"Unknown shape type: {shape_type}, {type(shape)}")
         except PermissionError as pe:
@@ -93,8 +108,14 @@ class PPtExtractor:
         except Exception as e:
             logger.error(f"Error handling shape: {e}")
 
-    def extract(self, presentation_source: Union[FileStorage, Path], id: str, dir: Path, media_dir: Path,
-                skip_image: bool):
+    def extract(
+        self,
+        presentation_source: Union[FileStorage, Path],
+        id: str,
+        dir: Path,
+        media_dir: Path,
+        skip_image: bool,
+    ):
         if not isinstance(presentation_source, (FileStorage, Path)):
             raise ValueError("presentation_source must be a FileStorage or Path object")
         if not isinstance(id, str):
@@ -115,7 +136,9 @@ class PPtExtractor:
                 slide: Slide
                 page = {"page_no": page_no, "content_list": []}
                 for shape in slide.shapes:
-                    self.handle_shape(shape, page["content_list"], media_dir, img_map, id, skip_image)
+                    self.handle_shape(
+                        shape, page["content_list"], media_dir, img_map, id, skip_image
+                    )
                 pages.append(page)
         except FileNotFoundError as fnfe:
             logger.error(f"File not found: {fnfe}")

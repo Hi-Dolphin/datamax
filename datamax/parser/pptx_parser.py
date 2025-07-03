@@ -1,11 +1,13 @@
-import os
 from typing import Union
+
+from loguru import logger
 from pptx import Presentation
-from datamax.parser.base import BaseLife
-from datamax.parser.base import MarkdownOutputVo
+
+from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 
 
-class PPtxParser(BaseLife):
+class PptxParser(BaseLife):
     def __init__(self, file_path: Union[str, list]):
         super().__init__()
         self.file_path = file_path
@@ -13,33 +15,59 @@ class PPtxParser(BaseLife):
     @staticmethod
     def read_ppt_file(file_path: str):
         try:
-            content = ''
+            content = ""
             prs = Presentation(file_path)
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if shape.has_text_frame:
-                        content += shape.text + '\n'
-                    # if shape.shape_type == 13:
-                    #     if not os.path.exists("extracted_images"):
-                    #         os.makedirs("extracted_images")
-                    #     image = shape.image
-                    #     image_filename = f'extracted_images/image_{shape.shape_id}.{image.ext}'
-                    #     with open(image_filename, 'wb') as img_file:
-                    #         img_file.write(image.blob)
-                    #     content += ('[' + image_filename + ']')
+                        content += shape.text + "\n"
             return content
         except Exception:
             raise
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
+        # —— 生命周期：开始处理 PPTX —— #
+        lc_start = self.generate_lifecycle(
+            source_file=file_path,
+            domain="Technology",
+            usage_purpose="Documentation",
+            life_type=LifeType.DATA_PROCESSING,
+        )
+        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+
         try:
             extension = self.get_file_extension(file_path)
             content = self.read_ppt_file(file_path=file_path)
             mk_content = content
-            lifecycle = self.generate_lifecycle(source_file=file_path, domain="Technology",
-                                                usage_purpose="Documentation", life_type="LLM_ORIGIN")
+
+            # —— 生命周期：处理完成 —— #
+            lc_end = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESSED,
+            )
+            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
+
             output_vo = MarkdownOutputVo(extension, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            output_vo.add_lifecycle(lc_start)
+            output_vo.add_lifecycle(lc_end)
             return output_vo.to_dict()
-        except Exception:
-            raise
+
+        except Exception as e:
+            # —— 生命周期：处理失败 —— #
+            lc_fail = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESS_FAILED,
+            )
+            logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+
+            raise Exception(
+                {
+                    "error": str(e),
+                    "file_path": file_path,
+                    "lifecycle": [lc_fail.to_dict()],
+                }
+            )

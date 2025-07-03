@@ -23,6 +23,7 @@ except ImportError:
     cleanup_uno_manager = None
     uno_manager_context = None
 
+
 def clean_original_text(text):
     """
     Clean the original text.
