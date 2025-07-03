@@ -246,7 +246,7 @@ sudo apt-get install libreoffice
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
 
 # 2.Install the models
-python datamax/download_models.py
+python datamax/scripts/download_models.py
 ```
 
 For detailed configuration, please refer to [MinerU Documentation](https://github.com/opendatalab/MinerU)
@@ -332,7 +332,7 @@ This project is licensed under the [MIT License](LICENSE).
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
-- 💬 Wechat Group: <br><img src='img_v3_02nl_8c3a7330-b09c-403f-8eb0-be22710030cg.png' width=300>
+- 💬 Wechat Group: <br><img src='wechat.png' width=300>
 ---
 
 ⭐ If this project helps you, please give us a star!
