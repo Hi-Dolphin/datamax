@@ -11,6 +11,8 @@ from openai import OpenAI
 
 from datamax.utils import data_cleaner
 from datamax.utils.qa_generator import generate_qa_from_content
+from datamax.parser.bespokelabs_adapter import use_bespkelabs
+
 
 
 class ModelInvoker:
