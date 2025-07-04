@@ -14,10 +14,10 @@ A powerful multi-format file parsing, data cleaning, and AI annotation toolkit.
 
 - 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
 - 🧹 **Intelligent Cleaning**: Three-layer cleaning process with anomaly detection, privacy protection, and text filtering
-- 🤖 **AI Annotation**: LLM-based automatic data annotation and pre-labeling
+- 🤖 **AI Automated Annotation**: LLM-based automatic data annotation and pre-labeling
 - ⚡ **Batch Processing**: Efficient multi-file parallel processing
 - 🎯 **Easy Integration**: Clean API design, ready to use out of the box
-
+- 🧠 **Flexible LLM Model Integration**: Easy call to Qwen, OpenAI, DeepSeek, and other API-compatible LLMs (via bespokelabs-curator)
 ## 🚀 Quick Start
 
 ### Installation
@@ -58,6 +58,53 @@ qa_data = dm.get_pre_label(
 )
 dm.save_label_data(qa_data)
 ```
+## 🤖 LLM Model Integration (bespokelabs-curator)
+
+DataMax supports calling external LLMs (such as Qwen, DeepSeek, OpenAI) via [bespokelabs-curator](https://github.com/BespokeLabs/curator) for custom annotation or model inference.
+
+### Single Call Example
+
+```python
+from datamax import use_bespkelabs
+
+# For Qwen (Tongyi), DeepSeek, OpenAI, etc.
+result = use_bespkelabs(
+    model_name="qwen-turbo",
+    prompt="写一首关于自动化标注的诗",
+    api_key="sk-xxx",  # Your provider API key
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    provider="dashscope",  # e.g. dashscope, deepseek, openai
+)
+print(result)
+```
+### Batch Auto Labeling Example
+
+```python
+from datamax import use_bespkelabs_autolabel
+
+texts = [
+    "人工智能正在改变世界。",
+    "大模型应用日益广泛。",
+]
+
+# Batch Q&A annotation (also supports summary mode)
+res = use_bespkelabs_autolabel(
+    texts,
+    model_name="qwen-turbo",
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    provider="dashscope",
+    label_type="qa",  # or "summary"
+)
+print(res)
+```
+#### Supported providers include:
+
+- **Tongyi/Qwen (dashscope)**
+- **DeepSeek**
+- **OpenAI**
+- **any compatible LLM API**
+- API keys and endpoints are required. Please refer to provider documentation for details.
 
 ## 📖 Detailed Documentation
 
