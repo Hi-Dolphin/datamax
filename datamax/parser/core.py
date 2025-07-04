@@ -7,59 +7,161 @@ from typing import Dict, List, Union
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
-from datamax.utils.qa_generator import generate_qa_from_content
-from datamax.parser.bespokelabs_adapter import call_llm_with_bespokelabs
-from openai import OpenAI
+import datamax.utils.qa_generator as qa_gen
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
 from datamax.parser.base import BaseLife
-import datamax.utils.qa_generator as qa_gen
+# ====== Add a universal LLM adaptation layer ======
+try:
+    import dashscope
+except ImportError:
+    dashscope = None
+try:
+    import openai
+except ImportError:
+    openai = None
+try:
+    from bespokelabs import curator
+except ImportError:
+    curator = None
+
+from datasets import Dataset
+
+def call_llm_with_bespokelabs(
+    model_name: str,
+    prompt: str,
+    api_key: str = None,
+    base_url: str = None,
+    provider: str = None,
+    **kwargs
+):
+    """
+    Universal LLM call: automatically adapts to dashscope, OpenAI, bespokelabs-curator, etc.
+    """
+    # 1. Dashscope first
+    if (model_name.startswith("qwen") or (provider and provider.lower() == "dashscope")) and dashscope is not None:
+        dashscope.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
+        response = dashscope.Generation.call(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response["output"]["text"]
+    # 2. OpenAI
+    if (model_name.startswith("gpt") or (provider and provider.lower() == "openai")) and openai is not None:
+        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return completion.choices[0].message.content
+    # 3. bespokelabs-curator Universal adaptation
+    if curator is not None:
+        backend_params = {}
+        if api_key: backend_params["api_key"] = api_key
+        if base_url: backend_params["base_url"] = base_url
+        if provider: backend_params["provider"] = provider
+        llm = curator.LLM(
+            model_name=model_name,
+            backend_params=backend_params,
+            **kwargs
+        )
+        result = llm(prompt)
+        # 兼容DataFrame或字符串等多种输出
+        return getattr(result, "to_pandas", lambda: result)()
+    raise ImportError("No available LLM SDK found (dashscope/openai/curator)")
+
+
+def qa_generator_with_bespokelabs(
+        texts: list,
+        model_name: str,
+        api_key: str = None,
+        base_url: str = None,
+        label_type: str = "qa",
+        prompt_tpl: str = None,
+        provider: str = None,
+        **kwargs
+):
+    """
+    Batch QA or summary generation, auto adapts dashscope or curator.
+    """
+    import pandas as pd
+    # 1. Dashscope优先（Qwen批量）
+    if (model_name.startswith("qwen") or (provider and provider.lower() == "dashscope")) and dashscope is not None:
+        dashscope.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
+        results = []
+        if not prompt_tpl:
+            prompt_tpl = "请根据下文生成有用的问答对：\n{text}" if label_type == "qa" else "请为下文生成简明摘要：\n{text}"
+        for t in texts:
+            p = prompt_tpl.format(text=t)
+            response = dashscope.Generation.call(
+                model=model_name,
+                messages=[{"role": "user", "content": p}]
+            )
+            output = response["output"]["text"]
+            if label_type == "qa":
+                try:
+                    q, a = output.split('\n', 1)
+                    q = q.replace('Question:', '').replace('问题：', '').strip()
+                    a = a.replace('Answer:', '').replace('答案：', '').strip()
+                    results.append({"question": q, "answer": a, "text": t})
+                except Exception:
+                    results.append({"question": "", "answer": "", "text": t})
+            else:
+                results.append({"summary": output, "text": t})
+        return pd.DataFrame(results)
+    # 2. bespokelabs-curator批量
+    if curator is not None:
+        data = Dataset.from_dict({"text": texts})
+        if not prompt_tpl:
+            prompt_tpl = "Please generate a useful question-answer pair for the following text:\n{text}" if label_type == "qa" else "Please generate a concise summary for the following text:\n{text}"
+        backend_params = {}
+        if api_key: backend_params["api_key"] = api_key
+        if base_url: backend_params["base_url"] = base_url
+        if provider: backend_params["provider"] = provider
+
+        class AutoLabeler(curator.LLM):
+            def prompt(self, input):
+                return prompt_tpl.format(**input)
+
+            def parse(self, input, response):
+                if label_type == "qa":
+                    try:
+                        q, a = response.split('\n', 1)
+                        return {
+                            "question": q.replace('Question:', '').replace('问题：', '').strip(),
+                            "answer": a.replace('Answer:', '').replace('答案：', '').strip(),
+                            "text": input["text"]
+                        }
+                    except Exception:
+                        return {"question": "", "answer": "", "text": input["text"]}
+                else:
+                    return {"summary": response, "text": input["text"]}
+
+        labeler = AutoLabeler(model_name=model_name, backend_params=backend_params, **kwargs)
+        res = labeler(data)
+        return res.to_pandas()
+    raise ImportError("No available LLM SDK found (dashscope/curator)")
 class ModelInvoker:
     def __init__(self):
         self.client = None
 
+
 def invoke_model(self, api_key, base_url, model_name, messages, provider=None):
     """
-    Automatically support OpenAI official and bespokelabs urea compatible models (such as dashscope, deepseek, etc.)
+    Automatically support OpenAI official, dashscope, and other mainstream LLMs with fallback.
     """
-    # from datamax.utils import qa_generator as qa_gen
-    # base_url = qa_gen.complete_api_url(base_url)
-
-    if provider is None or provider.lower() == "openai":
-        try:
-            from openai import OpenAI
-            self.client = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-            )
-            completion = self.client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-            )
-            json_data = completion.model_dump()
-            return json_data.get("choices")[0].get("message").get("content", "")
-        except Exception as e:
-            logger.error(f"OpenAICall error: {e}")
-            raise e
-    else:
-        try:
-            # Support dashscope/deepseek/qwen, etc
-            prompt = messages[0]["content"] if isinstance(messages, list) and messages else messages
-            df = call_llm_with_bespokelabs(
-                model_name=model_name,
-                prompt=prompt,
-                api_key=api_key,
-                base_url=base_url,
-                provider=provider,
-            )
-            if hasattr(df, "to_dict"):
-                return df.to_dict(orient="records")[0] if len(df) else ""
-            else:
-                return str(df)
-        except Exception as e:
-            logger.error(f"bespokelabs/curatorCall error: {e}")
-            raise e
-
+    prompt = messages[0]["content"] if isinstance(messages, list) and messages else messages
+    try:
+        return smart_llm_call(
+            model_name=model_name,
+            prompt=prompt,
+            api_key=api_key,
+            base_url=base_url,
+            provider=provider
+        )
+    except Exception as e:
+        logger.error(f"LLM call error: {e}")
+        raise e
 class ParserFactory:
     @staticmethod
     def create_parser(
@@ -331,7 +433,7 @@ class DataMax(BaseLife):
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
-        
+
         rules:
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
