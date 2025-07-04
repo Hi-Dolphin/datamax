@@ -65,52 +65,41 @@ DataMax supports calling external LLMs (such as Qwen, DeepSeek, OpenAI) via [bes
 ### Single Call Example
 
 ```python
-import dashscope
+from datamax.parser.core import call_llm_with_bespokelabs
 
-def test_dashscope_poem():
-    api_key = "sk-你的key"
-    dashscope.api_key = api_key
-
-    prompt = "写一首关于自动化标注的诗"
-    response = dashscope.Generation.call(
-        model="qwen-turbo",
-        messages=[{"role": "user", "content": prompt}]
+def test_llm_poem():
+    result = call_llm_with_bespokelabs(
+        model_name="qwen-turbo", # or"gpt-3.5-turbo"、"deepseek-chat"etc
+        prompt="写一首关于自动化标注的诗",
+        api_key="sk-你的key",  
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"# Qwen compatibility interface
+# "base_url": "https://api.openai.com/v1",   # OpenAI compatibility interface
+# "base_url": "https://api.deepseek.com/v1",  # DeepSeek compatibility interface
+# Other optional parameters
     )
-    print(response["output"]["text"])
-    assert "诗" in response["output"]["text"] or len(response["output"]["text"]) > 10
+    print("生成结果:", result)
+    assert result is not None and len(str(result)) > 8
 
 ```
 ### Batch Auto Labeling Example
 
 ```python
-import dashscope
+from datamax.parser.core import qa_generator_with_bespokelabs
 
-def test_autolabel_qa():
-    dashscope.api_key = "sk-你的key"
-    texts = [
-        "人工智能正在改变世界。",
-        "大模型应用日益广泛。",
-    ]
-    prompt_tpl = "请根据下文生成有用的问答对：\n{text}"
+def test_llm_autolabel():
+    res = qa_generator_with_bespokelabs(
+        texts=["人工智能正在改变世界。", "大模型应用日益广泛。"],
+        model_name="qwen-turbo",# or"gpt-3.5-turbo"、"deepseek-chat"etc
+        api_key="sk-你的key",  
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",# Qwen compatibility interface
+# "base_url": "https://api.openai.com/v1",   # OpenAI compatibility interface
+# "base_url": "https://api.deepseek.com/v1",  # DeepSeek compatibility interface
+# Other optional parameters
+        label_type="qa"
+    )
+    print(res)
+    assert res is not None and len(res) == 2
 
-    results = []
-    for text in texts:
-        prompt = prompt_tpl.format(text=text)
-        response = dashscope.Generation.call(
-            model="qwen-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        output = response["output"]["text"]
-        try:
-            q, a = output.split('\n', 1)
-            q = q.replace('Question:', '').replace('问题：', '').strip()
-            a = a.replace('Answer:', '').replace('答案：', '').strip()
-            results.append({"question": q, "answer": a, "text": text})
-        except Exception:
-            results.append({"question": "", "answer": "", "text": text})
-
-    print(results)
-    assert len(results) == len(texts)
 
 ```
 #### Supported providers include:
