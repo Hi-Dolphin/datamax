@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Any
+import json
 
 class DomainTree:
     """
@@ -77,10 +78,72 @@ class DomainTree:
     def from_json(self, json_data: List[Dict[str, Any]]) -> None:
         self.tree = json_data
 
+    def visualize(self) -> str:
+        """
+        visualization for domain tree
+        
+        Returns:string of tree structure
+        """
+        def _visualize_node(node: Dict[str, Any], level: int = 0) -> str:
+            result = "  " * level + "├── " + node.get("label", "")
+            if "child" in node and node["child"]:
+                for i, child in enumerate(node["child"]):
+                    if i == len(node["child"]) - 1:
+                        result += "\n" + "  " * (level + 1) + "└── " + child.get("label", "")
+                    else:
+                        result += "\n" + _visualize_node(child, level + 1)
+            return result
+        
+        if not self.tree:
+            return "空树"
+        
+        result = "领域树结构:\n"
+        for i, node in enumerate(self.tree):
+            if i == len(self.tree) - 1:
+                result += "└── " + node.get("label", "")
+            else:
+                result += _visualize_node(node, 0)
+            result += "\n"
+        
+        return result
 
+    def to_json_string(self) -> str:
+        return json.dumps(self.tree, ensure_ascii=False, indent=2)
+
+    def insert_node_between(self, node_name: str, parent_name: str, child_name: str) -> bool:
+        """
+        insert a new node between parent and child node
+        
+        :param node_name: name of the new node
+        :param parent_name: name of the parent node new node will be inserted after
+        :param child_name: name of the child node new node will be inserted before
+        :return: whether the node is inserted successfully
+        """
+        # find parent node
+        parent_node = self.find_node(parent_name)
+        if not parent_node:
+            return False
+            
+        # find child node
+        child_node = self.find_node(child_name)
+        if not child_node:
+            return False
+            
+        # check if child node is really a direct child of parent node
+        if "child" in parent_node:
+            for i, child in enumerate(parent_node["child"]):
+                if child.get("label") == child_name:
+                    # create new node
+                    new_node = {"label": node_name, "child": [child]}
+                    # replace original child node
+                    parent_node["child"][i] = new_node
+                    return True
+                    
+        return False
 if __name__ == "__main__":
     import json
     print("[DomainTree Main Interface Demo]")
+    
     # 1. Create empty tree
     tree = DomainTree()
     print("***1. Empty tree: Create an empty tree structure.***", tree.to_json())

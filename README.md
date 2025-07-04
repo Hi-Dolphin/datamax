@@ -225,8 +225,22 @@ Supported Commands:
 注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’
 """
 
+
 # Save the QA label data to file
 dm.save_label_data(qa_data, save_file_name="qa_label_data")
+
+#Alternatively, you can also choose not to use the domain tree to quickly generate QA pairs. 
+dm = DataMax(file_path="your_file.md")
+qa_data = dm.generate_qa_with_tree(
+    api_key="sk-xxx",          
+    base_url="https://api.provider.com/v1",         
+    model_name="model-name",          
+    chunk_size=500,                   # Text chunk size
+    chunk_overlap=100,                # Overlap between chunks
+    question_number=5,                # Number of questions per chunk
+    max_workers=5                     # Number of threads for parallel processing
+    use_tree_label=False               # Whether use tree label or not(choose not here)
+)
 ```
 
 ## 🌳 Tree Editing Workflow (AI Annotation)
@@ -246,6 +260,7 @@ After using the `generate_qa_with_tree` method to generate a domain tree for AI 
    - Finish editing: `Finish editing`
 
    > Node names are usually in the format: `1.1 Organization and Route Planning of Cargo Transportation` or `1 Transportation System Organization`
+
 
 3. **After each operation, the terminal will immediately display the updated tree structure and continue to wait for user input, until the user enters `Finish editing` to end the tree editing process.**
 
