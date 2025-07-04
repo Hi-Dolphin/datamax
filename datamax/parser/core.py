@@ -66,7 +66,7 @@ def call_llm_with_bespokelabs(
             **kwargs
         )
         result = llm(prompt)
-        # 兼容DataFrame或字符串等多种输出
+        # Compatible with multiple outputs such as DataFrame or strings
         return getattr(result, "to_pandas", lambda: result)()
     raise ImportError("No available LLM SDK found (dashscope/openai/curator)")
 
@@ -85,7 +85,7 @@ def qa_generator_with_bespokelabs(
     Batch QA or summary generation, auto adapts dashscope or curator.
     """
     import pandas as pd
-    # 1. Dashscope优先（Qwen批量）
+    # 1. Dashscope first
     if (model_name.startswith("qwen") or (provider and provider.lower() == "dashscope")) and dashscope is not None:
         dashscope.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
         results = []
@@ -109,7 +109,7 @@ def qa_generator_with_bespokelabs(
             else:
                 results.append({"summary": output, "text": t})
         return pd.DataFrame(results)
-    # 2. bespokelabs-curator批量
+    # 2. bespokelabs-curator batch
     if curator is not None:
         data = Dataset.from_dict({"text": texts})
         if not prompt_tpl:
