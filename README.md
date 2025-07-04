@@ -14,7 +14,7 @@ A powerful multi-format file parsing, data cleaning, and AI annotation toolkit.
 
 - 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
 - 🧹 **Intelligent Cleaning**: Three-layer cleaning process with anomaly detection, privacy protection, and text filtering
-- 🤖 **AI Automated Annotation**: LLM-based automatic data annotation and pre-labeling
+- 🤖 **AI Annotation**: LLM-based automatic data annotation and pre-labeling
 - ⚡ **Batch Processing**: Efficient multi-file parallel processing
 - 🎯 **Easy Integration**: Clean API design, ready to use out of the box
 - 🧠 **Flexible LLM Model Integration**: Easy call to Qwen, OpenAI, DeepSeek, and other API-compatible LLMs (via bespokelabs-curator)
