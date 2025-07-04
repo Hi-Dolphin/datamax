@@ -86,7 +86,7 @@ def test_dashscope_poem():
 import dashscope
 
 def test_autolabel_qa():
-    dashscope.api_key = "sk-b006608829ab48ccbb3835570575209f"
+    dashscope.api_key = "sk-你的key"
     texts = [
         "人工智能正在改变世界。",
         "大模型应用日益广泛。",
