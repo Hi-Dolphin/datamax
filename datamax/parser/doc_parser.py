@@ -50,8 +50,9 @@ class DocParser(BaseLife):
         file_path: Union[str, list],
         to_markdown: bool = False,
         use_uno: bool = True,
+        domain: str = "Technology"
     ):
-        super().__init__()
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.to_markdown = to_markdown
 
@@ -644,7 +645,7 @@ class DocParser(BaseLife):
             # 生命周期：Data Processing 开始
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Documentation",
             )
@@ -668,7 +669,7 @@ class DocParser(BaseLife):
             # 3) 生命周期：Data Processed or Failed
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if mk_content.strip()
@@ -685,7 +686,7 @@ class DocParser(BaseLife):
 
             lifecycle = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type="LLM_ORIGIN",
             )

@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# 解析单个文件
+# 解析单个文件，默认 domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # 批量处理
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# 指定领域：domain 参数支持预置领域（Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science），也可自定义
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # 数据清洗
@@ -53,6 +57,10 @@ qa_data = dm.get_pre_label(
 ## 📖 详细文档
 
 ### 文件解析
+
+#### 可选参数：domain
+所有解析器均支持一个可选的 domain: str 参数，用于记录业务领域，默认值为 "Technology"。
+预置领域列表：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，也可以传入任意自定义字符串。
 
 #### 支持的格式
 
@@ -211,7 +219,7 @@ qa_data = dm.get_pre_label(
     max_workers=5          # 并发数
 )
 # 保存结果
-dm.save_label_data(res)
+dm.save_label_data(qa_data)
 ```
 
 ## ⚙️ 环境配置
@@ -232,12 +240,11 @@ apt update && apt install -y libreoffice libreoffice-dev python3-uno
 #### MinerU（高级PDF解析）
 
 ```bash
-# 创建虚拟环境
-conda create -n mineru python=3.10
-conda activate mineru
-
-# 安装MinerU
+# 1.安装MinerU
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
+
+# 2.安装模型
+python datamax/scripts/download_models.py
 ```
 
 详细配置请参考 [MinerU文档](https://github.com/opendatalab/MinerU)
@@ -287,7 +294,7 @@ print(data)
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
-
+- 💬 微信交流群：<br><img src='wechat.png' width=300>
 ---
 
 ⭐ 如果这个项目对您有帮助，请给我们一个星标！

@@ -16,8 +16,8 @@ warnings.filterwarnings("ignore")
 class XlsxParser(BaseLife):
     """XLSX解析器 - 使用pandas读取并转换为markdown，支持多进程处理"""
 
-    def __init__(self, file_path):
-        super().__init__()
+    def __init__(self, file_path, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
         logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}")
 
@@ -112,7 +112,7 @@ class XlsxParser(BaseLife):
         # —— 生命周期：开始处理 —— #
         lc_start = self.generate_lifecycle(
             source_file=file_path,
-            domain="Technology",
+            domain=self.domain,
             usage_purpose="Documentation",
             life_type=LifeType.DATA_PROCESSING,
         )
@@ -133,7 +133,7 @@ class XlsxParser(BaseLife):
             # —— 生命周期：处理完成 —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -158,7 +158,7 @@ class XlsxParser(BaseLife):
             try:
                 lc_fail = self.generate_lifecycle(
                     source_file=file_path,
-                    domain="Technology",
+                    domain=self.domain,
                     usage_purpose="Documentation",
                     life_type=LifeType.DATA_PROCESS_FAILED,
                 )
@@ -172,7 +172,7 @@ class XlsxParser(BaseLife):
             try:
                 lc_fail = self.generate_lifecycle(
                     source_file=file_path,
-                    domain="Technology",
+                    domain=self.domain,
                     usage_purpose="Documentation",
                     life_type=LifeType.DATA_PROCESS_FAILED,
                 )

@@ -7,17 +7,18 @@ from typing import Dict, List, Union
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
-
-from datamax.utils import data_cleaner
 from datamax.utils.qa_generator import generate_qa_from_content
 from datamax.parser.bespokelabs_adapter import use_bespkelabs
-
-
-
+from openai import OpenAI
+from datamax.utils.lifecycle_types import LifeType
+from datamax.utils import data_cleaner
+from datamax.parser.base import BaseLife
+import datamax.utils.qa_generator as qa_gen
 class ModelInvoker:
     def __init__(self):
         self.client = None
 
+<<<<<<< HEAD
     def invoke_model(self, api_key, base_url, model_name, messages, provider=None):
         """
         Automatically support OpenAI official and bespokelabs urea compatible models (such as dashscope, deepseek, etc.)
@@ -56,6 +57,22 @@ class ModelInvoker:
             except Exception as e:
                 logger.error(f"bespokelabs/curatorCall error: {e}")
                 raise e
+=======
+    def invoke_model(self, api_key, base_url, model_name, messages):
+        base_url = qa_gen.complete_api_url(base_url)
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+
+        completion = self.client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+        )
+        json_data = completion.model_dump()
+        return json_data.get("choices")[0].get("message").get("content", "")
+
+>>>>>>> upstream/main
 
 class ParserFactory:
     @staticmethod
@@ -63,6 +80,7 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -81,8 +99,8 @@ class ParserFactory:
             ".epub": "EpubParser",
             ".html": "HtmlParser",
             ".txt": "TxtParser",
-            ".pptx": "PPtxParser",
-            ".ppt": "PPtParser",
+            ".pptx": "PptxParser",
+            ".ppt": "PptParser",
             ".pdf": "PdfParser",
             ".jpg": "ImageParser",
             ".jpeg": "ImageParser",
@@ -105,33 +123,37 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
+            if parser_class_name != 'PdfParser' and use_mineru == True:
+                raise ValueError("MinerU is only supported for PDF files")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    domain=domain,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True
+                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
             else:
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
 
         except (ImportError, AttributeError) as e:
             raise e
 
 
-class DataMax:
+class DataMax(BaseLife):
     def __init__(
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
+        domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -141,6 +163,7 @@ class DataMax:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         """
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
@@ -203,7 +226,8 @@ class DataMax:
                     and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
-                    return self._cache[file_name]["data"]
+                    self.parsed_data = self._cache[file_name]["data"]
+                    return self.parsed_data
                 else:
                     logger.info(
                         f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -259,34 +283,63 @@ class DataMax:
 
         :return: Cleaned data
         """
+        # 1) 准备原始内容
         if text:
             cleaned_text = text
         elif self.parsed_data:
             cleaned_text = self.parsed_data.get("content")
         else:
             raise ValueError("No data to clean.")
+        # 2) 触发“清洗开始”
+        lc_start = self.generate_lifecycle(
+            source_file=self.file_path,
+            domain=self.domain,
+            life_type=LifeType.DATA_CLEANING,
+            usage_purpose="Data Cleaning",
+        ).to_dict()
 
-        for method in method_list:
-            if method == "abnormal":
-                cleaned_text = (
-                    data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
-                )
-            elif method == "filter":
-                cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter()
-                cleaned_text = cleaned_text.get("text") if cleaned_text else ""
-            elif method == "private":
-                cleaned_text = (
-                    data_cleaner.PrivacyDesensitization(cleaned_text)
-                    .to_private()
-                    .get("text")
-                )
+        try:
+            # 3) 执行清洗步骤
+            for method in method_list:
+                if method == "abnormal":
+                    cleaned_text = data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
+                elif method == "filter":
+                    cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter().get("text", "")
+                elif method == "private":
+                    cleaned_text = data_cleaner.PrivacyDesensitization(cleaned_text).to_private().get("text")
 
-        if self.parsed_data:
-            origin_dict = self.parsed_data
-            origin_dict["content"] = cleaned_text
+            # 4) 清洗成功，触发“清洗完成”
+            lc_end = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEANED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+
+        except Exception as e:
+            # 5) 清洗失败，触发“清洗失败”
+            lc_fail = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEAN_FAILED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+            # 把失败事件也加入到 parsed_data 中再抛出
+            if self.parsed_data and isinstance(self.parsed_data, dict):
+                self.parsed_data.setdefault("lifecycle", []).append(lc_start)
+                self.parsed_data["lifecycle"].append(lc_fail)
+            raise
+
+        # 6) 更新 content 并合并生命周期
+        if self.parsed_data and isinstance(self.parsed_data, dict):
+            origin = self.parsed_data
+            origin["content"] = cleaned_text
+            origin.setdefault("lifecycle", []).extend([lc_start, lc_end])
+            # 重置 parsed_data 以避免二次污染
             self.parsed_data = None
-            return origin_dict
+            return origin
         else:
+            # 仅返回纯文本时，也可以返回 lifecycle 信息
             return cleaned_text
 
     def complete_api_url(self, base_url):
@@ -334,6 +387,8 @@ class DataMax:
 
     def get_pre_label(
         self,
+        *,
+        content: str = None,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -358,33 +413,33 @@ class DataMax:
         :param messages: Custom messages
         :return: List of QA pairs
         """
-        # First get the processed data
-        processed_data = self.get_data()
-
-        # If it's a list (multiple files), merge all content
-        if isinstance(processed_data, list):
-            content_list = []
-            for data in processed_data:
-                if isinstance(data, dict) and "content" in data:
-                    content_list.append(data["content"])
-                elif isinstance(data, str):
-                    content_list.append(data)
-            content = "\n\n".join(content_list)
-        # If it's a dictionary for a single file
-        elif isinstance(processed_data, dict) and "content" in processed_data:
-            content = processed_data["content"]
-        # If it's a string
-        elif isinstance(processed_data, str):
-            content = processed_data
+        # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
+        if content is not None:
+            text = content
         else:
-            raise ValueError("Unable to extract content field from processed data")
+            processed = self.get_data()
+            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
+            if isinstance(processed, list):
+                parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                text = "\n\n".join(parts)
+            elif isinstance(processed, dict):
+                text = processed.get("content", "")
+            else:
+                text = processed
 
-        # complete url
-        base_url = self.complete_api_url(base_url)
-
-        # Generate QA pairs using content instead of reading files
-        return generate_qa_from_content(
-            content=content,
+        # 打点：开始 DATA_LABELLING
+        self.parsed_data.setdefault("lifecycle", []).append(
+            self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_LABELLING,
+                usage_purpose="Labeling",
+            ).to_dict()
+        )
+        try:
+            base_url = qa_gen.complete_api_url(base_url)
+            data = qa_gen.generate_qa_from_content(
+            content=text,
             api_key=api_key,
             base_url=base_url,
             model_name=model_name,
@@ -395,6 +450,27 @@ class DataMax:
             max_workers=max_workers,
             message=messages,
         )
+            # 打点：成功 DATA_LABELLED
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLED,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
+            return data
+        except Exception as e:
+            # 打点：失败 DATA_LABEL_FAILED
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABEL_FAILED,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
+            raise
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
@@ -557,6 +633,7 @@ class DataMax:
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                domain=self.domain,
             )
             if parser:
                 return parser.parse(file_path=file_path)

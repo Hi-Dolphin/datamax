@@ -16,8 +16,9 @@ class PdfParser(BaseLife):
         self,
         file_path: Union[str, list],
         use_mineru: bool = False,
+        domain: str = "Technology"
     ):
-        super().__init__()
+        super().__init__(domain=domain)
 
         self.file_path = file_path
         self.use_mineru = use_mineru
@@ -79,7 +80,7 @@ class PdfParser(BaseLife):
 
         lc_start = self.generate_lifecycle(
             source_file=file_path,
-            domain="Technology",
+            domain=self.domain,
             usage_purpose="Documentation",
             life_type=LifeType.DATA_PROCESSING,
         )
@@ -111,7 +112,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理完成 —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -126,7 +127,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理失败 —— #
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
