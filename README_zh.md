@@ -200,21 +200,37 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
 ### AI标注（带领域树标签）
 
 ```python
-# 带领域树的自动问答标注
-
+#带领域树的自定义生成QA
 dm = DataMax(file_path="your_file.md")
 qa_data = dm.generate_qa_with_tree(
-    api_key="sk-xxx",         
-    base_url="https://api.provider.com/v1",  
-    model_name="model-name",   
-    chunk_size=500,             # 文本块大小
-    chunk_overlap=100,          # 块重叠长度
-    question_number=5,          # 每块生成问题数
-    max_workers=5               # 并发线程数
+    api_key="sk-xxx",          
+    base_url="https://api.provider.com/v1",         
+    model_name="model-name",          
+    chunk_size=500,                   # Text chunk size
+    chunk_overlap=100,                # Overlap between chunks
+    question_number=5,                # Number of questions per chunk
+    max_workers=5                     # Number of threads for parallel processing
+    use_tree_label=True               # Whether use tree label or not(choose yes here)
 )
-# 生成领域树后，用户可在终端交互式自定义树结构
-# 保存结果
-dm.save_label_data(res)
+
+#完成领域树生成后，用户能够在终端交互地修改领域树
+
+# 保存QA对结果
+dm.save_label_data(qa_data, save_file_name="qa_label_data")
+
+#或者，你也可以不使用领域树直接快速生成QA对
+dm = DataMax(file_path="your_file.md")
+qa_data = dm.generate_qa_with_tree(
+    api_key="sk-xxx",          
+    base_url="https://api.provider.com/v1",         
+    model_name="model-name",          
+    chunk_size=500,                   # Text chunk size
+    chunk_overlap=100,                # Overlap between chunks
+    question_number=5,                # Number of questions per chunk
+    max_workers=5                     # Number of threads for parallel processing
+    use_tree_label=False               # Whether use tree label or not(choose not here)
+)
+```
 ```
 
 #### 领域树交互操作说明
