@@ -42,7 +42,7 @@ data = dm.get_data()
 # Data cleaning
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
-# AI annotation with domain tree
+# AI annotation default with tree
 qa_data = dm.generate_qa_with_tree(
     api_key="your-api-key"
     base_url="https://api.openai.com/v1",
@@ -196,7 +196,7 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI Annotation with Domain Tree
+### AI Annotation with optional Domain Tree
 
 ```python
 
@@ -210,12 +210,46 @@ qa_data = dm.generate_qa_with_tree(
     chunk_overlap=100,                # Overlap between chunks
     question_number=5,                # Number of questions per chunk
     max_workers=5                     # Number of threads for parallel processing
+    use_tree_label=True               # Whether use tree label or not
 )
+
+#After generating the domain tree, user is allowed to customize their tree
+
+"""
+Supported Commands:
+1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）
+2. 增加节点：xxx；父节点：xxx；子节点：xxx
+3. 删除节点：xxx
+4. 更新节点：新名称；原先节点：旧名称
+5. 结束树操作
+注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’
+"""
 
 # Save the QA label data to file
 dm.save_label_data(qa_data, save_file_name="qa_label_data")
 ```
 
+## 🌳 Tree Editing Workflow (AI Annotation)
+
+After using the `generate_qa_with_tree` method to generate a domain tree for AI annotation, the terminal will display the current tree structure and enter the tree editing mode by default. Users can follow the terminal prompts and refer to the command formats below to flexibly adjust the tree structure directly in the terminal.
+
+### Workflow
+
+1. **After the tree is generated, the terminal will display the current tree structure and enter the editing mode.**
+
+2. **In editing mode, users can input the following commands as prompted to operate on the tree structure:**
+
+   - Add node: `Add node: <Node Name>; Parent node: <Parent Name>` (Parent node can be left blank to add as a root node)
+   - Add node: `Add node: <Node Name>; Parent node: <Parent Name>; Child node: <Child Name>`
+   - Delete node: `Delete node: <Node Name>`
+   - Update node: `Update node: <New Name>; Original node: <Old Name>`
+   - Finish editing: `Finish editing`
+
+   > Node names are usually in the format: `1.1 Organization and Route Planning of Cargo Transportation` or `1 Transportation System Organization`
+
+3. **After each operation, the terminal will immediately display the updated tree structure and continue to wait for user input, until the user enters `Finish editing` to end the tree editing process.**
+
+4. **The final tree structure will be used for subsequent AI annotation tasks.**
 
 
 ---
