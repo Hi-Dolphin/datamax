@@ -11,22 +11,19 @@ except ImportError:
 
 from datasets import Dataset  # huggingface datasets
 
-def use_bespkelabs(
+def call_llm_with_bespokelabs(
     model_name: str,
     prompt: str,
     api_key: str = None,
     base_url: str = None,
-    provider: str = None,
     **kwargs
 ):
     """
-    General LLM single-call interface.
-    Supports Qwen (Tongyi), OpenAI, DeepSeek, and other mainstream models.
+    通用 LLM 单条推理调用（OpenAI兼容协议），支持 Qwen、OpenAI、DeepSeek 等主流云厂商。
     """
     backend_params = {}
     if api_key: backend_params["api_key"] = api_key
     if base_url: backend_params["base_url"] = base_url
-    if provider: backend_params["provider"] = provider
 
     llm = curator.LLM(
         model_name=model_name,
@@ -36,23 +33,21 @@ def use_bespkelabs(
     result = llm(prompt)
     return result.to_pandas()
 
-
-def use_bespkelabs_autolabel(
+def qa_generator_with_bespokelabs(
     texts: list,
     model_name: str,
     api_key: str = None,
     base_url: str = None,
-    provider: str = None,
     label_type: str = "qa",   # "qa" or "summary"
     prompt_tpl: str = None,
     **kwargs
 ):
     """
-    Batch auto-labeling interface for Q&A or summarization.
-    1. If Qwen/dashscope, use dashscope SDK.
-    2. Otherwise fallback to bespokelabs.curator.
+    批量自动问答对或摘要标注。
+    支持 Qwen（dashscope）、OpenAI、DeepSeek 兼容 API。
     """
-    if model_name.startswith("qwen") or (provider and provider.lower() == "dashscope"):
+    # 1. 兼容 dashscope SDK
+    if model_name.startswith("qwen"):
         if dashscope is None:
             raise ImportError("dashscope SDK is not installed. pip install dashscope")
         if not api_key:
@@ -60,7 +55,6 @@ def use_bespkelabs_autolabel(
         dashscope.api_key = api_key
 
         results = []
-        # template
         if not prompt_tpl:
             if label_type == "qa":
                 prompt_tpl = "请根据下文生成有用的问答对：\n{text}"
@@ -75,7 +69,6 @@ def use_bespkelabs_autolabel(
                 messages=[{"role": "user", "content": p}]
             )
             output = response["output"]["text"]
-            # Simple analysis (both question and answer and abstract types are acceptable)
             if label_type == "qa":
                 try:
                     q, a = output.split('\n', 1)
@@ -90,8 +83,8 @@ def use_bespkelabs_autolabel(
                 results.append({"output": output, "text": t})
         import pandas as pd
         return pd.DataFrame(results)
+    # 2. 兼容 bespokelabs-curator（通用 OpenAI 协议后端）
     else:
-        # fallback: bespokelabs-curator
         if curator is None:
             raise ImportError("bespokelabs SDK is not installed. pip install bespokelabs-curator")
         data = Dataset.from_dict({"text": texts})
@@ -105,7 +98,6 @@ def use_bespkelabs_autolabel(
         backend_params = {}
         if api_key: backend_params["api_key"] = api_key
         if base_url: backend_params["base_url"] = base_url
-        if provider: backend_params["provider"] = provider
 
         class AutoLabeler(curator.LLM):
             def prompt(self, input):
@@ -125,6 +117,7 @@ def use_bespkelabs_autolabel(
                     return {"summary": response, "text": input["text"]}
                 else:
                     return {"output": response, "text": input["text"]}
+
         labeler = AutoLabeler(
             model_name=model_name,
             backend_params=backend_params,

@@ -8,7 +8,7 @@ from typing import Dict, List, Union
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from datamax.utils.qa_generator import generate_qa_from_content
-from datamax.parser.bespokelabs_adapter import use_bespkelabs
+from datamax.parser.bespokelabs_adapter import call_llm_with_bespokelabs
 from openai import OpenAI
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
@@ -45,7 +45,7 @@ def invoke_model(self, api_key, base_url, model_name, messages, provider=None):
         try:
             # Support dashscope/deepseek/qwen, etc
             prompt = messages[0]["content"] if isinstance(messages, list) and messages else messages
-            df = use_bespkelabs(
+            df = call_llm_with_bespokelabs(
                 model_name=model_name,
                 prompt=prompt,
                 api_key=api_key,
