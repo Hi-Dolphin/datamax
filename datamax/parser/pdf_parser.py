@@ -16,11 +16,17 @@ class PdfParser(BaseLife):
         self,
         file_path: Union[str, list],
         use_mineru: bool = False,
+        use_qwen_ocr: bool = False,
+        api_key: str = None,
+        model_name: str = "qwen-vl-max"
     ):
         super().__init__()
 
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_qwen_ocr = use_qwen_ocr
+        self.api_key = api_key
+        self.model_name = model_name
 
     def mineru_process(self, input_pdf_filename, output_dir):
         proc = None
@@ -85,9 +91,21 @@ class PdfParser(BaseLife):
         )
         logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
         try:
-            extension = self.get_file_extension(file_path)
-
-            if self.use_mineru:
+            if self.use_qwen_ocr:
+                from datamax.parser.pdf_parser_qwen_ocr import PdfOcrProcessor
+                processor = PdfOcrProcessor(api_key=self.api_key, model_name=self.model_name)
+                content = processor.process_pdf(file_path)
+                
+                # 修正文件名：移除原后缀，添加 .md
+                base_name = os.path.splitext(os.path.basename(file_path))[0]  # 获取无后缀的文件名
+                output_md_path = f"{base_name}.md"  # 生成 pdftest.md
+                
+                with open(output_md_path, "w", encoding="utf-8") as f:
+                    f.write(content.content if hasattr(content, "content") else str(content))
+                
+                mk_content = content.content if hasattr(content, "content") else str(content)
+                
+            elif self.use_mineru:
                 output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
                 # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
@@ -117,7 +135,7 @@ class PdfParser(BaseLife):
             )
             logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
 
-            output_vo = MarkdownOutputVo(extension, mk_content)
+            output_vo = MarkdownOutputVo(self.get_file_extension(file_path), mk_content)
             output_vo.add_lifecycle(lc_start)
             output_vo.add_lifecycle(lc_end)
             return output_vo.to_dict()

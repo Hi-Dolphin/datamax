@@ -68,8 +68,9 @@ qa_data = dm.get_pre_label(
 #### 高级功能
 
 ```python
-# PDF高级解析（需要MinerU）
+# PDF高级解析（需要MinerU||千问api）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
+dm = DataMax(file_path="complex.pdf", use_qwen_ocr=True)
 
 # Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)

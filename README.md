@@ -73,8 +73,9 @@ dm.save_label_data(qa_data)
 #### Advanced Features
 
 ```python
-# Advanced PDF parsing (requires MinerU)
+# Advanced PDF parsing (requires MinerU||Qwen-VL-Ocr)
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
+dm = DataMax(file_path="complex.pdf", use_qwen_ocr=True)
 
 # Word to Markdown conversion
 dm = DataMax(file_path="document.docx", to_markdown=True)

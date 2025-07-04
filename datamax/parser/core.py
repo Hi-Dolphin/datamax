@@ -37,6 +37,8 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        use_qwen_ocr: bool = False,
+        api_key: str = None,
     ):
         """
         Create a parser instance based on the file extension.
@@ -85,6 +87,8 @@ class ParserFactory:
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    use_qwen_ocr=use_qwen_ocr,
+                    api_key=api_key,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
@@ -105,6 +109,8 @@ class DataMax:
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
+        use_qwen_ocr: bool = False,
+        api_key: str = None,
         ttl: int = 3600,
     ):
         """
@@ -118,6 +124,8 @@ class DataMax:
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
+        self.use_qwen_ocr = use_qwen_ocr
+        self.api_key = api_key
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
         self._cache = {}
@@ -531,6 +539,8 @@ class DataMax:
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                use_qwen_ocr=self.use_qwen_ocr,
+                api_key=self.api_key,
             )
             if parser:
                 return parser.parse(file_path=file_path)
