@@ -19,7 +19,7 @@ def call_llm_with_bespokelabs(
     **kwargs
 ):
     """
-    通用 LLM 单条推理调用（OpenAI兼容协议），支持 Qwen、OpenAI、DeepSeek 等主流云厂商。
+    Universal LLM single inference call (OpenAI compatible protocol), supporting mainstream cloud vendors such as Qwen, OpenAI, DeepSeek, etc.
     """
     backend_params = {}
     if api_key: backend_params["api_key"] = api_key
@@ -43,10 +43,10 @@ def qa_generator_with_bespokelabs(
     **kwargs
 ):
     """
-    批量自动问答对或摘要标注。
-    支持 Qwen（dashscope）、OpenAI、DeepSeek 兼容 API。
+    Batch automatic Q&A pairs or summary annotation.
+    Support Qwen（dashscope）、OpenAI、DeepSeek compatible API。
     """
-    # 1. 兼容 dashscope SDK
+    # 1. compatible dashscope SDK
     if model_name.startswith("qwen"):
         if dashscope is None:
             raise ImportError("dashscope SDK is not installed. pip install dashscope")
@@ -83,7 +83,7 @@ def qa_generator_with_bespokelabs(
                 results.append({"output": output, "text": t})
         import pandas as pd
         return pd.DataFrame(results)
-    # 2. 兼容 bespokelabs-curator（通用 OpenAI 协议后端）
+    # 2. compatible bespokelabs-curator（general OpenAI protocol backend）
     else:
         if curator is None:
             raise ImportError("bespokelabs SDK is not installed. pip install bespokelabs-curator")
