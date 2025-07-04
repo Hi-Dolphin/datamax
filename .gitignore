@@ -129,6 +129,7 @@ test.py
 venv/
 venv*/
 examples/*
+curator/
 # scripts
 security_report.json
 README_CI_CD.md
