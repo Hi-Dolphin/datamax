@@ -65,38 +65,53 @@ DataMax supports calling external LLMs (such as Qwen, DeepSeek, OpenAI) via [bes
 ### Single Call Example
 
 ```python
-from datamax import use_bespkelabs
+import dashscope
 
-# For Qwen (Tongyi), DeepSeek, OpenAI, etc.
-result = use_bespkelabs(
-    model_name="qwen-turbo",
-    prompt="写一首关于自动化标注的诗",
-    api_key="sk-xxx",  # Your provider API key
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    provider="dashscope",  # e.g. dashscope, deepseek, openai
-)
-print(result)
+def test_dashscope_poem():
+    api_key = "sk-你的key"
+    dashscope.api_key = api_key
+
+    prompt = "写一首关于自动化标注的诗"
+    response = dashscope.Generation.call(
+        model="qwen-turbo",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    print(response["output"]["text"])
+    assert "诗" in response["output"]["text"] or len(response["output"]["text"]) > 10
+
 ```
 ### Batch Auto Labeling Example
 
 ```python
-from datamax import use_bespkelabs_autolabel
+import dashscope
 
-texts = [
-    "人工智能正在改变世界。",
-    "大模型应用日益广泛。",
-]
+def test_autolabel_qa():
+    dashscope.api_key = "sk-b006608829ab48ccbb3835570575209f"
+    texts = [
+        "人工智能正在改变世界。",
+        "大模型应用日益广泛。",
+    ]
+    prompt_tpl = "请根据下文生成有用的问答对：\n{text}"
 
-# Batch Q&A annotation (also supports summary mode)
-res = use_bespkelabs_autolabel(
-    texts,
-    model_name="qwen-turbo",
-    api_key="sk-xxx",
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    provider="dashscope",
-    label_type="qa",  # or "summary"
-)
-print(res)
+    results = []
+    for text in texts:
+        prompt = prompt_tpl.format(text=text)
+        response = dashscope.Generation.call(
+            model="qwen-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        output = response["output"]["text"]
+        try:
+            q, a = output.split('\n', 1)
+            q = q.replace('Question:', '').replace('问题：', '').strip()
+            a = a.replace('Answer:', '').replace('答案：', '').strip()
+            results.append({"question": q, "answer": a, "text": text})
+        except Exception:
+            results.append({"question": "", "answer": "", "text": text})
+
+    print(results)
+    assert len(results) == len(texts)
+
 ```
 #### Supported providers include:
 
