@@ -7,7 +7,6 @@ from typing import Dict, List, Union
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
-from openai import OpenAI
 
 from datamax.utils import data_cleaner
 from datamax.utils.qa_generator import generate_qa_from_content
@@ -19,19 +18,44 @@ class ModelInvoker:
     def __init__(self):
         self.client = None
 
-    def invoke_model(self, api_key, base_url, model_name, messages):
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-
-        completion = self.client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-        )
-        json_data = completion.model_dump()
-        return json_data.get("choices")[0].get("message").get("content", "")
-
+    def invoke_model(self, api_key, base_url, model_name, messages, provider=None):
+        """
+        Automatically support OpenAI official and bespokelabs urea compatible models (such as dashscope, deepseek, etc.)
+        """
+        if provider is None or provider.lower() == "openai":
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                )
+                completion = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                )
+                json_data = completion.model_dump()
+                return json_data.get("choices")[0].get("message").get("content", "")
+            except Exception as e:
+                logger.error(f"OpenAICall error: {e}")
+                raise e
+        else:
+            try:
+                # Support dashscope/deepseed/qwen, etc
+                prompt = messages[0]["content"] if isinstance(messages, list) and messages else messages
+                df = use_bespkelabs(
+                    model_name=model_name,
+                    prompt=prompt,
+                    api_key=api_key,
+                    base_url=base_url,
+                    provider=provider,
+                )
+                if hasattr(df, "to_dict"):
+                    return df.to_dict(orient="records")[0] if len(df) else ""
+                else:
+                    return str(df)
+            except Exception as e:
+                logger.error(f"bespokelabs/curatorCall error: {e}")
+                raise e
 
 class ParserFactory:
     @staticmethod
