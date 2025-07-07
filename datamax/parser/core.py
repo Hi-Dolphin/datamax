@@ -7,168 +7,40 @@ from typing import Dict, List, Union
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
-import datamax.utils.qa_generator as qa_gen
+from datamax.utils.qa_generator import generate_qa_from_content
+from openai import OpenAI
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
 from datamax.parser.base import BaseLife
-# ====== Add a universal LLM adaptation layer ======
-try:
-    import dashscope
-except ImportError:
-    dashscope = None
-try:
-    import openai
-except ImportError:
-    openai = None
-try:
-    from bespokelabs import curator
-except ImportError:
-    curator = None
-
-from datasets import Dataset
-
-def call_llm_with_bespokelabs(
-    model_name: str,
-    prompt: str,
-    api_key: str = None,
-    base_url: str = None,
-    provider: str = None,
-    **kwargs
-):
-    """
-    Universal LLM call: automatically adapts to dashscope, OpenAI, bespokelabs-curator, etc.
-    """
-    # 1. Dashscope first
-    if (model_name.startswith("qwen") or (provider and provider.lower() == "dashscope")) and dashscope is not None:
-        dashscope.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
-        response = dashscope.Generation.call(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response["output"]["text"]
-    # 2. OpenAI
-    if (model_name.startswith("gpt") or (provider and provider.lower() == "openai")) and openai is not None:
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return completion.choices[0].message.content
-    # 3. bespokelabs-curator Universal adaptation
-    if curator is not None:
-        backend_params = {}
-        if api_key: backend_params["api_key"] = api_key
-        if base_url: backend_params["base_url"] = base_url
-        if provider: backend_params["provider"] = provider
-        llm = curator.LLM(
-            model_name=model_name,
-            backend_params=backend_params,
-            **kwargs
-        )
-        result = llm(prompt)
-        # Compatible with multiple outputs such as DataFrame or strings
-        return getattr(result, "to_pandas", lambda: result)()
-    raise ImportError("No available LLM SDK found (dashscope/openai/curator)")
+import datamax.utils.qa_generator as qa_gen
 
 
-def qa_generator_with_bespokelabs(
-        texts: list,
-        model_name: str,
-        api_key: str = None,
-        base_url: str = None,
-        label_type: str = "qa",
-        prompt_tpl: str = None,
-        provider: str = None,
-        **kwargs
-):
-    """
-    Batch QA or summary generation, auto adapts dashscope or curator.
-    """
-    import pandas as pd
-    # 1. Dashscope first
-    if (model_name.startswith("qwen") or (provider and provider.lower() == "dashscope")) and dashscope is not None:
-        dashscope.api_key = api_key or os.environ.get("DASHSCOPE_API_KEY")
-        results = []
-        if not prompt_tpl:
-            prompt_tpl = "请根据下文生成有用的问答对：\n{text}" if label_type == "qa" else "请为下文生成简明摘要：\n{text}"
-        for t in texts:
-            p = prompt_tpl.format(text=t)
-            response = dashscope.Generation.call(
-                model=model_name,
-                messages=[{"role": "user", "content": p}]
-            )
-            output = response["output"]["text"]
-            if label_type == "qa":
-                try:
-                    q, a = output.split('\n', 1)
-                    q = q.replace('Question:', '').replace('问题：', '').strip()
-                    a = a.replace('Answer:', '').replace('答案：', '').strip()
-                    results.append({"question": q, "answer": a, "text": t})
-                except Exception:
-                    results.append({"question": "", "answer": "", "text": t})
-            else:
-                results.append({"summary": output, "text": t})
-        return pd.DataFrame(results)
-    # 2. bespokelabs-curator batch
-    if curator is not None:
-        data = Dataset.from_dict({"text": texts})
-        if not prompt_tpl:
-            prompt_tpl = "Please generate a useful question-answer pair for the following text:\n{text}" if label_type == "qa" else "Please generate a concise summary for the following text:\n{text}"
-        backend_params = {}
-        if api_key: backend_params["api_key"] = api_key
-        if base_url: backend_params["base_url"] = base_url
-        if provider: backend_params["provider"] = provider
-
-        class AutoLabeler(curator.LLM):
-            def prompt(self, input):
-                return prompt_tpl.format(**input)
-
-            def parse(self, input, response):
-                if label_type == "qa":
-                    try:
-                        q, a = response.split('\n', 1)
-                        return {
-                            "question": q.replace('Question:', '').replace('问题：', '').strip(),
-                            "answer": a.replace('Answer:', '').replace('答案：', '').strip(),
-                            "text": input["text"]
-                        }
-                    except Exception:
-                        return {"question": "", "answer": "", "text": input["text"]}
-                else:
-                    return {"summary": response, "text": input["text"]}
-
-        labeler = AutoLabeler(model_name=model_name, backend_params=backend_params, **kwargs)
-        res = labeler(data)
-        return res.to_pandas()
-    raise ImportError("No available LLM SDK found (dashscope/curator)")
 class ModelInvoker:
     def __init__(self):
         self.client = None
 
-
-def invoke_model(self, api_key, base_url, model_name, messages, provider=None):
-    """
-    Automatically support OpenAI official, dashscope, and other mainstream LLMs with fallback.
-    """
-    prompt = messages[0]["content"] if isinstance(messages, list) and messages else messages
-    try:
-        return smart_llm_call(
-            model_name=model_name,
-            prompt=prompt,
+    def invoke_model(self, api_key, base_url, model_name, messages):
+        base_url = qa_gen.complete_api_url(base_url)
+        self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
-            provider=provider
         )
-    except Exception as e:
-        logger.error(f"LLM call error: {e}")
-        raise e
+
+        completion = self.client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+        )
+        json_data = completion.model_dump()
+        return json_data.get("choices")[0].get("message").get("content", "")
+
+
 class ParserFactory:
     @staticmethod
     def create_parser(
-        file_path: str,
-        use_mineru: bool = False,
-        to_markdown: bool = False,
-        domain: str = "Technology",
+            file_path: str,
+            use_mineru: bool = False,
+            to_markdown: bool = False,
+            domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -226,9 +98,9 @@ class ParserFactory:
                     file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(file_path=file_path, domain=domain, )
             else:
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(file_path=file_path, domain=domain, )
 
         except (ImportError, AttributeError) as e:
             raise e
@@ -236,12 +108,12 @@ class ParserFactory:
 
 class DataMax(BaseLife):
     def __init__(
-        self,
-        file_path: Union[str, list] = "",
-        use_mineru: bool = False,
-        to_markdown: bool = False,
-        ttl: int = 3600,
-        domain: str = "Technology",
+            self,
+            file_path: Union[str, list] = "",
+            use_mineru: bool = False,
+            to_markdown: bool = False,
+            ttl: int = 3600,
+            domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -288,8 +160,8 @@ class DataMax(BaseLife):
                 for f in self.file_path:
                     file_name = os.path.basename(f)
                     if (
-                        file_name in self._cache
-                        and self._cache[file_name]["ttl"] > time.time()
+                            file_name in self._cache
+                            and self._cache[file_name]["ttl"] > time.time()
                     ):
                         logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                         parsed_data.append(self._cache[file_name]["data"])
@@ -310,8 +182,8 @@ class DataMax(BaseLife):
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
                 file_name = os.path.basename(self.file_path)
                 if (
-                    file_name in self._cache
-                    and self._cache[file_name]["ttl"] > time.time()
+                        file_name in self._cache
+                        and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                     self.parsed_data = self._cache[file_name]["data"]
@@ -337,8 +209,8 @@ class DataMax(BaseLife):
                     if os.path.isfile(f):
                         file_name = os.path.basename(f)
                         if (
-                            file_name in self._cache
-                            and self._cache[file_name]["ttl"] > time.time()
+                                file_name in self._cache
+                                and self._cache[file_name]["ttl"] > time.time()
                         ):
                             logger.info(
                                 f"✅ [Cache Hit] Using cached data for {file_name}"
@@ -474,18 +346,18 @@ class DataMax(BaseLife):
                 else f"https://{domain_part}/v1/chat/completions"
 
     def get_pre_label(
-        self,
-        *,
-        content: str = None,
-        api_key: str,
-        base_url: str,
-        model_name: str,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        question_number: int = 5,
-        max_workers: int = 5,
-        language: str = "zh",
-        messages: List[Dict[str, str]] = None,
+            self,
+            *,
+            content: str = None,
+            api_key: str,
+            base_url: str,
+            model_name: str,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            question_number: int = 5,
+            max_workers: int = 5,
+            language: str = "zh",
+            messages: List[Dict[str, str]] = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -527,17 +399,17 @@ class DataMax(BaseLife):
         try:
             base_url = qa_gen.complete_api_url(base_url)
             data = qa_gen.generate_qa_from_content(
-            content=text,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            language=language,
-            max_workers=max_workers,
-            message=messages,
-        )
+                content=text,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                question_number=question_number,
+                language=language,
+                max_workers=max_workers,
+                message=messages,
+            )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
@@ -582,8 +454,122 @@ class DataMax(BaseLife):
             )
 
     @staticmethod
+    def call_llm_with_bespokelabs(prompt: str, model_name: str, api_key: str = None, base_url: str = None, **kwargs):
+        # Priority judgment base_url style
+        if base_url and "dashscope" in base_url:
+            try:
+                import dashscope
+            except ImportError:
+                raise ImportError("dashscope SDK is not installed. pip install dashscope")
+            dashscope.api_key = api_key
+            response = dashscope.Generation.call(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs
+            )
+            # 自动适配输出结构
+            if isinstance(response, dict):
+                return response.get("output", {}).get("text", "")
+            else:
+                return getattr(response, "output", {}).get("text", "")
+        else:
+            # 默认走 openai 兼容
+            try:
+                from openai import OpenAI
+            except ImportError:
+                raise ImportError("openai SDK is not installed. pip install openai")
+            client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+            )
+            completion = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs
+            )
+            # 自动适配 output
+            return completion.choices[0].message.content
+
+    @staticmethod
+    def qa_generator_with_bespokelabs(
+            texts: List[str], model_name: str, api_key: str = None, base_url: str = None,
+            label_type: str = "qa", prompt_tpl: str = None, **kwargs
+    ):
+        """
+        批量 LLM 自动标注（Q&A 或摘要）。自动支持 dashscope（Qwen）或 openai 风格，
+        只根据 base_url 适配，不限制 key 内容。
+        """
+        results = []
+        # 优先判 base_url
+        if base_url and "dashscope" in base_url:
+            try:
+                import dashscope
+            except ImportError:
+                raise ImportError("dashscope SDK is not installed. pip install dashscope")
+            dashscope.api_key = api_key
+            if not prompt_tpl:
+                prompt_tpl = "请根据下文生成有用的问答对：\n{text}" if label_type == "qa" else "请为下文生成简明摘要：\n{text}"
+            for t in texts:
+                prompt = prompt_tpl.format(text=t)
+                response = dashscope.Generation.call(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs
+                )
+                output = response.get("output", {}).get("text", "")
+                if label_type == "qa":
+                    try:
+                        q, a = output.split('\n', 1)
+                        q = q.replace('Question:', '').replace('问题：', '').strip()
+                        a = a.replace('Answer:', '').replace('答案：', '').strip()
+                        results.append({"question": q, "answer": a, "text": t})
+                    except Exception:
+                        results.append({"question": "", "answer": "", "text": t})
+                elif label_type == "summary":
+                    results.append({"summary": output, "text": t})
+                else:
+                    results.append({"output": output, "text": t})
+            return results
+        else:
+            # 默认 openai 风格
+            try:
+                from openai import OpenAI
+            except ImportError:
+                raise ImportError("openai SDK is not installed. pip install openai")
+            if not prompt_tpl:
+                prompt_tpl = (
+                    "Please generate a useful question-answer pair for the following text:\n{text}" if label_type == "qa"
+                    else "Please generate a concise summary for the following text:\n{text}"
+                )
+            client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+            )
+            for t in texts:
+                prompt = prompt_tpl.format(text=t)
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs
+                )
+                output = completion.choices[0].message.content
+                if label_type == "qa":
+                    try:
+                        q, a = output.split('\n', 1)
+                        q = q.replace('Question:', '').replace('问题：', '').strip()
+                        a = a.replace('Answer:', '').replace('答案：', '').strip()
+                        results.append({"question": q, "answer": a, "text": t})
+                    except Exception:
+                        results.append({"question": "", "answer": "", "text": t})
+                elif label_type == "summary":
+                    results.append({"summary": output, "text": t})
+                else:
+                    results.append({"output": output, "text": t})
+            return results
+
+    @staticmethod
     def split_text_into_paragraphs(
-        text: str, max_length: int = 500, chunk_overlap: int = 100
+            text: str, max_length: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text into paragraphs by sentence boundaries, each paragraph not exceeding max_length characters.
@@ -620,7 +606,7 @@ class DataMax(BaseLife):
                     paragraphs.append(current_paragraph[:split_point])
                     # Update overlap buffer
                     overlap_buffer = (
-                        current_paragraph[split_point - chunk_overlap : split_point]
+                        current_paragraph[split_point - chunk_overlap: split_point]
                         if chunk_overlap > 0
                         else ""
                     )
@@ -635,7 +621,7 @@ class DataMax(BaseLife):
 
     @staticmethod
     def split_with_langchain(
-        text: str, chunk_size: int = 500, chunk_overlap: int = 100
+            text: str, chunk_size: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text using LangChain's intelligent text splitting
@@ -654,11 +640,11 @@ class DataMax(BaseLife):
         return text_splitter.split_text(text)
 
     def split_data(
-        self,
-        parsed_data: Union[str, dict] = None,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        use_langchain: bool = False,
+            self,
+            parsed_data: Union[str, dict] = None,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            use_langchain: bool = False,
     ):
         """
         Improved splitting method with LangChain option
