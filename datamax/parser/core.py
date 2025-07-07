@@ -454,107 +454,106 @@ class DataMax(BaseLife):
             )
 
     @staticmethod
-def call_llm_with_bespokelabs(
-    prompt: str,
-    model_name: str,
-    api_key: str = None,
-    base_url: str = None,
-    **kwargs
-):
-    """
-    Universal LLM call using only OpenAI-compatible API.
-    No vendor restriction: as long as the backend implements the OpenAI API standard,
-    any model_name, api_key, or base_url can be used (including OpenAI, Qwen, Zhipu, Moonshot, etc.).
+    def call_llm_with_bespokelabs(
+            prompt: str,
+            model_name: str,
+            api_key: str = None,
+            base_url: str = None,
+            **kwargs
+    ):
+        """
+        Universal LLM call using only OpenAI-compatible API.
+        No vendor restriction: as long as the backend implements the OpenAI API standard,
+        any model_name, api_key, or base_url can be used (including OpenAI, Qwen, Zhipu, Moonshot, etc.).
 
-    Args:
-        prompt (str): User prompt or input message.
-        model_name (str): Model name, e.g. 'gpt-3.5-turbo', 'qwen-turbo', etc.
-        api_key (str): OpenAI-compatible API key.
-        base_url (str): OpenAI-compatible API URL endpoint.
-        **kwargs: Additional arguments to pass to the API call.
+        Args:
+            prompt (str): User prompt or input message.
+            model_name (str): Model name, e.g. 'gpt-3.5-turbo', 'qwen-turbo', etc.
+            api_key (str): OpenAI-compatible API key.
+            base_url (str): OpenAI-compatible API URL endpoint.
+            **kwargs: Additional arguments to pass to the API call.
 
-    Returns:
-        str: The generated content as a string.
-    """
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ImportError("openai SDK is not installed. Please run: pip install openai")
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url,
-    )
-    completion = client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": prompt}],
-        **kwargs
-    )
-    return completion.choices[0].message.content
-
-
-@staticmethod
-def qa_generator_with_bespokelabs(
-    texts: list,
-    model_name: str,
-    api_key: str = None,
-    base_url: str = None,
-    label_type: str = "qa",
-    prompt_tpl: str = None,
-    **kwargs
-):
-    """
-    Batch LLM automatic annotation (Q&A or summarization) using only OpenAI-compatible APIs.
-    No vendor restriction: can be used with any OpenAI-compatible backend.
-
-    Args:
-        texts (list): List of input texts to annotate.
-        model_name (str): Model name, e.g. 'gpt-3.5-turbo', 'qwen-turbo', etc.
-        api_key (str): OpenAI-compatible API key.
-        base_url (str): OpenAI-compatible API URL endpoint.
-        label_type (str): Annotation type. 'qa' for Q&A pairs, 'summary' for summarization.
-        prompt_tpl (str, optional): Custom prompt template. Default is a built-in template.
-        **kwargs: Additional arguments to pass to the API call.
-
-    Returns:
-        list: List of dictionaries with annotation results (Q&A pairs or summaries).
-    """
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ImportError("openai SDK is not installed. Please run: pip install openai")
-    if not prompt_tpl:
-        if label_type == "qa":
-            prompt_tpl = "Please generate a useful question-answer pair for the following text:\n{text}"
-        elif label_type == "summary":
-            prompt_tpl = "Please generate a concise summary for the following text:\n{text}"
-        else:
-            raise ValueError(f"Unknown label_type: {label_type}")
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url,
-    )
-    results = []
-    for t in texts:
-        prompt = prompt_tpl.format(text=t)
+        Returns:
+            str: The generated content as a string.
+        """
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError("openai SDK is not installed. Please run: pip install openai")
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
         completion = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             **kwargs
         )
-        output = completion.choices[0].message.content
-        if label_type == "qa":
-            try:
-                q, a = output.split('\n', 1)
-                q = q.replace('Question:', '').replace('问题：', '').strip()
-                a = a.replace('Answer:', '').replace('答案：', '').strip()
-                results.append({"question": q, "answer": a, "text": t})
-            except Exception:
-                results.append({"question": "", "answer": "", "text": t})
-        elif label_type == "summary":
-            results.append({"summary": output, "text": t})
-        else:
-            results.append({"output": output, "text": t})
-    return results
+        return completion.choices[0].message.content
+
+    @staticmethod
+    def qa_generator_with_bespokelabs(
+            texts: list,
+            model_name: str,
+            api_key: str = None,
+            base_url: str = None,
+            label_type: str = "qa",
+            prompt_tpl: str = None,
+            **kwargs
+    ):
+        """
+        Batch LLM automatic annotation (Q&A or summarization) using only OpenAI-compatible APIs.
+        No vendor restriction: can be used with any OpenAI-compatible backend.
+
+        Args:
+            texts (list): List of input texts to annotate.
+            model_name (str): Model name, e.g. 'gpt-3.5-turbo', 'qwen-turbo', etc.
+            api_key (str): OpenAI-compatible API key.
+            base_url (str): OpenAI-compatible API URL endpoint.
+            label_type (str): Annotation type. 'qa' for Q&A pairs, 'summary' for summarization.
+            prompt_tpl (str, optional): Custom prompt template. Default is a built-in template.
+            **kwargs: Additional arguments to pass to the API call.
+
+        Returns:
+            list: List of dictionaries with annotation results (Q&A pairs or summaries).
+        """
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError("openai SDK is not installed. Please run: pip install openai")
+        if not prompt_tpl:
+            if label_type == "qa":
+                prompt_tpl = "Please generate a useful question-answer pair for the following text:\n{text}"
+            elif label_type == "summary":
+                prompt_tpl = "Please generate a concise summary for the following text:\n{text}"
+            else:
+                raise ValueError(f"Unknown label_type: {label_type}")
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+        results = []
+        for t in texts:
+            prompt = prompt_tpl.format(text=t)
+            completion = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs
+            )
+            output = completion.choices[0].message.content
+            if label_type == "qa":
+                try:
+                    q, a = output.split('\n', 1)
+                    q = q.replace('Question:', '').replace('问题：', '').strip()
+                    a = a.replace('Answer:', '').replace('答案：', '').strip()
+                    results.append({"question": q, "answer": a, "text": t})
+                except Exception:
+                    results.append({"question": "", "answer": "", "text": t})
+            elif label_type == "summary":
+                results.append({"summary": output, "text": t})
+            else:
+                results.append({"output": output, "text": t})
+        return results
 
     @staticmethod
     def split_text_into_paragraphs(
