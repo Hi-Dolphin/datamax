@@ -103,7 +103,8 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
 
         processed_chunks = []
         placeholder_regex = re.compile(r"\|\|image_placeholder_(\d+)\|\|")
-        md_dir = os.path.dirname(os.path.abspath(os.sep.join(md_path.split(os.sep)[:-1])))
+        md_file_dir = os.path.dirname(os.path.abspath(md_path))
+        images_dir = os.path.abspath(os.path.join(md_file_dir, os.pardir, "images"))
 
         for chunk_text in chunks:
             found_indices = [int(idx) for idx in placeholder_regex.findall(chunk_text)]
@@ -114,7 +115,11 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
             unique_indices = sorted(list(set(found_indices)))
             
             chunk_image_paths = [
-                os.path.abspath(os.path.join(md_dir, image_paths_original[i]))
+                # 只取 basename，以防链接里带目录
+                os.path.abspath(os.path.join(
+                    images_dir,
+                    os.path.basename(image_paths_original[i])
+                ))
                 for i in unique_indices
             ]
 

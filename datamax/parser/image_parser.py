@@ -6,11 +6,13 @@ from datamax.utils import setup_environment
 import dashscope
 from typing import Optional
 
+# Initialize environment
 setup_environment(use_gpu=True)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
+
 from PIL import Image
 
 from datamax.parser.base import BaseLife
@@ -21,22 +23,22 @@ from datamax.utils.lifecycle_types import LifeType
 class ImageParser(BaseLife):
     """ImageParser class for parsing images using Qwen model or traditional PDF conversion method.
     
-        ## 使用Qwen模型
-        ```python
-        parser = ImageParser(
-            "image.jpg",
-            api_key="your_api_key",
-            use_mllm=True,
-            model_name="qwen-vl-plus",
-            system_prompt="Describe the image in detail, focusing on objects, colors, and spatial relationships."
-        )
-        result = parser.parse("image.jpg", "What is in this image?")
-        ```
-        ## 使用传统方法
-        ```python
-        parser = ImageParser("image.jpg")
-        result = parser.parse("image.jpg")
-        ```
+    ## 使用Qwen模型
+    ```python
+    parser = ImageParser(
+        "image.jpg",
+        api_key="your_api_key",
+        use_mllm=True,
+        model_name="qwen-vl-plus",
+        system_prompt="Describe the image in detail, focusing on objects, colors, and spatial relationships."
+    )
+    result = parser.parse("image.jpg", "What is in this image?")
+    ```
+    ## 使用传统方法
+    ```python
+    parser = ImageParser("image.jpg")
+    result = parser.parse("image.jpg")
+    ```
     """
     def __init__(
         self,
@@ -49,14 +51,6 @@ class ImageParser(BaseLife):
     ):
         """
         Initialize the ImageParser with optional Qwen model configuration.
-        
-        Args:
-            file_path: Path to the image file
-            api_key: API key for Qwen service (default: None)
-            base_url: Base URL for Qwen API (default: None)
-            model_name: Qwen model name (default: "qwen-vl-plus")
-            system_prompt: System prompt for the model (default: descriptive prompt)
-            use_mllm: Whether to use Qwen model for image parsing (default: False)
         """
         super().__init__()
         self.file_path = file_path
@@ -73,39 +67,27 @@ class ImageParser(BaseLife):
             if self.base_url:
                 dashscope.base_url = self.base_url
 
-    def _parse_with_qwen(self, query: str) -> str:
+    def _parse_with_qwen(self, query: Optional[str] = None) -> str:
         """
         Parse image using Qwen model.
-        
-        Args:
-            image_path: Path to the image file
-            query: The question/prompt for the image (default: "Describe this image in detail.")
-            
-        Returns:
-            The model's response as a string
         """
         if query is None:
-            query = f"""
-            Describe this image in detail, focusing on objects, and spatial relationships.
-            your output should be in the markdown format.
-            every object is described in a separate paragraph, with spatial relationships between objects and its possible functions described in the same paragraph.
-            """
+            query = (
+                """
+                Describe this image in detail, focusing on objects, and spatial relationships.
+                your output should be in the markdown format.
+                every object is described in a separate paragraph, with spatial relationships between objects and its possible functions described in the same paragraph.
+                """
+            )
         messages = [
-            {
-                'role': 'system',
-                'content': self.system_prompt
-            },
-            {
-                'role': 'user',
-                'content': [
-                    {'image': self.file_path},
-                    {'text': query}
-                ]
-            }
+            {'role': 'system', 'content': self.system_prompt},
+            {'role': 'user', 'content': [
+                {'image': self.file_path},
+                {'text': query}
+            ]}
         ]
-        # print(messages)
         response = dashscope.MultiModalConversation.call(
-            api_key=self.api_key, 
+            api_key=self.api_key,
             model=self.model_name,
             messages=messages,
             result_format="message"
@@ -118,25 +100,36 @@ class ImageParser(BaseLife):
             print(f"错误码：{response.code}")
             print(f"错误信息：{response.message}")
 
-    def parse(self, query: Optional[str] = None) -> str:
+    def parse(
+        self,
+        file_path: Optional[str] = None,
+        query: Optional[str] = None
+    ) -> str:
         """
-        Parse the image file using either Qwen model or traditional PDF conversion method.
+        Parse the image file using either Qwen model or traditional method.
         
         Args:
-            file_path: Path to the image file
-            query: Optional query/prompt for Qwen model (default: None)
+            file_path: 新的图片路径（可选），如果提供则覆盖初始化时的 self.file_path
+            query:     Qwen 模型的提问内容（可选，仅在 use_mllm=True 时使用）
             
         Returns:
-            Parsed text content from the image
+            Qwen 模型返回的文本（use_mllm=True）或传统 OCR 结果（use_mllm=False）
         """
+        # 1) 覆盖 self.file_path，以便后续各分支都用同一个路径
+        if file_path is not None:
+            self.file_path = file_path
+
+        # 2) 必须有图片路径，且文件存在
+        if not self.file_path or not os.path.exists(self.file_path):
+            raise ValueError(f"未找到图片文件：{self.file_path}")
+
         try:
+            # 3) Qwen 分支：仅使用 query 作为提问内容
             if self.use_mllm:
                 return self._parse_with_qwen(query)
-            
-            # Fall back to traditional method if not using Qwen
-            base_name = pathlib.Path(self.file_path).stem
 
-            # 1) 处理开始：生成 DATA_PROCESSING 事件
+            # 4) 传统分支：先将图片转 PDF，再用 PdfParser 解析
+            base_name = pathlib.Path(self.file_path).stem
             extension = self.get_file_extension(self.file_path)
             lc_start = self.generate_lifecycle(
                 source_file=self.file_path,
@@ -155,7 +148,8 @@ class ImageParser(BaseLife):
 
             if os.path.exists(output_pdf_path):
                 os.remove(output_pdf_path)
-            # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED
+
+            # 处理结束：生成生命周期结束事件
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
                 source_file=self.file_path,
@@ -168,7 +162,7 @@ class ImageParser(BaseLife):
                 usage_purpose="Parsing",
             )
 
-            # 3) 合并生命周期：先插入 start，再追加 end
+            # 合并生命周期
             lifecycle = result.get("lifecycle", [])
             lifecycle.insert(0, lc_start.to_dict())
             lifecycle.append(lc_end.to_dict())
@@ -179,6 +173,7 @@ class ImageParser(BaseLife):
         except Exception:
             raise
 
+
 if __name__ == "__main__":
     ip = ImageParser(
         file_path="picture.png",
@@ -186,6 +181,5 @@ if __name__ == "__main__":
         api_key="sk-xxxx",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         model_name="qwen-vl-max-latest",
-        )
+    )
     print(ip.parse())
-

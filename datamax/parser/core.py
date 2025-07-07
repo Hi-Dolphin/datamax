@@ -370,7 +370,9 @@ class DataMax:
             if multimodal:
                 logger.info("使用多模态QA生成器...")
                 generator_module = importlib.import_module("datamax.utils.multimodal_qa_generator")
-                file_path = os.path.join('__temp__', 'markdown', os.path.basename(file_path).replace('.pdf','.md'))
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+                md_name   = base_name + '.md'
+                file_path = os.path.join('__temp__', 'markdown', md_name)
             else:
                 logger.info("使用标准QA生成器...")
                 generator_module = importlib.import_module("datamax.utils.qa_generator")
