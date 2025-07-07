@@ -17,7 +17,7 @@
 - 🤖 **AI标注**: 基于LLM的自动数据标注和预标记
 - ⚡ **批量处理**: 高效的多文件并行处理
 - 🎯 **易于集成**: 简洁的API设计，开箱即用
-
+- 🧠 **灵活的大模型集成**：即插即用调用Qwen、OpenAI、DeepSeek等API兼容LLM（通过bespokelabs-curator）
 ## 🚀 快速开始
 
 ### 安装
@@ -53,7 +53,58 @@ qa_data = dm.get_pre_label(
     model_name="gpt-3.5-turbo"
 )
 ```
+## 🤖 LLM大模型集成（bespokelabs-curator）
+DataMax 支持通过 bespokelabs-curator 调用外部大模型（如Qwen、DeepSeek、OpenAI等）进行自定义标注或推理。
+### 单轮调用示例
+```python
+from datamax.parser.core import DataMax
 
+def test_call_llm_with_bespokelabs():
+    dm = DataMax()
+    result = dm.call_llm_with_bespokelabs(
+        prompt="帮我用一句话介绍人工智能",
+        model_name="qwen-turbo",
+        # model_name="gpt-3.5-turbo"
+        api_key="sk-xxx",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1" 
+        # base_url="https://api.openai.com/v1"
+    )
+    print("Dashscope返回：", result)
+    assert result
+```
+### 批量自动标注示例
+```python
+from datamax.parser.core import DataMax
+
+def test_qa_generator_with_bespokelabs():
+    dm = DataMax()
+    results = dm.qa_generator_with_bespokelabs(
+        texts=[
+            "人工智能是近年来快速发展的科技领域，具有广泛的应用前景。",
+            "深度学习算法能够自动从大量数据中学习有用的特征。"
+        ],
+        model_name="qwen-turbo",
+        # model_name="gpt-3.5-turbo"
+        api_key="sk-xxx",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        # base_url="https://api.openai.com/v1"
+        label_type="qa",
+    )
+    for r in results:
+        print("Dashscope QA:", r)
+    # 断言，确保结果不为空且有问题和答案
+    assert len(results) == 2
+    assert all("question" in item and "answer" in item for item in results)
+
+if __name__ == "__main__":
+    test_qa_generator_with_bespokelabs()
+```
+#### 支持的模型服务包括
+- **通义千问/Qwen（dashscope）**
+- **DeepSeek**
+- **OpenAI**
+- **任意OpenAI兼容API的大模型服务**
+- **需要配置API key和服务端点，具体请参考相应大模型文档。**
 ## 📖 详细文档
 
 ### 文件解析
