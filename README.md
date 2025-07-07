@@ -67,72 +67,47 @@ DataMax supports calling external LLMs (such as Qwen, DeepSeek, OpenAI) via [bes
 ```python
 from datamax.parser.core import DataMax
 
-def test_openai():
-    # Replace with your own openai api_key 和 base_url
-    api_key = "sk-xxx"
-    base_url = "https://api.openai.com/v1"
-    model_name = "gpt-3.5-turbo"
-    prompt = "用一句话介绍你自己"
-    result = DataMax.call_llm_with_bespokelabs(prompt=prompt, model_name=model_name, api_key=api_key, base_url=base_url)
-    print("[OpenAI模式] 返回：", result)
-
-def test_dashscope():
-    # Replace with your own dashscope key 和 dashscope api url
-    api_key = "sk_xxx"
-    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model_name = "qwen-turbo"
-    prompt = "用一句话介绍你自己"
-    result = DataMax.call_llm_with_bespokelabs(prompt=prompt, model_name=model_name, api_key=api_key, base_url=base_url)
-    print("[DashScope模式] 返回：", result)
-
-if __name__ == "__main__":
-    test_openai()
- # test_dashscope()
+def test_call_llm_with_bespokelabs():
+    dm = DataMax()
+    result = dm.call_llm_with_bespokelabs(
+        prompt="帮我用一句话介绍人工智能",
+        model_name="qwen-turbo",
+        # model_name="gpt-3.5-turbo"
+        api_key="sk-xxx",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1" 
+        # base_url="https://api.openai.com/v1"
+    )
+    print("Dashscope返回：", result)
+    assert result
 ```
 ### Batch Auto Labeling Example
 
 ```python
 from datamax.parser.core import DataMax
 
-def test_qa_openai():
-    api_key = "sk-xxx"
-    base_url = "https://api.openai.com/v1"
-    model_name = "gpt-3.5-turbo"
-    texts = [
-        "人工智能是近年来快速发展的科技领域，具有广泛的应用前景。",
-        "深度学习算法能够自动从大量数据中学习有用的特征。"
-    ]
-    results = DataMax.qa_generator_with_bespokelabs(
-        texts=texts,
-        model_name=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        label_type="qa",  
-    )
-    for r in results:
-        print("[OpenAI QA]", r)
-
-def test_qa_dashscope():
-    api_key = "sk_xxx"
-    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model_name = "qwen-turbo"
-    texts = [
-        "人工智能是近年来快速发展的科技领域，具有广泛的应用前景。",
-        "深度学习算法能够自动从大量数据中学习有用的特征。"
-    ]
-    results = DataMax.qa_generator_with_bespokelabs(
-        texts=texts,
-        model_name=model_name,
-        api_key=api_key,
-        base_url=base_url,
+def test_qa_generator_with_bespokelabs():
+    dm = DataMax()
+    results = dm.qa_generator_with_bespokelabs(
+        texts=[
+            "人工智能是近年来快速发展的科技领域，具有广泛的应用前景。",
+            "深度学习算法能够自动从大量数据中学习有用的特征。"
+        ],
+        model_name="qwen-turbo",
+        # model_name="gpt-3.5-turbo"
+        api_key="sk-xxx",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        # base_url="https://api.openai.com/v1"
         label_type="qa",
     )
     for r in results:
-        print("[Dashscope QA]", r)
+        print("Dashscope QA:", r)
+    # Assert, ensure that the result is not empty and has questions and answers
+    assert len(results) == 2
+    assert all("question" in item and "answer" in item for item in results)
 
 if __name__ == "__main__":
-    test_qa_openai()
-    # test_qa_dashscope() 
+    test_qa_generator_with_bespokelabs()
+
 ```
 #### Supported providers include:
 
