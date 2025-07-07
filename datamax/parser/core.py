@@ -467,13 +467,13 @@ class DataMax(BaseLife):
                 messages=[{"role": "user", "content": prompt}],
                 **kwargs
             )
-            # 自动适配输出结构
+            # Automatic adaptation of output structure
             if isinstance(response, dict):
                 return response.get("output", {}).get("text", "")
             else:
                 return getattr(response, "output", {}).get("text", "")
         else:
-            # 默认走 openai 兼容
+            # Default compatibility with OpenAI
             try:
                 from openai import OpenAI
             except ImportError:
@@ -487,7 +487,7 @@ class DataMax(BaseLife):
                 messages=[{"role": "user", "content": prompt}],
                 **kwargs
             )
-            # 自动适配 output
+            # Adaptiveoutput
             return completion.choices[0].message.content
 
     @staticmethod
@@ -496,11 +496,10 @@ class DataMax(BaseLife):
             label_type: str = "qa", prompt_tpl: str = None, **kwargs
     ):
         """
-        批量 LLM 自动标注（Q&A 或摘要）。自动支持 dashscope（Qwen）或 openai 风格，
-        只根据 base_url 适配，不限制 key 内容。
+        Batch LLM automatic dimension（Q&A or abstract）。
+        Only based on base_url fitter，unrestricted key content。
         """
         results = []
-        # 优先判 base_url
         if base_url and "dashscope" in base_url:
             try:
                 import dashscope
@@ -531,7 +530,7 @@ class DataMax(BaseLife):
                     results.append({"output": output, "text": t})
             return results
         else:
-            # 默认 openai 风格
+            # Default openai style
             try:
                 from openai import OpenAI
             except ImportError:
