@@ -43,7 +43,7 @@ data = dm.get_data()
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
 # 带领域树的AI标注
-qa_data = dm.generate_qa_with_tree(
+qa_data = dm.generate_qa(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
     model_name="gpt-3.5-turbo"
@@ -161,7 +161,7 @@ tf_bool = tf.filter_by_numeric_content(threshold=0.6)
 if tf_bool:
     print("文本通过数字比例过滤")
 else:
-print("文本未通过数字比例过滤")
+    print("文本未通过数字比例过滤")
 
 # 2. 隐私脱敏
 pd = PrivacyDesensitization(parsed_data=parsed_data)
@@ -203,18 +203,18 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
 # 带领域树的自动问答标注
 
 dm = DataMax(file_path="your_file.md")
-qa_data = dm.generate_qa_with_tree(
+qa_data = dm.generate_qa(
     api_key="sk-xxx",         
     base_url="https://api.provider.com/v1",  
     model_name="model-name",   
     chunk_size=500,             # 文本块大小
     chunk_overlap=100,          # 块重叠长度
     question_number=5,          # 每块生成问题数
-    max_workers=5               # 并发线程数
+    max_workers=5,              # 并发线程数
 )
 # 生成领域树后，用户可在终端交互式自定义树结构
 # 保存结果
-dm.save_label_data(res)
+dm.save_label_data(qa_data)
 ```
 
 #### 领域树交互操作说明
