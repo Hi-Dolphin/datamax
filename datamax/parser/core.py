@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional, Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -344,7 +344,7 @@ class DataMax(BaseLife):
             return f"https://{domain_part}/{path}/v1/chat/completions" if path \
                 else f"https://{domain_part}/v1/chat/completions"
 
-     def get_pre_label(
+    def get_pre_label(
         self,
         *,
         content: str = None,
@@ -359,6 +359,7 @@ class DataMax(BaseLife):
         use_tree_label: bool = True,
         messages: list = None,
         interactive_tree: bool = False,
+        custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -374,6 +375,19 @@ class DataMax(BaseLife):
         :param use_tree_label: Whether to use domain tree label for generating questions
         :param messages: Custom messages
         :param interactive_tree: Whether to allow interactive tree modification
+        :param custom_domain_tree: Custom domain tree structure in the format:
+            [
+                {
+                    "label": "1 一级领域标签",
+                    "child": [
+                        {"label": "1.1 二级领域标签1"},
+                        {"label": "1.2 二级领域标签2"}
+                    ]
+                },
+                {
+                    "label": "2 一级领域标签(无子标签)"
+                }
+            ]
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
@@ -415,6 +429,7 @@ class DataMax(BaseLife):
                 use_tree_label=use_tree_label,
                 messages=messages,
                 interactive_tree=interactive_tree,
+                custom_domain_tree=custom_domain_tree,
             )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(

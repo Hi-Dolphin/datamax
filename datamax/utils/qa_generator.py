@@ -789,6 +789,7 @@ def full_qa_labeling_process(
     use_tree_label: bool = True,
     messages: list = None,
     interactive_tree: bool = True,
+    custom_domain_tree: list = None,
 ):
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
@@ -814,24 +815,37 @@ def full_qa_labeling_process(
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-        domain_tree = process_domain_tree(
-            api_key=api_key,
-            base_url=base_url,
-            model=model_name,
-            text="\n".join(page_content),
-            temperature=0.7,
-            top_p=0.9,
-        )
-        if domain_tree is None:
-            # tree generation failed, use text generation strategy
-            logger.info("领域树生成失败，采用纯文本生成策略")
-            use_tree_label = False
-        elif interactive_tree and domain_tree and domain_tree.tree:
+        
+        # if custom_domain_tree is not None, use it
+        if custom_domain_tree is not None:
+            domain_tree = DomainTree(custom_domain_tree)
+            logger.info("🌳 使用用户上传的自定义领域树结构")
+            print("🌳 正在使用您上传的自定义领域树结构进行预标注...")
+        else:
+            # otherwise, generate tree from text
+            domain_tree = process_domain_tree(
+                api_key=api_key,
+                base_url=base_url,
+                model=model_name,
+                text="\n".join(page_content),
+                temperature=0.7,
+                top_p=0.9,
+            )
+            if domain_tree is None:
+                # tree generation failed, use text generation strategy
+                logger.info("领域树生成失败，采用纯文本生成策略")
+                use_tree_label = False
+        
+        # 统一的交互式编辑逻辑
+        if interactive_tree and domain_tree and domain_tree.tree:
+            tree_source = "自定义" if custom_domain_tree is not None else "生成"
             print("\n" + "="*60)
-            print("🌳 生成的领域树结构:")
+            print(f"🌳 {tree_source}的领域树结构:")
             print("="*60)
             print(domain_tree.visualize())
             print("="*60)
+            if custom_domain_tree is not None:
+                print("💡 您可以对自定义树进行修改，或输入'结束树操作'直接使用")
             domain_tree = _interactive_tree_modification(domain_tree)
     #generate questions
     question_info = process_questions(
