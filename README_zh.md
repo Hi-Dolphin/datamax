@@ -222,6 +222,29 @@ qa_data = dm.get_pre_label(
 dm.save_label_data(qa_data)
 ```
 
+### 增强QA生成
+
+QA生成器现在支持：
+- LLM调用的重试机制
+- 领域树生成失败时回退到纯文本模式
+- 使用领域树标签进行更准确的标注
+- 交互式领域树编辑进行精细调优
+
+```python
+# 增强QA生成，集成领域树和交互式编辑
+qa_data = dm.get_pre_label(
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo",
+    use_tree_label=True,  # 领域树集成参数
+    interactive_tree=True,  # 在QA生成过程中启用交互式树编辑
+    chunk_size=500,
+    chunk_overlap=100,
+    question_number=5,
+    max_workers=5
+)
+```
+
 ## ⚙️ 环境配置
 
 ### 可选依赖

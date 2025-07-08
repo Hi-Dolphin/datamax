@@ -224,6 +224,30 @@ qa_data = dm.get_pre_label(
 )
 ```
 
+### Enhanced QA Generation
+
+The QA generator now supports:
+- Retry mechanism for LLM calls
+- Fallback to text-only mode if domain tree generation fails
+- Use of domain tree labels for more accurate annotation
+- Interactive domain tree editing for fine-tuning
+
+
+```python
+# Enhanced QA generation with domain tree integration and interactive editing
+qa_data = dm.get_pre_label(
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo",
+    use_tree_label=True,  # new parameter for domain tree integration
+    interactive_tree=True,  # enable interactive tree editing during QA generation
+    chunk_size=500,
+    chunk_overlap=100,
+    question_number=5,
+    max_workers=5
+)
+```
+
 ## ⚙️ Environment Setup
 
 ### Optional Dependencies
