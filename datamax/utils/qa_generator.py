@@ -605,34 +605,55 @@ def process_answers(
     question_items: list,
     message: Optional[list] = None,
     max_workers=5,
+    max_retries: int = 3,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
     if message is None:
         message = []
-    def _generate_answer(item):
-        """Inner function for answer generation"""
-        prompt = get_system_prompt_for_answer(item["page"], item["question"])
-        answer = llm_generator(
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            prompt=prompt,
-            message=message,
-            type="answer",
-        )
-        return item["question"], answer
+    def _generate_answer_with_retry(item):
+        """Inner function for answer generation with retry"""
+        for attempt in range(max_retries):
+            try:
+                prompt = get_system_prompt_for_answer(item["page"], item["question"])
+                answer = llm_generator(
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    prompt=prompt,
+                    message=message,
+                    type="answer",
+                )
+                if answer and len(answer) > 0:
+                    return item["question"], answer[0]  # llm_generator returns a list
+                else:
+                    logger.warning(f"答案生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+            except Exception as e:
+                logger.error(f"答案生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)  # retry after 2 seconds
+        
+        # all retries failed
+        question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
+        logger.error(f"网络状态不佳！舍弃了（{question_text}）问题的对应问答对")
+        return None  # 返回None表示舍弃该问答对
 
-    logger.info(f"开始生成答案 (线程数: {max_workers})...")
+    logger.info(f"开始生成答案 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_generate_answer, item): item for item in question_items
+            executor.submit(_generate_answer_with_retry, item): item for item in question_items
         }
 
         with tqdm(as_completed(futures), total=len(futures), desc="生成答案") as pbar:
             for future in pbar:
-                question, answer = future.result()
-                if answer:
+                result = future.result()
+                if result is not None:  # 只有成功生成答案的才添加
+                    question, answer = result
                     with lock:
                         qa_pairs[question] = answer
                     pbar.set_postfix({"已生成答案": len(qa_pairs)})
@@ -675,21 +696,23 @@ def generatr_qa_pairs(
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
-        label = question_item.get("label", "")
-        answer = qa_pairs.get(question, "")
-        tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
-        qid = question_item.get("qid", "")
-        method = "text with tree label" if domain_tree else "text"
-        qa_entry = {
-            "qid": qid,
-            "instruction": question,
-            "input": "",
-            "output": answer,
-            "label": label,
-            "tag-path": tag_path,
-            "method": method
-        }
-        res_list.append(qa_entry)
+        # 只有成功生成答案的问题才会被添加到结果中
+        if question in qa_pairs:
+            label = question_item.get("label", "")
+            answer = qa_pairs[question]
+            tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
+            qid = question_item.get("qid", "")
+            method = "text with tree label" if domain_tree else "text"
+            qa_entry = {
+                "qid": qid,
+                "instruction": question,
+                "input": "",
+                "output": answer,
+                "label": label,
+                "tag-path": tag_path,
+                "method": method
+            }
+            res_list.append(qa_entry)
     return res_list
 
 
