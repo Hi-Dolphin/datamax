@@ -344,7 +344,7 @@ class DataMax(BaseLife):
             return f"https://{domain_part}/{path}/v1/chat/completions" if path \
                 else f"https://{domain_part}/v1/chat/completions"
 
-     def get_pre_label(
+    def get_pre_label(
         self,
         *,
         content: str = None,
