@@ -392,6 +392,15 @@ class DataMax(BaseLife):
                 usage_purpose="Labeling"
             ).to_dict()
         )
+            # 打点：成功 DATA_LABELLED
+        self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLED,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
 
         try:
             # 3. 完善 base_url
