@@ -440,6 +440,15 @@ class DataMax(BaseLife):
                     usage_purpose="Labeling",
                 ).to_dict()
             )
+            # preview the first 10 qa pairs
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                print("\n===== 预览前10条QA对 =====")
+                for i, qa in enumerate(data[:10]):
+                    print(f"\n--- QA对 {i+1} ---")
+                    print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(f"答案: {qa.get('output', 'N/A')}")
+                    print(f"标签: {qa.get('label', 'N/A')}")
+                print("========================\n")
             return data
         except Exception as e:
             # 打点：失败 DATA_LABEL_FAILED
