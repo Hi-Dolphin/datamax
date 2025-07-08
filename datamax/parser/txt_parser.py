@@ -7,8 +7,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class TxtParser(BaseLife):
-    def __init__(self, file_path: Union[str, list]):
-        super().__init__()
+    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -41,7 +41,7 @@ class TxtParser(BaseLife):
             # 1) 开始处理
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -57,7 +57,7 @@ class TxtParser(BaseLife):
             # 4) 处理完成
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -69,7 +69,7 @@ class TxtParser(BaseLife):
             # 5) 处理失败
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )

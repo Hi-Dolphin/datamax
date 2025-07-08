@@ -45,6 +45,20 @@ lock = threading.Lock()
 
 
 # ------------prompt-----------------
+def complete_api_url(base_url: str) -> str:
+    """
+    Normalize the given base_url so that it ends with the OpenAI-style
+    chat completions endpoint.
+
+    E.g. if user passes "https://api.provider.com/v1" it will become
+    "https://api.provider.com/v1/chat/completions".
+    """
+    url = base_url.rstrip("/")
+    # 如果还没以 /chat/completions 结尾，就自动拼上
+    if not url.endswith("/chat/completions"):
+        url = f"{url}/chat/completions"
+    return url
+
 def get_system_prompt_for_question(query_text, question_number):
     """Generate system prompt for question generation task (Chinese)"""
     system_prompt = f"""
@@ -73,14 +87,14 @@ def get_system_prompt_for_question(query_text, question_number):
          - JSON 数组格式必须正确
         - 字段名使用英文双引号
         - 输出的 JSON 数组必须严格符合以下结构：
-        \`\`\`json
+        ```json
         ["问题1", "问题2", "..."]
-        \`\`\`
+        ```
 
         ## 输出示例
-        \`\`\`json
+        ```json
         [ "人工智能伦理框架应包含哪些核心要素？","民法典对个人数据保护有哪些新规定？"]
-         \`\`\`
+         ```
 
         ## 待处理文本
         {query_text}
@@ -130,14 +144,14 @@ def get_system_prompt_for_question_en(query_text, question_number):
         - Field names use English double quotes
         - Output JSON array must strictly conform to the following structure:
         - **ALL CONTENT MUST BE IN ENGLISH**
-        \`\`\`json
+        ```json
         ["English Question 1", "English Question 2", "..."]
-        \`\`\`
+        ```
 
         ## Output Example
-        \`\`\`json
+        ```json
         ["What are the core elements that should be included in an AI ethics framework?", "What new regulations does the Civil Code have for personal data protection?", "How do machine learning algorithms impact data privacy?"]
-         \`\`\`
+         ```
 
         ## Text to Process
         {query_text}

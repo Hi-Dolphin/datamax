@@ -7,8 +7,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class HtmlParser(BaseLife):
-    def __init__(self, file_path: Union[str, list]):
-        super().__init__()
+    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -27,7 +27,7 @@ class HtmlParser(BaseLife):
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -39,7 +39,7 @@ class HtmlParser(BaseLife):
             # 3) 根据内容生成“处理完成”或“处理失败”事件
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if mk_content.strip()

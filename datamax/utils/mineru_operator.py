@@ -24,8 +24,13 @@ class PdfProcessor:
         os.makedirs(local_image_dir, exist_ok=True)
         os.makedirs(local_md_dir, exist_ok=True)
 
-        image_writer = FileBasedDataWriter(local_image_dir)
-        md_writer = FileBasedDataWriter(local_md_dir)
+        image_writer = FileBasedDataWriter()
+        md_writer = FileBasedDataWriter()
+        # 如果有 set_output_dir 方法，就调用它
+        if hasattr(image_writer, "set_output_dir"):
+            image_writer.set_output_dir(local_image_dir)
+        if hasattr(md_writer, "set_output_dir"):
+            md_writer.set_output_dir(local_md_dir)
 
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(pdf_file_name)
@@ -46,8 +51,12 @@ class PdfProcessor:
                 md_writer, os.path.basename(markdown_path), image_dir  # filename
             )
 
-        with open(markdown_path, "r", encoding="utf-8") as f:
-            markdown_content = f.read()
+        try:
+            with open(markdown_path, "r", encoding="utf-8") as f:
+                markdown_content = f.read()
+        except FileNotFoundError:
+            # 空 PDF 或者解析失败时，返回空内容
+            markdown_content = ""
 
         return markdown_content
 

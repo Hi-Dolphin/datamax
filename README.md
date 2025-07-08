@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# Parse a single file
+# Parse a single file, default domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # Batch processing
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# Specify domain（preset values：Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science；custom options also available）
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # Data cleaning
@@ -58,6 +62,10 @@ dm.save_label_data(qa_data)
 ## 📖 Detailed Documentation
 
 ### File Parsing
+
+#### 可选参数：domain
+All parsers support an optional domain: str parameter for specifying the business domain, with "Technology" set as the default value.
+Predefined domain options include：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，Custom strings can also be passed as needed.
 
 #### Supported Formats
 

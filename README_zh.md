@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# 解析单个文件
+# 解析单个文件，默认 domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # 批量处理
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# 指定领域：domain 参数支持预置领域（Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science），也可自定义
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # 数据清洗
@@ -53,6 +57,10 @@ qa_data = dm.get_pre_label(
 ## 📖 详细文档
 
 ### 文件解析
+
+#### 可选参数：domain
+所有解析器均支持一个可选的 domain: str 参数，用于记录业务领域，默认值为 "Technology"。
+预置领域列表：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，也可以传入任意自定义字符串。
 
 #### 支持的格式
 

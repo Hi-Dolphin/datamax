@@ -6,8 +6,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 class CsvParser(BaseLife):
 
-    def __init__(self, file_path):
-        super().__init__()
+    def __init__(self, file_path, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -21,7 +21,7 @@ class CsvParser(BaseLife):
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -33,7 +33,7 @@ class CsvParser(BaseLife):
             # 3) 处理结束或失败
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if mk_content.strip()

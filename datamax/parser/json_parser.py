@@ -6,8 +6,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 class JsonParser(BaseLife):
 
-    def __init__(self, file_path):
-        super().__init__()
+    def __init__(self, file_path, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -23,7 +23,7 @@ class JsonParser(BaseLife):
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -34,7 +34,7 @@ class JsonParser(BaseLife):
             # 3) 处理结束：DATA_PROCESSED 或 DATA_PROCESS_FAILED
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if content.strip()

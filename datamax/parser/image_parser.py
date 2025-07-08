@@ -43,16 +43,24 @@ class ImageParser(BaseLife):
     def __init__(
         self,
         file_path: str,
+        use_gpu: bool = False,
+        domain: str = "Technology",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model_name: Optional[str] = None,
+        model_name: Optional[str] = "qwen-vl-plus",
         system_prompt: Optional[str] = "You are a helpful assistant that accurately describes images in detail.",
         use_mllm: bool = False
     ):
+        # 初始化 BaseLife，记录 domain
+        super().__init__(domain=domain)
+        self.domain = domain
+        # 可选的 GPU 环境设置
+        if use_gpu:
+            setup_environment(use_gpu=True)
+            os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
         """
         Initialize the ImageParser with optional Qwen model configuration.
         """
-        super().__init__()
         self.file_path = file_path
         self.api_key = api_key
         self.base_url = base_url
@@ -133,7 +141,7 @@ class ImageParser(BaseLife):
             extension = self.get_file_extension(self.file_path)
             lc_start = self.generate_lifecycle(
                 source_file=self.file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
             )
@@ -143,7 +151,7 @@ class ImageParser(BaseLife):
             img = Image.open(self.file_path)
             img.save(output_pdf_path, "PDF", resolution=100.0)
 
-            pdf_parser = PdfParser(output_pdf_path, use_mineru=True)
+            pdf_parser = PdfParser(output_pdf_path, use_mineru=True, domain=self.domain)
             result = pdf_parser.parse(output_pdf_path)
 
             if os.path.exists(output_pdf_path):
@@ -153,7 +161,7 @@ class ImageParser(BaseLife):
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
                 source_file=self.file_path,
-                domain="Technology",
+                domain=self.domain,
                 life_type=(
                     LifeType.DATA_PROCESSED
                     if content.strip()

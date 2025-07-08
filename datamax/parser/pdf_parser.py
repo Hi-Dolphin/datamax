@@ -25,23 +25,27 @@ class PdfParser(BaseLife):
         extract_images: bool = False,
         image_output_dir: str = "extracted_images",
         temp_dir: str = "__temp__",
+        domain: str = "Technology",
         **kwargs
     ):
         """
-        Initialize the PdfParser with enhanced capabilities.
-        
+        初始化 PdfParser。
+
         Args:
-            file_path: Path to the PDF/PPT file or list of paths
-            use_mineru: Whether to use minerU for processing
-            use_got_ocr: Whether to use GOT-OCR for processing
-            got_ocr_model_path: Path to GOT-OCR model weights
-            gpu_id: GPU ID to use for processing
-            extract_images: Whether to extract images from documents
-            image_output_dir: Directory to save extracted images
-            temp_dir: Directory to store temporary processing files
-            **kwargs: Additional configuration options
+            file_path: PDF 或 PPT 文件路径，或路径列表
+            use_mineru: 是否使用 minerU 处理
+            use_got_ocr: 是否使用 GOT-OCR 处理
+            got_ocr_model_path: GOT-OCR 模型权重路径
+            gpu_id: GPU ID
+            extract_images: 是否提取文档中的图片
+            image_output_dir: 提取图片的保存目录
+            temp_dir: 临时文件夹
+            domain: 生命周期域（默认 Technology）
+            **kwargs: 其他可选参数（留给后续扩展）
         """
-        super().__init__()
+        # 把 domain 传给父类，才能生成正确的 lifecycle
+        super().__init__(domain=domain)
+
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_got_ocr = use_got_ocr
@@ -50,10 +54,10 @@ class PdfParser(BaseLife):
         self.extract_images = extract_images
         self.image_output_dir = image_output_dir
         self.temp_dir = temp_dir
-        
-        # Create temp directory if it doesn't exist
+        self.domain = domain
+
+        # 确保临时目录存在
         os.makedirs(self.temp_dir, exist_ok=True)
-            
 
     def mineru_process(self, input_pdf_filename, output_dir):
         """Original mineru processing method"""
@@ -99,7 +103,7 @@ class PdfParser(BaseLife):
         try:
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -134,7 +138,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理完成 —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -149,7 +153,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理失败 —— #
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )

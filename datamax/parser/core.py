@@ -8,9 +8,11 @@ from typing import Dict, List, Union
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
-
+from datamax.utils.lifecycle_types import LifeType
+from datamax.utils.multimodal_qa_generator import generatr_qa_pairs as multimodal_gen
 from datamax.utils import data_cleaner
-from datamax.utils.qa_generator import generate_qa_from_content
+from datamax.parser.base import BaseLife
+import datamax.utils.qa_generator as qa_gen
 
 
 class ModelInvoker:
@@ -18,6 +20,7 @@ class ModelInvoker:
         self.client = None
 
     def invoke_model(self, api_key, base_url, model_name, messages):
+        base_url = qa_gen.complete_api_url(base_url)
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -37,6 +40,7 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -55,8 +59,8 @@ class ParserFactory:
             ".epub": "EpubParser",
             ".html": "HtmlParser",
             ".txt": "TxtParser",
-            ".pptx": "PPtxParser",
-            ".ppt": "PPtParser",
+            ".pptx": "PptxParser",
+            ".ppt": "PptParser",
             ".pdf": "PdfParser",
             ".jpg": "ImageParser",
             ".jpeg": "ImageParser",
@@ -87,27 +91,29 @@ class ParserFactory:
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    domain=domain,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True
+                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
             else:
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
 
         except (ImportError, AttributeError) as e:
             raise e
 
 
-class DataMax:
+class DataMax(BaseLife):
     def __init__(
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
+        domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -117,6 +123,7 @@ class DataMax:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         """
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
@@ -179,7 +186,8 @@ class DataMax:
                     and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
-                    return self._cache[file_name]["data"]
+                    self.parsed_data = self._cache[file_name]["data"]
+                    return self.parsed_data
                 else:
                     logger.info(
                         f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -235,34 +243,63 @@ class DataMax:
 
         :return: Cleaned data
         """
+        # 1) 准备原始内容
         if text:
             cleaned_text = text
         elif self.parsed_data:
             cleaned_text = self.parsed_data.get("content")
         else:
             raise ValueError("No data to clean.")
+        # 2) 触发“清洗开始”
+        lc_start = self.generate_lifecycle(
+            source_file=self.file_path,
+            domain=self.domain,
+            life_type=LifeType.DATA_CLEANING,
+            usage_purpose="Data Cleaning",
+        ).to_dict()
 
-        for method in method_list:
-            if method == "abnormal":
-                cleaned_text = (
-                    data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
-                )
-            elif method == "filter":
-                cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter()
-                cleaned_text = cleaned_text.get("text") if cleaned_text else ""
-            elif method == "private":
-                cleaned_text = (
-                    data_cleaner.PrivacyDesensitization(cleaned_text)
-                    .to_private()
-                    .get("text")
-                )
+        try:
+            # 3) 执行清洗步骤
+            for method in method_list:
+                if method == "abnormal":
+                    cleaned_text = data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
+                elif method == "filter":
+                    cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter().get("text", "")
+                elif method == "private":
+                    cleaned_text = data_cleaner.PrivacyDesensitization(cleaned_text).to_private().get("text")
 
-        if self.parsed_data:
-            origin_dict = self.parsed_data
-            origin_dict["content"] = cleaned_text
+            # 4) 清洗成功，触发“清洗完成”
+            lc_end = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEANED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+
+        except Exception as e:
+            # 5) 清洗失败，触发“清洗失败”
+            lc_fail = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEAN_FAILED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+            # 把失败事件也加入到 parsed_data 中再抛出
+            if self.parsed_data and isinstance(self.parsed_data, dict):
+                self.parsed_data.setdefault("lifecycle", []).append(lc_start)
+                self.parsed_data["lifecycle"].append(lc_fail)
+            raise
+
+        # 6) 更新 content 并合并生命周期
+        if self.parsed_data and isinstance(self.parsed_data, dict):
+            origin = self.parsed_data
+            origin["content"] = cleaned_text
+            origin.setdefault("lifecycle", []).extend([lc_start, lc_end])
+            # 重置 parsed_data 以避免二次污染
             self.parsed_data = None
-            return origin_dict
+            return origin
         else:
+            # 仅返回纯文本时，也可以返回 lifecycle 信息
             return cleaned_text
 
     def complete_api_url(self, base_url):
@@ -310,6 +347,8 @@ class DataMax:
 
     def get_pre_label(
         self,
+        *,
+        content: str = None,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -323,80 +362,94 @@ class DataMax:
         **kwargs
     ) -> List[any]:
         """
-        Generate pre-labeled data based on the file content.
-        :param api_key: API key
-        :param base_url: API base URL
-        :param model_name: Model name
-        :param chunk_size: Chunk size
-        :param chunk_overlap: Overlap length
-        :param question_number: Number of questions generated per chunk
-        :param max_workers: Number of concurrent workers
-        :param multimodal: Whether to use a multimodal generator
-        :param kwargs: Other parameters passed to the generator
-        :param language: Language for QA generation ("zh" for Chinese, "en" for English)
-        :param messages: Custom messages
-        :return: List of QA pairs
+        Generate pre-labeled QA pairs, 支持标准与多模态两种模式，并打生命周期点。
         """
         file_path = self.file_path
+        # 检查文件存在
         if not Path(file_path).exists():
             logger.error(f"文件不存在: {file_path}")
-            return None
+            return []
+
+        # 1. 准备文本内容
+        if content is not None:
+            text = content
+        else:
+            processed = self.get_data()
+            if isinstance(processed, list):
+                parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                text = "\n\n".join(parts)
+            elif isinstance(processed, dict):
+                text = processed.get("content", "")
+            else:
+                text = processed
+
+        # 2. 打点：开始标注
+        self.parsed_data.setdefault("lifecycle", []).append(
+            self.generate_lifecycle(
+                source_file=file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_LABELLING,
+                usage_purpose="Labeling"
+            ).to_dict()
+        )
 
         try:
-            # First get the processed data
-            processed_data = self.get_data()
+            # 3. 完善 base_url
+            complete_url = qa_gen.complete_api_url(base_url)
 
-            # If it's a list (multiple files), merge all content
-            if isinstance(processed_data, list):
-                content_list = []
-                for data in processed_data:
-                    if isinstance(data, dict) and "content" in data:
-                        content_list.append(data["content"])
-                    elif isinstance(data, str):
-                        content_list.append(data)
-                content = "\n\n".join(content_list)
-            # If it's a dictionary for a single file
-            elif isinstance(processed_data, dict) and "content" in processed_data:
-                content = processed_data["content"]
-            # If it's a string
-            elif isinstance(processed_data, str):
-                content = processed_data
-            else:
-                raise ValueError("Unable to extract content field from processed data")
-
-            # complete url
-            base_url = self.complete_api_url(base_url)
-        
+            # 4. 根据模式选择生成器
             if multimodal:
                 logger.info("使用多模态QA生成器...")
-                generator_module = importlib.import_module("datamax.utils.multimodal_qa_generator")
-                base_name = os.path.splitext(os.path.basename(file_path))[0]
-                md_name   = base_name + '.md'
-                file_path = os.path.join('__temp__', 'markdown', md_name)
+                # 多模态生成器直接调用 multimodal_gen
+                qa_pairs = multimodal_gen(
+                    file_path=os.path.join("__temp__", "markdown", f"{Path(file_path).stem}.md"),
+                    api_key=api_key,
+                    base_url=complete_url,
+                    model_name=model_name,
+                    question_number=question_number,
+                    max_workers=max_workers,
+                    **kwargs
+                )
             else:
                 logger.info("使用标准QA生成器...")
-                generator_module = importlib.import_module("datamax.utils.qa_generator")
+                # 标准模式调用 qa_gen.generate_qa_from_content
+                qa_pairs = qa_gen.generate_qa_from_content(
+                    content=text,
+                    api_key=api_key,
+                    base_url=complete_url,
+                    model_name=model_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    question_number=question_number,
+                    language=language,
+                    max_workers=max_workers,
+                    message=messages,
+                    **kwargs
+                )
 
-            # 调用所选模块的 generatr_qa_pairs 函数
-            qa_pairs = generator_module.generatr_qa_pairs(
-                file_path=file_path,
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                question_number=question_number,
-                max_workers=max_workers,
-                **kwargs
+            # 5. 打点：标注成功
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLED,
+                    usage_purpose="Labeling"
+                ).to_dict()
             )
             return qa_pairs
-        
-        except ImportError as e:
-            logger.error(f"无法导入生成器模块: {e}")
-            return None
+
         except Exception as e:
+            # 6. 打点：标注失败
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABEL_FAILED,
+                    usage_purpose="Labeling"
+                ).to_dict()
+            )
             logger.error(f"生成预标注数据时发生错误: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+            raise
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
@@ -559,6 +612,7 @@ class DataMax:
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                domain=self.domain,
             )
             if parser:
                 return parser.parse(file_path=file_path)

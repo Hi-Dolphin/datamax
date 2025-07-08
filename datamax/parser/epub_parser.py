@@ -11,8 +11,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class EpubParser(BaseLife):
-    def __init__(self, file_path: Union[str, list]):
-        super().__init__()
+    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
@@ -38,7 +38,7 @@ class EpubParser(BaseLife):
             # 1) 开始处理
             start_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -54,7 +54,7 @@ class EpubParser(BaseLife):
             # 4) 处理完成
             end_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -67,7 +67,7 @@ class EpubParser(BaseLife):
             # 失败时记录一次失败生命周期（可选）
             fail_lc = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
