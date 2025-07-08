@@ -344,7 +344,7 @@ class DataMax(BaseLife):
             return f"https://{domain_part}/{path}/v1/chat/completions" if path \
                 else f"https://{domain_part}/v1/chat/completions"
 
-    def get_pre_label(
+     def get_pre_label(
         self,
         *,
         content: str = None,
@@ -356,7 +356,9 @@ class DataMax(BaseLife):
         question_number: int = 5,
         max_workers: int = 5,
         language: str = "zh",
-        messages: List[Dict[str, str]] = None,
+        use_tree_label: bool = True,
+        messages: list = None,
+        interactive_tree: bool = False,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -369,9 +371,12 @@ class DataMax(BaseLife):
         :param question_number: Number of questions generated per chunk
         :param max_workers: Number of concurrent workers
         :param language: Language for QA generation ("zh" for Chinese, "en" for English)
+        :param use_tree_label: Whether to use domain tree label for generating questions
         :param messages: Custom messages
+        :param interactive_tree: Whether to allow interactive tree modification
         :return: List of QA pairs
         """
+        import datamax.utils.qa_generator as qa_gen
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
         if content is not None:
             text = content
@@ -387,28 +392,30 @@ class DataMax(BaseLife):
                 text = processed
 
         # 打点：开始 DATA_LABELLING
-        self.parsed_data.setdefault("lifecycle", []).append(
-            self.generate_lifecycle(
-                source_file=self.file_path,
-                domain=self.domain,
-                life_type=LifeType.DATA_LABELLING,
-                usage_purpose="Labeling",
-            ).to_dict()
-        )
+        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+            self.parsed_data.setdefault("lifecycle", []).append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLING,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
         try:
             base_url = qa_gen.complete_api_url(base_url)
-            data = qa_gen.generate_qa_from_content(
-            content=text,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            language=language,
-            max_workers=max_workers,
-            message=messages,
-        )
+            data = qa_gen.full_qa_labeling_process(
+                content=text,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                question_number=question_number,
+                max_workers=max_workers,
+                use_tree_label=use_tree_label,
+                messages=messages,
+                interactive_tree=interactive_tree,
+            )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
