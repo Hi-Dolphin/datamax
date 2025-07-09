@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional, Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -356,9 +356,10 @@ class DataMax(BaseLife):
         question_number: int = 5,
         max_workers: int = 5,
         language: str = "zh",
-        use_tree_label: bool = True,
+        use_tree_label: bool = False,
         messages: list = None,
         interactive_tree: bool = False,
+        custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -374,6 +375,19 @@ class DataMax(BaseLife):
         :param use_tree_label: Whether to use domain tree label for generating questions
         :param messages: Custom messages
         :param interactive_tree: Whether to allow interactive tree modification
+        :param custom_domain_tree: Custom domain tree structure in the format:
+            [
+                {
+                    "label": "1 一级领域标签",
+                    "child": [
+                        {"label": "1.1 二级领域标签1"},
+                        {"label": "1.2 二级领域标签2"}
+                    ]
+                },
+                {
+                    "label": "2 一级领域标签(无子标签)"
+                }
+            ]
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
@@ -415,6 +429,7 @@ class DataMax(BaseLife):
                 use_tree_label=use_tree_label,
                 messages=messages,
                 interactive_tree=interactive_tree,
+                custom_domain_tree=custom_domain_tree,
             )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(
@@ -425,6 +440,15 @@ class DataMax(BaseLife):
                     usage_purpose="Labeling",
                 ).to_dict()
             )
+            # show preview of the first 10 qa pairs
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                print("\n===== 预览前10条QA对 =====")
+                for i, qa in enumerate(data[:10]):
+                    print(f"\n--- QA对 {i+1} ---")
+                    print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(f"答案: {qa.get('output', 'N/A')}")
+                    print(f"标签: {qa.get('label', 'N/A')}")
+                print("========================\n")
             return data
         except Exception as e:
             # 打点：失败 DATA_LABEL_FAILED

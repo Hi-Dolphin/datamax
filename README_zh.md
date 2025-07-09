@@ -205,28 +205,12 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI标注
-
-```python
-# 自定义标注任务
-qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # 文本块大小
-    chunk_overlap=100,     # 重叠长度
-    question_number=5,     # 每块生成问题数
-    max_workers=5          # 并发数
-)
-# 保存结果
-dm.save_label_data(qa_data)
-```
-
 ### 增强QA生成
 
 QA生成器现在支持：
-- LLM调用的重试机制
-- 领域树生成失败时回退到纯文本模式
+- 用户传入领域树以自定义初始化
+- LLM调用失败重试机制
+- 领域树生成失败时回退到纯文本QA生成模式
 - 使用领域树标签进行更准确的标注
 - 交互式领域树编辑进行精细调优
 
@@ -235,13 +219,14 @@ QA生成器现在支持：
 qa_data = dm.get_pre_label(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo",
-    use_tree_label=True,  # 领域树集成参数
+    model_name="your-model-name",
+    custom_domain_tree=your_domain_tree,  #用户传入自定义树以初始化
+    use_tree_label=True,  # 使用领域树标签
     interactive_tree=True,  # 在QA生成过程中启用交互式树编辑
     chunk_size=500,
     chunk_overlap=100,
     question_number=5,
-    max_workers=5
+    max_workers=5   
 )
 ```
 

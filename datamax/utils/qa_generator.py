@@ -605,34 +605,55 @@ def process_answers(
     question_items: list,
     message: Optional[list] = None,
     max_workers=5,
+    max_retries: int = 3,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
     if message is None:
         message = []
-    def _generate_answer(item):
-        """Inner function for answer generation"""
-        prompt = get_system_prompt_for_answer(item["page"], item["question"])
-        answer = llm_generator(
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            prompt=prompt,
-            message=message,
-            type="answer",
-        )
-        return item["question"], answer
+    def _generate_answer_with_retry(item):
+        """Inner function for answer generation with retry"""
+        for attempt in range(max_retries):
+            try:
+                prompt = get_system_prompt_for_answer(item["page"], item["question"])
+                answer = llm_generator(
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    prompt=prompt,
+                    message=message,
+                    type="answer",
+                )
+                if answer and len(answer) > 0:
+                    return item["question"], answer[0]  # llm_generator returns a list
+                else:
+                    logger.warning(f"答案生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+            except Exception as e:
+                logger.error(f"答案生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)  # retry after 2 seconds
+        
+        # all retries failed
+        question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
+        logger.error(f"网络状态不佳！舍弃了（{question_text}）问题的对应问答对")
+        return None  # return None to discard the question with answer
 
-    logger.info(f"开始生成答案 (线程数: {max_workers})...")
+    logger.info(f"开始生成答案 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_generate_answer, item): item for item in question_items
+            executor.submit(_generate_answer_with_retry, item): item for item in question_items
         }
 
         with tqdm(as_completed(futures), total=len(futures), desc="生成答案") as pbar:
             for future in pbar:
-                question, answer = future.result()
-                if answer:
+                result = future.result()
+                if result is not None:  # only add question with answer
+                    question, answer = result
                     with lock:
                         qa_pairs[question] = answer
                     pbar.set_postfix({"已生成答案": len(qa_pairs)})
@@ -675,21 +696,23 @@ def generatr_qa_pairs(
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
-        label = question_item.get("label", "")
-        answer = qa_pairs.get(question, "")
-        tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
-        qid = question_item.get("qid", "")
-        method = "text with tree label" if domain_tree else "text"
-        qa_entry = {
-            "qid": qid,
-            "instruction": question,
-            "input": "",
-            "output": answer,
-            "label": label,
-            "tag-path": tag_path,
-            "method": method
-        }
-        res_list.append(qa_entry)
+        # only add question with answer
+        if question in qa_pairs:
+            label = question_item.get("label", "")
+            answer = qa_pairs[question]
+            tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
+            qid = question_item.get("qid", "")
+            method = "text with tree label" if domain_tree else "text"
+            qa_entry = {
+                "qid": qid,
+                "instruction": question,
+                "input": "",
+                "output": answer,
+                "label": label,
+                "tag-path": tag_path,
+                "method": method
+            }
+            res_list.append(qa_entry)
     return res_list
 
 
@@ -789,6 +812,7 @@ def full_qa_labeling_process(
     use_tree_label: bool = True,
     messages: list = None,
     interactive_tree: bool = True,
+    custom_domain_tree: list = None,
 ):
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
@@ -814,24 +838,37 @@ def full_qa_labeling_process(
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-        domain_tree = process_domain_tree(
-            api_key=api_key,
-            base_url=base_url,
-            model=model_name,
-            text="\n".join(page_content),
-            temperature=0.7,
-            top_p=0.9,
-        )
-        if domain_tree is None:
-            # tree generation failed, use text generation strategy
-            logger.info("领域树生成失败，采用纯文本生成策略")
-            use_tree_label = False
-        elif interactive_tree and domain_tree and domain_tree.tree:
+        
+        # if custom_domain_tree is not None, use it
+        if custom_domain_tree is not None:
+            domain_tree = DomainTree(custom_domain_tree)
+            logger.info("🌳 使用用户上传的自定义领域树结构")
+            print("🌳 正在使用您上传的自定义领域树结构进行预标注...")
+        else:
+            # otherwise, generate tree from text
+            domain_tree = process_domain_tree(
+                api_key=api_key,
+                base_url=base_url,
+                model=model_name,
+                text="\n".join(page_content),
+                temperature=0.7,
+                top_p=0.9,
+            )
+            if domain_tree is None:
+                # tree generation failed, use text generation strategy
+                logger.info("领域树生成失败，采用纯文本生成策略")
+                use_tree_label = False
+        
+        # 统一的交互式编辑逻辑
+        if interactive_tree and domain_tree and domain_tree.tree:
+            tree_source = "自定义" if custom_domain_tree is not None else "生成"
             print("\n" + "="*60)
-            print("🌳 生成的领域树结构:")
+            print(f"🌳 {tree_source}的领域树结构:")
             print("="*60)
             print(domain_tree.visualize())
             print("="*60)
+            if custom_domain_tree is not None:
+                print("💡 您可以对自定义树进行修改，或输入'结束树操作'直接使用")
             domain_tree = _interactive_tree_modification(domain_tree)
     #generate questions
     question_info = process_questions(
