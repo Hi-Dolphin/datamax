@@ -356,7 +356,7 @@ class DataMax(BaseLife):
         question_number: int = 5,
         max_workers: int = 5,
         language: str = "zh",
-        use_tree_label: bool = True,
+        use_tree_label: bool = False,
         messages: list = None,
         interactive_tree: bool = False,
         custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
@@ -440,7 +440,7 @@ class DataMax(BaseLife):
                     usage_purpose="Labeling",
                 ).to_dict()
             )
-            # preview the first 10 qa pairs
+            # show preview of the first 10 qa pairs
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 print("\n===== 预览前10条QA对 =====")
                 for i, qa in enumerate(data[:10]):

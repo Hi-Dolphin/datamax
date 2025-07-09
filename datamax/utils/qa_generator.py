@@ -641,7 +641,7 @@ def process_answers(
         # all retries failed
         question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
         logger.error(f"网络状态不佳！舍弃了（{question_text}）问题的对应问答对")
-        return None  # 返回None表示舍弃该问答对
+        return None  # return None to discard the question with answer
 
     logger.info(f"开始生成答案 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -652,7 +652,7 @@ def process_answers(
         with tqdm(as_completed(futures), total=len(futures), desc="生成答案") as pbar:
             for future in pbar:
                 result = future.result()
-                if result is not None:  # 只有成功生成答案的才添加
+                if result is not None:  # only add question with answer
                     question, answer = result
                     with lock:
                         qa_pairs[question] = answer
@@ -696,7 +696,7 @@ def generatr_qa_pairs(
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
-        # 只有成功生成答案的问题才会被添加到结果中
+        # only add question with answer
         if question in qa_pairs:
             label = question_item.get("label", "")
             answer = qa_pairs[question]
