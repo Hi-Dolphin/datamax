@@ -116,7 +116,7 @@ class ImageParser(BaseLife):
             print(f"错误码：{response.code}")
             print(f"错误信息：{response.message}")
 
-    def parse(self, query: str | None = None) -> str:
+    def parse(self, file_path: str, query: Optional[str] = None) -> str:
         """
         Parse the image file using either Qwen model or traditional PDF conversion method.
 
@@ -133,10 +133,13 @@ class ImageParser(BaseLife):
 
             # Fall back to traditional method if not using Qwen
             base_name = pathlib.Path(file_path).stem
+            base_name = pathlib.Path(file_path).stem
 
             # 1) 处理开始：生成 DATA_PROCESSING 事件
             extension = self.get_file_extension(file_path)
+            extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
+                source_file=file_path,
                 source_file=file_path,
                 domain=self.domain,
                 life_type=LifeType.DATA_PROCESSING,
@@ -145,6 +148,7 @@ class ImageParser(BaseLife):
 
             output_pdf_path = f"{base_name}.pdf"
 
+            img = Image.open(file_path)
             img = Image.open(file_path)
             img.save(output_pdf_path, "PDF", resolution=100.0)
 
@@ -156,6 +160,7 @@ class ImageParser(BaseLife):
             # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
+                source_file=file_path,
                 source_file=file_path,
                 domain=self.domain,
                 life_type=(
