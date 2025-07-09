@@ -404,6 +404,7 @@ class DataMax(BaseLife):
                 text = processed.get("content", "")
             else:
                 text = processed
+            file_path = self.file_path
 
         # 打点：开始 DATA_LABELLING
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
@@ -430,6 +431,7 @@ class DataMax(BaseLife):
                 messages=messages,
                 interactive_tree=interactive_tree,
                 custom_domain_tree=custom_domain_tree,
+                use_mineru=self.use_mineru,  # 传递use_mineru参数
             )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(

@@ -301,6 +301,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         file_path: Path to the markdown file
         chunk_size: Size of each chunk
         chunk_overlap: Overlap between chunks
+        use_mineru: Whether to use MinerU for PDF parsing
         
     Returns:
         List of document chunks
@@ -314,8 +315,8 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         
         logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
         
-        # 使用DataMax解析文件，自动转换为markdown格式
-        dm = DataMax(file_path=file_path, to_markdown=True)
+        # 使用DataMax解析文件，传递use_mineru参数
+        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru)
         parsed_data = dm.get_data()
         
         if not parsed_data:
@@ -828,6 +829,7 @@ def full_qa_labeling_process(
     messages: list = None,
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
+    use_mineru: bool = False,  # 添加use_mineru参数
 ):
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
@@ -855,7 +857,7 @@ def full_qa_labeling_process(
         if ext == '.md':
             return load_and_split_markdown(file_path, chunk_size, chunk_overlap)
         elif ext == '.pdf':
-            return load_and_split_text(file_path, chunk_size, chunk_overlap, use_mineru=True)
+            return load_and_split_text(file_path, chunk_size, chunk_overlap, use_mineru=use_mineru)
         else:
             return load_and_split_text(file_path, chunk_size, chunk_overlap)
 
@@ -900,6 +902,10 @@ def full_qa_labeling_process(
         elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
             content_type = "PDF转换内容"
             logger.info("📄 检测到PDF转换内容")
+            if use_mineru:
+                logger.info("📄 使用MinerU解析的PDF内容")
+            else:
+                logger.info("📄 使用PyMuPDF解析的PDF内容")
         
         # if markdown
         if content.strip().startswith('#') or '**' in content or '```' in content:
@@ -921,7 +927,13 @@ def full_qa_labeling_process(
             page_content = splitter.split_text(content)
             
         # 添加内容分块完成的日志
-        logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
+        if content_type == "PDF转换内容":
+            if use_mineru:
+                logger.info(f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+            else:
+                logger.info(f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+        else:
+            logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
     else:
         logger.error("必须提供content或file_path参数")
         return []
