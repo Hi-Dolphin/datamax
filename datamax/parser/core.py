@@ -412,7 +412,6 @@ class DataMax(BaseLife):
         *,
         content: str = None,
         use_mllm: bool = False,
-        use_mllm: bool = False,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -429,8 +428,6 @@ class DataMax(BaseLife):
         """
         Generate pre-labeling data based on processed document content instead of file path
 
-        :param content: Processed document content
-        :param use_mllm: Whether to use mllm model
         :param content: Processed document content
         :param use_mllm: Whether to use mllm model
         :param api_key: API key
@@ -462,8 +459,9 @@ class DataMax(BaseLife):
         import datamax.utils.qa_generator as qa_gen
 
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
-        data = []
-        if content is not None:
+        if use_mllm is True:
+            pass
+        elif content is not None:
             text = content
         else:
             processed = self.get_data()
@@ -490,7 +488,7 @@ class DataMax(BaseLife):
             )
         try:
             base_url = qa_gen.complete_api_url(base_url)
-            if use_mllm and self.use_mineru:
+            if use_mllm:
                 logger.info("使用多模态QA生成器...")
                 from datamax.utils import multimodal_qa_generator as generator_module
                 data = generator_module.generatr_qa_pairs(
@@ -503,17 +501,20 @@ class DataMax(BaseLife):
             )
             else:
                 logger.info("使用标准QA生成器...")
-                data = qa_gen.generate_qa_from_content(
-                content=text,
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                question_number=question_number,
-                language=language,
-                max_workers=max_workers,
-                message=messages,
+                data = qa_gen.full_qa_labeling_process(
+                    content=text,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    question_number=question_number,
+                        max_workers=max_workers,
+                    use_tree_label=use_tree_label,
+                messages=messages,
+                    interactive_tree=interactive_tree,
+                custom_domain_tree=custom_domain_tree,
+                use_mineru=self.use_mineru,  # 传递use_mineru参数
             )
             # 打点：成功 DATA_LABELLED
             self.parsed_data["lifecycle"].append(
