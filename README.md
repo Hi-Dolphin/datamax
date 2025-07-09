@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# Parse a single file
+# Parse a single file, default domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # Batch processing
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# Specify domain（preset values：Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science；custom options also available）
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # Data cleaning
@@ -58,6 +62,10 @@ dm.save_label_data(qa_data)
 ## 📖 Detailed Documentation
 
 ### File Parsing
+
+#### 可选参数：domain
+All parsers support an optional domain: str parameter for specifying the business domain, with "Technology" set as the default value.
+Predefined domain options include：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，Custom strings can also be passed as needed.
 
 #### Supported Formats
 
@@ -215,6 +223,38 @@ qa_data = dm.get_pre_label(
     max_workers=5          # Concurrency
 )
 ```
+## 🔥 Bespokelabs-Curator Integration
+DataMax now supports LLM invocation and QA generation via bespokelabs-curator.
+### 1. Call LLM with Curator
+```python
+from datamax import DataMax
+
+response = DataMax.call_llm_with_bespokelabs(
+    prompt="请写一首关于智能数据标注的现代诗。",
+    model_name="qwen-turbo",  # e.g. "gpt-3.5-turbo", "qwen-turbo"
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+print(response)
+```
+### 2. Generate QA Pairs with Curator
+```python
+from datamax import DataMax
+
+dm = DataMax(file_path="example.txt")
+
+qa_pairs = dm.qa_generator_with_bespokelabs(
+    content="大模型技术可以用于高效生成数据标签。",
+    model_name="qwen-turbo",
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+
+for qa in qa_pairs:
+    print(qa)
+
+```
+✅ This method supports OpenAI/Qwen-compatible APIs, and relies on bespokelabs-curator’s prompt formatting and LLM orchestration framework.
 
 ## ⚙️ Environment Setup
 
@@ -234,12 +274,11 @@ sudo apt-get install libreoffice
 #### MinerU (Advanced PDF parsing)
 
 ```bash
-# Create virtual environment
-conda create -n mineru python=3.10
-conda activate mineru
-
-# Install MinerU
+# 1.Install MinerU in virtual environment
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
+
+# 2.Install the models
+python datamax/scripts/download_models.py
 ```
 
 For detailed configuration, please refer to [MinerU Documentation](https://github.com/opendatalab/MinerU)
@@ -325,7 +364,7 @@ This project is licensed under the [MIT License](LICENSE).
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
-
+- 💬 Wechat Group: <br><img src='wechat.png' width=300>
 ---
 
 ⭐ If this project helps you, please give us a star!
