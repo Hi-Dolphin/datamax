@@ -12,7 +12,8 @@ from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
 from datamax.parser.base import BaseLife
 import datamax.utils.qa_generator as qa_gen
-
+from concurrent.futures import ThreadPoolExecutor
+from bespokelabs.curator.llm.llm import LLM
 
 class ModelInvoker:
     def __init__(self):
@@ -36,10 +37,10 @@ class ModelInvoker:
 class ParserFactory:
     @staticmethod
     def create_parser(
-        file_path: str,
-        use_mineru: bool = False,
-        to_markdown: bool = False,
-        domain: str = "Technology",
+            file_path: str,
+            use_mineru: bool = False,
+            to_markdown: bool = False,
+            domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -97,9 +98,9 @@ class ParserFactory:
                     file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(file_path=file_path, domain=domain, )
             else:
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(file_path=file_path, domain=domain, )
 
         except (ImportError, AttributeError) as e:
             raise e
@@ -107,12 +108,12 @@ class ParserFactory:
 
 class DataMax(BaseLife):
     def __init__(
-        self,
-        file_path: Union[str, list] = "",
-        use_mineru: bool = False,
-        to_markdown: bool = False,
-        ttl: int = 3600,
-        domain: str = "Technology",
+            self,
+            file_path: Union[str, list] = "",
+            use_mineru: bool = False,
+            to_markdown: bool = False,
+            ttl: int = 3600,
+            domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -130,6 +131,42 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+
+    @classmethod
+    def call_llm_with_bespokelabs(cls, prompt: str, model_name: str, api_key: str, base_url: str) -> str:
+        backend_params = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+        llm = LLM(
+            model_name=model_name,
+            backend="openai",
+            backend_params=backend_params,
+        )
+        messages = [{"role": "user", "content": prompt}]
+        response = llm.client.chat.completions.create(
+            model=llm.model_name,
+            messages=messages,
+
+        )
+        return response.choices[0].message.content
+    def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str):
+        def chunk_text(text, max_len=1000):
+            return [text[i:i + max_len] for i in range(0, len(text), max_len)]
+
+        def generate_qa(chunk):
+            prompt = f"请根据以下内容生成问答对：\n{chunk}\n问答格式为：问题：... 答案：..."
+            # 调用类方法，用 cls 或类名更明确
+            return DataMax.call_llm_with_bespokelabs(
+                prompt=prompt,
+                model_name=model_name,
+                api_key=api_key,
+                base_url=base_url,
+            )
+
+        chunks = chunk_text(content)
+        results = [generate_qa(chunk) for chunk in chunks]
+        return results
 
     def set_data(self, file_name, parsed_data):
         """
@@ -159,8 +196,8 @@ class DataMax(BaseLife):
                 for f in self.file_path:
                     file_name = os.path.basename(f)
                     if (
-                        file_name in self._cache
-                        and self._cache[file_name]["ttl"] > time.time()
+                            file_name in self._cache
+                            and self._cache[file_name]["ttl"] > time.time()
                     ):
                         logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                         parsed_data.append(self._cache[file_name]["data"])
@@ -181,8 +218,8 @@ class DataMax(BaseLife):
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
                 file_name = os.path.basename(self.file_path)
                 if (
-                    file_name in self._cache
-                    and self._cache[file_name]["ttl"] > time.time()
+                        file_name in self._cache
+                        and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                     self.parsed_data = self._cache[file_name]["data"]
@@ -208,8 +245,8 @@ class DataMax(BaseLife):
                     if os.path.isfile(f):
                         file_name = os.path.basename(f)
                         if (
-                            file_name in self._cache
-                            and self._cache[file_name]["ttl"] > time.time()
+                                file_name in self._cache
+                                and self._cache[file_name]["ttl"] > time.time()
                         ):
                             logger.info(
                                 f"✅ [Cache Hit] Using cached data for {file_name}"
@@ -301,10 +338,11 @@ class DataMax(BaseLife):
             # 仅返回纯文本时，也可以返回 lifecycle 信息
             return cleaned_text
 
+
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
-        
+
         rules:
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
@@ -345,22 +383,23 @@ class DataMax(BaseLife):
                 else f"https://{domain_part}/v1/chat/completions"
 
     def get_pre_label(
-        self,
-        *,
-        content: str = None,
-        api_key: str,
-        base_url: str,
-        model_name: str,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        question_number: int = 5,
-        max_workers: int = 5,
-        language: str = "zh",
-        messages: List[Dict[str, str]] = None,
-    ):
+            self,
+            *,
+            content: str = None,
+            api_key: str,
+            base_url: str,
+            model_name: str,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            question_number: int = 5,
+            max_workers: int = 5,
+            language: str = "zh",
+            messages: List[Dict[str, str]] = None,
+            multimodal: bool = False,
+            **kwargs
+    ) -> List[any]:
         """
-        Generate pre-labeling data based on processed document content instead of file path
-
+        Generate pre-labeled data based on the file content.
         :param api_key: API key
         :param base_url: API base URL
         :param model_name: Model name
@@ -368,68 +407,99 @@ class DataMax(BaseLife):
         :param chunk_overlap: Overlap length
         :param question_number: Number of questions generated per chunk
         :param max_workers: Number of concurrent workers
+        :param multimodal: Whether to use a multimodal generator
+        :param kwargs: Other parameters passed to the generator
         :param language: Language for QA generation ("zh" for Chinese, "en" for English)
         :param messages: Custom messages
         :return: List of QA pairs
         """
-        # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
-        if content is not None:
-            text = content
-        else:
-            processed = self.get_data()
-            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
-            if isinstance(processed, list):
-                parts = [d["content"] if isinstance(d, dict) else d for d in processed]
-                text = "\n\n".join(parts)
-            elif isinstance(processed, dict):
-                text = processed.get("content", "")
-            else:
-                text = processed
+        file_path = self.file_path
+        if not Path(file_path).exists():
+            logger.error(f"文件不存在: {file_path}")
+            return None
 
-        # 打点：开始 DATA_LABELLING
-        self.parsed_data.setdefault("lifecycle", []).append(
-            self.generate_lifecycle(
-                source_file=self.file_path,
-                domain=self.domain,
-                life_type=LifeType.DATA_LABELLING,
-                usage_purpose="Labeling",
-            ).to_dict()
-        )
         try:
-            base_url = qa_gen.complete_api_url(base_url)
-            data = qa_gen.generate_qa_from_content(
-            content=text,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            language=language,
-            max_workers=max_workers,
-            message=messages,
-        )
-            # 打点：成功 DATA_LABELLED
-            self.parsed_data["lifecycle"].append(
+            # First get the processed data
+            processed_data = self.get_data()
+
+            # If it's a list (multiple files), merge all content
+            if isinstance(processed_data, list):
+                content_list = []
+                for data in processed_data:
+                    if isinstance(data, dict) and "content" in data:
+                        content_list.append(data["content"])
+                    elif isinstance(data, str):
+                        content_list.append(data)
+                content = "\n\n".join(content_list)
+            # If it's a dictionary for a single file
+            elif isinstance(processed_data, dict) and "content" in processed_data:
+                content = processed_data["content"]
+            # If it's a string
+            elif isinstance(processed_data, str):
+                content = processed_data
+            else:
+                raise ValueError("Unable to extract content field from processed data")
+
+            # start DATA_LABELLING
+            self.parsed_data.setdefault("lifecycle", []).append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
                     domain=self.domain,
-                    life_type=LifeType.DATA_LABELLED,
+                    life_type=LifeType.DATA_LABELLING,
                     usage_purpose="Labeling",
                 ).to_dict()
             )
-            return data
+            # complete url
+            base_url = self.complete_api_url(base_url)
+
+            if multimodal:
+                logger.info("使用多模态QA生成器...")
+                generator_module = importlib.import_module("datamax.utils.multimodal_qa_generator")
+                file_path = os.path.join('__temp__', 'markdown', os.path.basename(file_path).replace('.pdf', '.md'))
+            else:
+                logger.info("使用标准QA生成器...")
+                generator_module = importlib.import_module("datamax.utils.qa_generator")
+
+            # 调用所选模块的 generatr_qa_pairs 函数
+            try:
+                qa_pairs = generator_module.generatr_qa_pairs(
+                    file_path=file_path,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    question_number=question_number,
+                    max_workers=max_workers,
+                    **kwargs
+                )
+                # 打点：成功 DATA_LABELLED
+                self.parsed_data["lifecycle"].append(
+                    self.generate_lifecycle(
+                        source_file=self.file_path,
+                        domain=self.domain,
+                        life_type=LifeType.DATA_LABELLED,
+                        usage_purpose="Labeling",
+                    ).to_dict()
+                )
+                return qa_pairs
+            except Exception as e:
+                # 打点：失败 DATA_LABEL_FAILED
+                self.parsed_data["lifecycle"].append(
+                    self.generate_lifecycle(
+                        source_file=self.file_path,
+                        domain=self.domain,
+                        life_type=LifeType.DATA_LABEL_FAILED,
+                        usage_purpose="Labeling",
+                    ).to_dict()
+                )
+                raise
+        except ImportError as e:
+            logger.error(f"无法导入生成器模块: {e}")
+            return None
         except Exception as e:
-            # 打点：失败 DATA_LABEL_FAILED
-            self.parsed_data["lifecycle"].append(
-                self.generate_lifecycle(
-                    source_file=self.file_path,
-                    domain=self.domain,
-                    life_type=LifeType.DATA_LABEL_FAILED,
-                    usage_purpose="Labeling",
-                ).to_dict()
-            )
-            raise
+            logger.error(f"生成预标注数据时发生错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
@@ -454,7 +524,7 @@ class DataMax(BaseLife):
 
     @staticmethod
     def split_text_into_paragraphs(
-        text: str, max_length: int = 500, chunk_overlap: int = 100
+            text: str, max_length: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text into paragraphs by sentence boundaries, each paragraph not exceeding max_length characters.
@@ -491,7 +561,7 @@ class DataMax(BaseLife):
                     paragraphs.append(current_paragraph[:split_point])
                     # Update overlap buffer
                     overlap_buffer = (
-                        current_paragraph[split_point - chunk_overlap : split_point]
+                        current_paragraph[split_point - chunk_overlap: split_point]
                         if chunk_overlap > 0
                         else ""
                     )
@@ -506,7 +576,7 @@ class DataMax(BaseLife):
 
     @staticmethod
     def split_with_langchain(
-        text: str, chunk_size: int = 500, chunk_overlap: int = 100
+            text: str, chunk_size: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text using LangChain's intelligent text splitting
@@ -525,11 +595,11 @@ class DataMax(BaseLife):
         return text_splitter.split_text(text)
 
     def split_data(
-        self,
-        parsed_data: Union[str, dict] = None,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        use_langchain: bool = False,
+            self,
+            parsed_data: Union[str, dict] = None,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            use_langchain: bool = False,
     ):
         """
         Improved splitting method with LangChain option
