@@ -221,7 +221,38 @@ qa_data = dm.get_pre_label(
 # 保存结果
 dm.save_label_data(qa_data)
 ```
+## 🔥 基于 Bespokelabs-Curator 的大模型集成
+DataMax 支持通过 [bespokelabs-curator](https://github.com/bespokelabs/curator) 调用通义千问、GPT 等大模型，实现多样化的自动化标注能力。
+### 1. 通用大模型调用
 
+```python
+from datamax import DataMax
+
+response = DataMax.call_llm_with_bespokelabs(
+    prompt="请写一首关于智能数据标注的现代诗。",
+    model_name="qwen-turbo",  
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+print(response)
+```
+### 2.自动化标注示例 — 自动问答对生成
+
+```python
+from datamax import DataMax
+
+dm = DataMax(file_path="example.txt")
+
+qa_pairs = dm.qa_generator_with_bespokelabs(
+    content="大模型技术可以用于高效生成数据标签。",
+    model_name="qwen-turbo",
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+for qa in qa_pairs:
+    print(qa)
+```
+✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
 ## ⚙️ 环境配置
 
 ### 可选依赖
