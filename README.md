@@ -223,6 +223,38 @@ qa_data = dm.get_pre_label(
     max_workers=5          # Concurrency
 )
 ```
+## 🔥 Bespokelabs-Curator Integration
+DataMax now supports LLM invocation and QA generation via bespokelabs-curator.
+### 1. Call LLM with Curator
+```python
+from datamax import DataMax
+
+response = DataMax.call_llm_with_bespokelabs(
+    prompt="请写一首关于智能数据标注的现代诗。",
+    model_name="qwen-turbo",  # e.g. "gpt-3.5-turbo", "qwen-turbo"
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+print(response)
+```
+### 2. Generate QA Pairs with Curator
+```python
+from datamax import DataMax
+
+dm = DataMax(file_path="example.txt")
+
+qa_pairs = dm.qa_generator_with_bespokelabs(
+    content="大模型技术可以用于高效生成数据标签。",
+    model_name="qwen-turbo",
+    api_key="sk-xxx",
+    base_url="https://dashscope.aliyuncs.com/v1"
+)
+
+for qa in qa_pairs:
+    print(qa)
+
+```
+✅ This method supports OpenAI/Qwen-compatible APIs, and relies on bespokelabs-curator’s prompt formatting and LLM orchestration framework.
 
 ## ⚙️ Environment Setup
 
