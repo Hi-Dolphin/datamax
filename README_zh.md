@@ -222,7 +222,7 @@ qa_data = dm.get_pre_label(
 dm.save_label_data(qa_data)
 ```
 ## 🔥 基于 Bespokelabs-Curator 的大模型集成
-DataMax 支持通过 [bespokelabs-curator](https://github.com/bespokelabs/curator) 调用通义千问、GPT 等大模型，实现多样化的自动化标注能力。
+DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型，实现多样化的自动化标注能力。
 ### 1. 通用大模型调用
 
 ```python
