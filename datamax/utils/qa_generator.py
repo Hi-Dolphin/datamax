@@ -843,100 +843,59 @@ def full_qa_labeling_process(
         load_and_split_text,
     )
     import uuid
-    import tempfile
     import os
 
-    def auto_split_file(file_path, chunk_size, chunk_overlap):
-        """
-        根据文件扩展名自动选择分割方法：
-        - .md 用 load_and_split_markdown
-        - .pdf 用 load_and_split_text 且 use_mineru=True
-        - 其他格式用 load_and_split_text
-        """
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.md':
-            return load_and_split_markdown(file_path, chunk_size, chunk_overlap)
-        elif ext == '.pdf':
-            return load_and_split_text(file_path, chunk_size, chunk_overlap, use_mineru=use_mineru)
-        else:
-            return load_and_split_text(file_path, chunk_size, chunk_overlap)
-
-    # 1. text split
-    if file_path:
-        # use file path first
-        # 支持文件路径为列表
-        if isinstance(file_path, list):
-            if len(file_path) == 0:
-                logger.error("文件路径列表为空")
-                return []
-            split_path = file_path[0]
-        else:
-            split_path = file_path
-            
-        # 获取文件扩展名用于日志输出
-        file_ext = os.path.splitext(split_path)[1].lower()
-        file_name = os.path.basename(split_path)
-        
-        if file_ext == '.pdf':
-            logger.info(f"📄 开始处理PDF文件: {file_name}")
-        else:
-            logger.info(f"📄 开始处理{file_ext.upper()}文件: {file_name}")
-            
-        page_content = auto_split_file(split_path, chunk_size, chunk_overlap)
-        if not page_content:
-            logger.error(f"文件分割失败: {file_name}")
-            return []
-        else:
-            if file_ext == '.pdf':
-                logger.info(f"✅ PDF文件 '{file_name}' 处理完成，共生成 {len(page_content)} 个文本块")
-            else:
-                logger.info(f"✅ {file_ext.upper()}文件 '{file_name}' 处理完成，共生成 {len(page_content)} 个文本块")
-    elif content:
-        logger.info("使用文本内容进行分割")
-        
-        # 尝试检测内容类型
-        content_type = "文本"
-        if content.strip().startswith('#') or '**' in content or '```' in content:
-            content_type = "Markdown"
-            logger.info("📄 检测到Markdown格式内容")
-        elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
-            content_type = "PDF转换内容"
-            logger.info("📄 检测到PDF转换内容")
-            if use_mineru:
-                logger.info("📄 使用MinerU解析的PDF内容")
-            else:
-                logger.info("📄 使用PyMuPDF解析的PDF内容")
-        
-        # if markdown
-        if content.strip().startswith('#') or '**' in content or '```' in content:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
-                f.write(content)
-                temp_file = f.name
-            try:
-                page_content = load_and_split_markdown(temp_file, chunk_size, chunk_overlap)
-            finally:
-                os.unlink(temp_file)
-        else:
-            from langchain.text_splitter import RecursiveCharacterTextSplitter
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                length_function=len,
-                is_separator_regex=False,
-            )
-            page_content = splitter.split_text(content)
-            
-        # 添加内容分块完成的日志
-        if content_type == "PDF转换内容":
-            if use_mineru:
-                logger.info(f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
-            else:
-                logger.info(f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
-        else:
-            logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
-    else:
-        logger.error("必须提供content或file_path参数")
+    # 验证必需参数
+    if not content:
+        logger.error("必须提供content参数")
         return []
+    
+    if not api_key:
+        logger.error("必须提供api_key参数")
+        return []
+    
+    if not base_url:
+        logger.error("必须提供base_url参数")
+        return []
+    
+    if not model_name:
+        logger.error("必须提供model_name参数")
+        return []
+
+    # 1. text split - 只处理content，不处理file_path
+    logger.info("使用文本内容进行分割")
+    
+    # 尝试检测内容类型
+    content_type = "文本"
+    if content.strip().startswith('#') or '**' in content or '```' in content:
+        content_type = "Markdown"
+        logger.info("📄 检测到Markdown格式内容")
+    elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
+        content_type = "PDF转换内容"
+        logger.info("📄 检测到PDF转换内容")
+        if use_mineru:
+            logger.info("📄 使用MinerU解析的PDF内容")
+        else:
+            logger.info("📄 使用PyMuPDF解析的PDF内容")
+    
+    # 直接使用LangChain的文本分割器进行切分，不创建临时文件
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    page_content = splitter.split_text(content)
+    
+    # 添加内容分块完成的日志
+    if content_type == "PDF转换内容":
+        if use_mineru:
+            logger.info(f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+        else:
+            logger.info(f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+    else:
+        logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
 
     # 2. domain tree generation
     domain_tree = None
