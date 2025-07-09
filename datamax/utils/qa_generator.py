@@ -270,7 +270,8 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
     """
     try:
         # Use LangChain's MarkdownLoader to load Markdown file
-        logger.info(f"开始切分markdown文件...")
+        file_name = os.path.basename(md_path)
+        logger.info(f"开始切分Markdown文件: {file_name}")
         loader = UnstructuredMarkdownLoader(md_path)
         documents = loader.load()
         # Further split documents if needed
@@ -283,7 +284,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
 
         pages = splitter.split_documents(documents)
         page_content = [i.page_content for i in pages]
-        logger.info(f"markdown被分解了{len(page_content)}个chunk")
+        logger.info(f"📄 Markdown文件 '{file_name}' 被分解为 {len(page_content)} 个chunk")
         return page_content
 
 
@@ -292,7 +293,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
         return []
 
 
-def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> list:
+def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False) -> list:
     """
     Parse other formats to markdown and split
     
@@ -307,14 +308,18 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
     try:
         from datamax.parser.core import DataMax
         
-        logger.info(f"开始处理文件: {file_path}")
+        # 获取文件扩展名用于日志输出
+        file_ext = os.path.splitext(file_path)[1].lower()
+        file_name = os.path.basename(file_path)
+        
+        logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
         
         # 使用DataMax解析文件，自动转换为markdown格式
         dm = DataMax(file_path=file_path, to_markdown=True)
         parsed_data = dm.get_data()
         
         if not parsed_data:
-            logger.error(f"文件解析失败: {file_path}")
+            logger.error(f"文件解析失败: {file_name}")
             return []
             
         # 获取解析后的内容
@@ -325,7 +330,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
             content = parsed_data.get('content', '')
             
         if not content:
-            logger.error(f"文件内容为空: {file_path}")
+            logger.error(f"文件内容为空: {file_name}")
             return []
             
         # 使用LangChain的文本分割器进行切分
@@ -338,7 +343,16 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
         
         # 直接分割文本内容
         page_content = splitter.split_text(content)
-        logger.info(f"文件被分解了{len(page_content)}个chunk")
+        
+        # 根据文件类型提供不同的日志信息
+        if file_ext == '.pdf':
+            if use_mineru:
+                logger.info(f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk")
+            else:
+                logger.info(f"📄 PDF文件 '{file_name}' 使用PyMuPDF解析，被分解为 {len(page_content)} 个chunk")
+        else:
+            logger.info(f"📄 {file_ext.upper()}文件 '{file_name}' 被分解为 {len(page_content)} 个chunk")
+            
         return page_content
         
     except Exception as e:
@@ -801,10 +815,11 @@ def _interactive_tree_modification(domain_tree):
 
 
 def full_qa_labeling_process(
-    content: str,
-    api_key: str,
-    base_url: str,
-    model_name: str,
+    content: str = None,
+    file_path: str = None,
+    api_key: str = None,
+    base_url: str = None,
+    model_name: str = None,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     question_number: int = 5,
@@ -821,20 +836,97 @@ def full_qa_labeling_process(
         process_domain_tree,
         process_questions,
         process_match_tags,
-        generatr_qa_pairs
+        generatr_qa_pairs,
+        load_and_split_markdown,
+        load_and_split_text,
     )
     import uuid
+    import tempfile
+    import os
 
-    # 1.split content
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        is_separator_regex=False,
-    )
-    page_content = splitter.split_text(content)
-    # 2.generate domain tree
+    def auto_split_file(file_path, chunk_size, chunk_overlap):
+        """
+        根据文件扩展名自动选择分割方法：
+        - .md 用 load_and_split_markdown
+        - .pdf 用 load_and_split_text 且 use_mineru=True
+        - 其他格式用 load_and_split_text
+        """
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.md':
+            return load_and_split_markdown(file_path, chunk_size, chunk_overlap)
+        elif ext == '.pdf':
+            return load_and_split_text(file_path, chunk_size, chunk_overlap, use_mineru=True)
+        else:
+            return load_and_split_text(file_path, chunk_size, chunk_overlap)
+
+    # 1. text split
+    if file_path:
+        # use file path first
+        # 支持文件路径为列表
+        if isinstance(file_path, list):
+            if len(file_path) == 0:
+                logger.error("文件路径列表为空")
+                return []
+            split_path = file_path[0]
+        else:
+            split_path = file_path
+            
+        # 获取文件扩展名用于日志输出
+        file_ext = os.path.splitext(split_path)[1].lower()
+        file_name = os.path.basename(split_path)
+        
+        if file_ext == '.pdf':
+            logger.info(f"📄 开始处理PDF文件: {file_name}")
+        else:
+            logger.info(f"📄 开始处理{file_ext.upper()}文件: {file_name}")
+            
+        page_content = auto_split_file(split_path, chunk_size, chunk_overlap)
+        if not page_content:
+            logger.error(f"文件分割失败: {file_name}")
+            return []
+        else:
+            if file_ext == '.pdf':
+                logger.info(f"✅ PDF文件 '{file_name}' 处理完成，共生成 {len(page_content)} 个文本块")
+            else:
+                logger.info(f"✅ {file_ext.upper()}文件 '{file_name}' 处理完成，共生成 {len(page_content)} 个文本块")
+    elif content:
+        logger.info("使用文本内容进行分割")
+        
+        # 尝试检测内容类型
+        content_type = "文本"
+        if content.strip().startswith('#') or '**' in content or '```' in content:
+            content_type = "Markdown"
+            logger.info("📄 检测到Markdown格式内容")
+        elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
+            content_type = "PDF转换内容"
+            logger.info("📄 检测到PDF转换内容")
+        
+        # if markdown
+        if content.strip().startswith('#') or '**' in content or '```' in content:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
+                f.write(content)
+                temp_file = f.name
+            try:
+                page_content = load_and_split_markdown(temp_file, chunk_size, chunk_overlap)
+            finally:
+                os.unlink(temp_file)
+        else:
+            from langchain.text_splitter import RecursiveCharacterTextSplitter
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len,
+                is_separator_regex=False,
+            )
+            page_content = splitter.split_text(content)
+            
+        # 添加内容分块完成的日志
+        logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
+    else:
+        logger.error("必须提供content或file_path参数")
+        return []
+
+    # 2. domain tree generation
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
