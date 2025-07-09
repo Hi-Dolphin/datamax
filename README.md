@@ -278,6 +278,49 @@ qa_data = dm.get_pre_label(
 )
 ```
 
+### AI Annotation for multimodal files
+
+```python
+import os
+import json
+from datamax.parser.core import DataMax
+from datamax.parser.pdf_parser import PdfParser
+
+def main():
+    file_path = "your_pdf.pdf"
+    parser = DataMax(file_path=file_path, use_mineru=True)
+    result = parser.get_data()
+    print(result)
+
+    # --- 配置API信息 ---
+    api_key = os.getenv("DATAMAX_API_KEY", "your_api_key_here")
+    base_url = os.getenv("DATAMAX_BASE_URL", "your_base_url_here")
+    model_name = "qwen-vl-max-latest"
+
+    qa_list = parser.get_pre_label(
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        question_number=5,
+        max_workers=5,
+        use_mllm=True
+    )
+
+    if qa_list:
+        print("\n✅ Successfully generated multimodal qa pairs:")
+        pretty_json = json.dumps(qa_list, indent=2, ensure_ascii=False)
+        print(pretty_json)
+
+        save_file_name = "multimodal_qa_pairs"
+        parser.save_label_data(qa_list, save_file_name)
+        print(f"\n✅ The qa pairs have been saved to {save_file_name}.jsonl")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+
 ## ⚙️ Environment Setup
 
 ### Optional Dependencies
