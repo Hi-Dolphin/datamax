@@ -348,6 +348,7 @@ class DataMax(BaseLife):
         self,
         *,
         content: str = None,
+        use_mllm: bool = False,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -364,6 +365,8 @@ class DataMax(BaseLife):
         """
         Generate pre-labeling data based on processed document content instead of file path
 
+        :param content: Processed document content
+        :param use_mllm: Whether to use mllm model
         :param api_key: API key
         :param base_url: API base URL
         :param model_name: Model name
@@ -392,7 +395,9 @@ class DataMax(BaseLife):
         """
         import datamax.utils.qa_generator as qa_gen
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
-        if content is not None:
+        if use_mllm is True:
+            pass
+        elif content is not None:
             text = content
         else:
             processed = self.get_data()
@@ -418,18 +423,31 @@ class DataMax(BaseLife):
             )
         try:
             base_url = qa_gen.complete_api_url(base_url)
-            data = qa_gen.full_qa_labeling_process(
-                content=text,
+            if use_mllm:
+                logger.info("使用多模态QA生成器...")
+                from datamax.utils import multimodal_qa_generator as generator_module
+                data = generator_module.generatr_qa_pairs(
+                file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
                 api_key=api_key,
                 base_url=base_url,
                 model_name=model_name,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
                 question_number=question_number,
                 max_workers=max_workers,
-                use_tree_label=use_tree_label,
+            )
+            else:
+                logger.info("使用标准QA生成器...")
+                data = qa_gen.full_qa_labeling_process(
+                    content=text,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    question_number=question_number,
+                        max_workers=max_workers,
+                    use_tree_label=use_tree_label,
                 messages=messages,
-                interactive_tree=interactive_tree,
+                    interactive_tree=interactive_tree,
                 custom_domain_tree=custom_domain_tree,
                 use_mineru=self.use_mineru,  # 传递use_mineru参数
             )
@@ -452,7 +470,14 @@ class DataMax(BaseLife):
                     print(f"标签: {qa.get('label', 'N/A')}")
                 print("========================\n")
             return data
+        except ImportError as e:
+            logger.error(f"无法导入生成器模块: {e}")
+
         except Exception as e:
+            logger.error(f"生成预标注数据时发生错误: {e}")
+            import traceback
+            traceback.print_exc()
+
             # 打点：失败 DATA_LABEL_FAILED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
