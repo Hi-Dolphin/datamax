@@ -61,6 +61,9 @@ class MarkdownOutputVo:
 class BaseLife:
     tk_client = DashScopeClient()
 
+    def __init__(self, domain: str = "Technology"):
+        self.domain = domain
+
     @staticmethod
     def generate_lifecycle(
         source_file: str,
