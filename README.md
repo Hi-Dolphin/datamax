@@ -209,18 +209,29 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI Annotation
+### Enhanced QA Generation
+
+The QA generator now supports:
+- User-provided domain tree for custom initialization
+- Retry mechanism for LLM calls
+- Fallback to text-only mode if domain tree generation fails
+- Use of domain tree labels for more accurate annotation
+- Interactive domain tree editing for fine-tuning
+
 
 ```python
-# Custom annotation tasks
+# Enhanced QA generation with domain tree integration and interactive editing
 qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # Text chunk size
-    chunk_overlap=100,     # Overlap length
-    question_number=5,     # Questions per chunk
-    max_workers=5          # Concurrency
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo",
+    custom_domain_tree=your_domain_tree, #user's domain tree for custom initialization
+    use_tree_label=True,  # new parameter for domain tree integration
+    interactive_tree=True,  # enable interactive tree editing during QA generation
+    chunk_size=500,
+    chunk_overlap=100,
+    question_number=5,
+    max_workers=5
 )
 ```
 
