@@ -239,15 +239,19 @@ from datamax.parser.core import DataMax
 from datamax.parser.pdf_parser import PdfParser
 
 def main():
-    file_path = "your_pdf.pdf"
+    file_path = "your pdf file_path or directory here"
     parser = DataMax(file_path=file_path, use_mineru=True)
-    result = parser.get_data()
-    print(result)
+    # result = parser.get_data()
+    # print(result)
 
     # --- 配置API信息 ---
     api_key = os.getenv("DATAMAX_API_KEY", "your_api_key_here")
     base_url = os.getenv("DATAMAX_BASE_URL", "your_base_url_here")
     model_name = "qwen-vl-max-latest"
+
+    if api_key == "your_api_key_here" or base_url == "your_base_url_here":
+        print("警告: 请在运行前设置您的API Key和Base URL。")
+        return
 
     qa_list = parser.get_pre_label(
         api_key=api_key,
@@ -260,96 +264,14 @@ def main():
 
     if qa_list:
         print("\n✅ 成功生成多模态问答对:")
+        # 使用json.dumps美化输出
         pretty_json = json.dumps(qa_list, indent=2, ensure_ascii=False)
         print(pretty_json)
 
-        save_file_name = "multimodal_qa_pairs"
-        parser.save_label_data(qa_list, save_file_name)
-        print(f"\n✅ 已将问答对保存至 {save_file_name}.jsonl")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 接入多模态模型进行AI标注
-
-```python
-import os
-import json
-from datamax.parser.core import DataMax
-from datamax.parser.pdf_parser import PdfParser
-
-def main():
-    file_path = "your_pdf.pdf"
-    parser = DataMax(file_path=file_path, use_mineru=True)
-    result = parser.get_data()
-    print(result)
-
-    # --- 配置API信息 ---
-    api_key = os.getenv("DATAMAX_API_KEY", "your_api_key_here")
-    base_url = os.getenv("DATAMAX_BASE_URL", "your_base_url_here")
-    model_name = "qwen-vl-max-latest"
-
-    qa_list = parser.get_pre_label(
-        api_key=api_key,
-        base_url=base_url,
-        model_name=model_name,
-        question_number=5,
-        max_workers=5,
-        use_mllm=True
-    )
-
-    if qa_list:
-        print("\n✅ 成功生成多模态问答对:")
-        pretty_json = json.dumps(qa_list, indent=2, ensure_ascii=False)
-        print(pretty_json)
-
-        save_file_name = "multimodal_qa_pairs"
-        parser.save_label_data(qa_list, save_file_name)
-        print(f"\n✅ 已将问答对保存至 {save_file_name}.jsonl")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 接入多模态模型进行AI标注
-
-```python
-import os
-import json
-from datamax.parser.core import DataMax
-from datamax.parser.pdf_parser import PdfParser
-
-def main():
-    file_path = "your_pdf.pdf"
-    parser = DataMax(file_path=file_path, use_mineru=True)
-    result = parser.get_data()
-    print(result)
-
-    # --- 配置API信息 ---
-    api_key = os.getenv("DATAMAX_API_KEY", "your_api_key_here")
-    base_url = os.getenv("DATAMAX_BASE_URL", "your_base_url_here")
-    model_name = "qwen-vl-max-latest"
-
-    qa_list = parser.get_pre_label(
-        api_key=api_key,
-        base_url=base_url,
-        model_name=model_name,
-        question_number=5,
-        max_workers=5,
-        use_mllm=True
-    )
-
-    if qa_list:
-        print("\n✅ 成功生成多模态问答对:")
-        pretty_json = json.dumps(qa_list, indent=2, ensure_ascii=False)
-        print(pretty_json)
-
-        save_file_name = "multimodal_qa_pairs"
-        parser.save_label_data(qa_list, save_file_name)
-        print(f"\n✅ 已将问答对保存至 {save_file_name}.jsonl")
+        # --- 保存结果 ---
+        # save_file_name = os.path.join(file_path.replace('pdf',), "qa_pairs")
+        parser.save_label_data(qa_list)
+        print(f"\n✅ 已将问答对保存至jsonl")
 
 
 if __name__ == "__main__":
