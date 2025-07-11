@@ -21,10 +21,10 @@ yarn-error.log*
 
 
 # Docusaurus build output
-/my-website/build
+/datamax_docs/build
 
 # Docusaurus Caching
-/my-website/.docusaurus
+/datamax_docs/.docusaurus
 
 # Node
 node_modules

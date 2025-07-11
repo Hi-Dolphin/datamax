@@ -11,7 +11,6 @@ import {themes as prismThemes} from 'prism-react-renderer';
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'datamax',
-  tagline: 'Dinosaurs are cool',
   favicon: 'img/hi_dolphin.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
