@@ -427,9 +427,8 @@ class DataMax(BaseLife):
         import datamax.utils.qa_generator as qa_gen
 
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
-        if use_mllm is True:
-            pass
-        elif content is not None:
+        data = []
+        if content is not None:
             text = content
         else:
             processed = self.get_data()
@@ -457,15 +456,26 @@ class DataMax(BaseLife):
             base_url = qa_gen.complete_api_url(base_url)
             if use_mllm:
                 logger.info("使用多模态QA生成器...")
+                if isinstance(self.file_path, list):
+                    file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
+                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                    file_names = [os.path.basename(self.file_path).replace('.pdf', '.md')]
+                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                    file_names = [
+                        os.path.basename(file).replace('.pdf', '.md') for file in list(Path(self.file_path).rglob("*.*"))
+                    ]
+                file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
                 from datamax.utils import multimodal_qa_generator as generator_module
-                data = generator_module.generatr_qa_pairs(
-                file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                question_number=question_number,
-                max_workers=max_workers,
-            )
+                for file_name in file_names:
+                    new_data = generator_module.generatr_qa_pairs(
+                        file_path=file_name,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_name=model_name,
+                        question_number=question_number,
+                        max_workers=max_workers,
+                    )
+                    data = data + new_data
             else:
                 logger.info("使用标准QA生成器...")
                 data = qa_gen.full_qa_labeling_process(
@@ -476,22 +486,23 @@ class DataMax(BaseLife):
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                     question_number=question_number,
-                        max_workers=max_workers,
+                    max_workers=max_workers,
                     use_tree_label=use_tree_label,
-                messages=messages,
+                    messages=messages,
                     interactive_tree=interactive_tree,
-                custom_domain_tree=custom_domain_tree,
-                use_mineru=self.use_mineru,  # 传递use_mineru参数
+                    custom_domain_tree=custom_domain_tree,
+                    use_mineru=self.use_mineru,  # 传递use_mineru参数
             )
-            # 打点：成功 DATA_LABELLED
-            self.parsed_data["lifecycle"].append(
-                self.generate_lifecycle(
-                    source_file=self.file_path,
-                    domain=self.domain,
-                    life_type=LifeType.DATA_LABELLED,
-                    usage_purpose="Labeling",
-                ).to_dict()
-            )
+            if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+                # 打点：成功 DATA_LABELLED
+                self.parsed_data["lifecycle"].append(
+                    self.generate_lifecycle(
+                        source_file=self.file_path,
+                        domain=self.domain,
+                        life_type=LifeType.DATA_LABELLED,
+                        usage_purpose="Labeling",
+                    ).to_dict()
+                )
             # show preview of the first 10 qa pairs
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 print("\n===== 预览前10条QA对 =====")
@@ -505,11 +516,14 @@ class DataMax(BaseLife):
         except ImportError as e:
             logger.error(f"无法导入生成器模块: {e}")
 
+        except ImportError as e:
+            logger.error(f"无法导入生成器模块: {e}")
+
         except Exception as e:
             logger.error(f"生成预标注数据时发生错误: {e}")
             import traceback
             traceback.print_exc()
-
+        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
             # 打点：失败 DATA_LABEL_FAILED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
@@ -521,7 +535,7 @@ class DataMax(BaseLife):
             )
             raise
 
-    def save_label_data(self, label_data: list, save_file_name: str = None):
+    def save_label_data(self, label_data: list, save_file_name: str = "qa_pairs"):
         """
         Save label data to file.
         :param label_data: Label data to be saved.
