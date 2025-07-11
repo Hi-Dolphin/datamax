@@ -1,0 +1,60 @@
+# .github/workflows/deploy.yml
+
+name: Deploy Docusaurus Website
+
+# Trigger condition: When the code is pushed to the main branch
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Set permissions for the workflow
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Check out your repository code
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Set up the Node.js environment
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          # 
+          cache-dependency-path: ./datamax_docs/package-lock.json
+
+      # 3. Install dependencies and build the website
+      #    Note: All the following commands should be executed in the website directory.
+      - name: Install and Build
+        run: |
+          npm ci
+          npm run build
+        working-directory: ./datamax_docs # Specify the working directory!
+
+      # 4. Configure GitHub Pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # 5. Upload the built static files
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Specify the path of the build product to be uploaded
+          path: ./datamax_docs/build
+
+      # 6. Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

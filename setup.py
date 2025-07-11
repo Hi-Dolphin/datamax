@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="pydatamax",
-    version='v0.1.17',
+    version='v0.1.16',
     packages=find_packages(),
     install_requires=[
         "oss2>=2.19.1,<3.0.0",
