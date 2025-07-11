@@ -396,7 +396,9 @@ class DataMax(BaseLife):
         import datamax.utils.qa_generator as qa_gen
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
         data = []
-        if content is not None:
+        if use_mllm is True:
+            pass
+        elif content is not None:
             text = content
         else:
             processed = self.get_data()
@@ -481,9 +483,6 @@ class DataMax(BaseLife):
                     print(f"标签: {qa.get('label', 'N/A')}")
                 print("========================\n")
             return data
-        except ImportError as e:
-            logger.error(f"无法导入生成器模块: {e}")
-
         except ImportError as e:
             logger.error(f"无法导入生成器模块: {e}")
 
