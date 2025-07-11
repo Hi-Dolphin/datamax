@@ -14,12 +14,12 @@ class PdfProcessor:
             cls._instance = super(PdfProcessor, cls).__new__(cls)
         return cls._instance
 
-    def process_pdf(self, pdf_file_name):
-        name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
+    def process_pdf(self, pdf_file_name, output_dir="__temp__"):
+        name_without_suff = os.path.basename(pdf_file_name).replace(".pdf", "")
         print("Processing PDF: " + name_without_suff)
 
-        local_image_dir = "uploaded_files/images"
-        local_md_dir = "uploaded_files/markdown"
+        local_image_dir = os.path.join(output_dir, "images")
+        local_md_dir = os.path.join(output_dir, "markdown")
 
         os.makedirs(local_image_dir, exist_ok=True)
         os.makedirs(local_md_dir, exist_ok=True)
