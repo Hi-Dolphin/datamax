@@ -84,6 +84,15 @@ Predefined domain options include：["Technology","Finance","Health","Education"
 # Advanced PDF parsing (requires MinerU)
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
+# PDF OCR parsing (requires API credentials)
+dm = DataMax(
+    file_path="scanned.pdf", 
+    use_ocr=True,
+    ocr_api_key="your-api-key",
+    ocr_base_url="https://api.openai.com/v1",
+    ocr_model_name="gpt-4o-mini"
+)
+
 # Word to Markdown conversion
 dm = DataMax(file_path="document.docx", to_markdown=True)
 

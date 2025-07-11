@@ -174,8 +174,8 @@ if __name__ == "__main__":
     # 简单演示：单文件或多文件 PDF 转 Markdown，只打印最终内容和生命周期
     processor = PdfOcrProcessor(
         api_key="sk-xxx",
-        base_url="https://api.openai.com",
-        model_name="model_name"
+        base_url="your_base_url_here",
+        model_name="your_model_here"
     )
     # 单文件
     vo = processor.parse("test.pdf")

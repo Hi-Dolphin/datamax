@@ -38,8 +38,12 @@ class ParserFactory:
     def create_parser(
         file_path: str,
         use_mineru: bool = False,
+        use_ocr: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
+        ocr_api_key: str = None,
+        ocr_base_url: str = None,
+        ocr_model_name: str = None,
     ):
         """
         Create a parser instance based on the file extension.
@@ -47,6 +51,10 @@ class ParserFactory:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
+        :param use_ocr: Flag to indicate whether OCR should be used. (only supported files in .pdf format)
+        :param ocr_api_key: API key for OCR service (required when use_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_ocr=True).
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -82,15 +90,19 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            if parser_class_name != 'PdfParser' and use_mineru == True:
-                raise ValueError("MinerU is only supported for PDF files")
+            if parser_class_name != 'PdfParser' and (use_mineru == True or use_ocr == True):
+                raise ValueError("MinerU and OCR are only supported for PDF files")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    use_ocr=use_ocr,
                     domain=domain,
+                    ocr_api_key=ocr_api_key,
+                    ocr_base_url=ocr_base_url,
+                    ocr_model_name=ocr_model_name,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
@@ -110,26 +122,38 @@ class DataMax(BaseLife):
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
+        use_ocr: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
+        ocr_api_key: str = None,
+        ocr_base_url: str = None,
+        ocr_model_name: str = None,
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
 
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
+        :param use_ocr: Flag to indicate whether OCR should be used for PDF parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
+        :param ocr_api_key: API key for OCR service (required when use_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_ocr = use_ocr
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+        self.ocr_api_key = ocr_api_key
+        self.ocr_base_url = ocr_base_url
+        self.ocr_model_name = ocr_model_name
 
     def set_data(self, file_name, parsed_data):
         """
@@ -623,9 +647,13 @@ class DataMax(BaseLife):
         try:
             parser = ParserFactory.create_parser(
                 use_mineru=self.use_mineru,
+                use_ocr=self.use_ocr,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,
+                ocr_api_key=self.ocr_api_key,
+                ocr_base_url=self.ocr_base_url,
+                ocr_model_name=self.ocr_model_name,
             )
             if parser:
                 return parser.parse(file_path=file_path)

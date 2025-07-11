@@ -16,12 +16,25 @@ class PdfParser(BaseLife):
         self,
         file_path: Union[str, list],
         use_mineru: bool = False,
-        domain: str = "Technology"
+        use_ocr: bool = False,
+        domain: str = "Technology",
+        ocr_api_key: str = None,
+        ocr_base_url: str = None,
+        ocr_model_name: str = None,
     ):
         super().__init__(domain=domain)
 
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_ocr = use_ocr
+        self.ocr_api_key = ocr_api_key
+        self.ocr_base_url = ocr_base_url
+        self.ocr_model_name = ocr_model_name
+        
+        # 验证OCR参数
+        if self.use_ocr:
+            if not all([self.ocr_api_key, self.ocr_base_url, self.ocr_model_name]):
+                raise ValueError("OCR requires api_key, base_url, and model_name to be provided")
 
     def mineru_process(self, input_pdf_filename, output_dir):
         proc = None
@@ -88,7 +101,23 @@ class PdfParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            if self.use_mineru:
+            if self.use_ocr:
+                # 使用OCR处理PDF
+                from datamax.parser.pdf_parser_ocr_demo import PdfOcrProcessor
+                ocr_processor = PdfOcrProcessor(
+                    api_key=self.ocr_api_key,
+                    base_url=self.ocr_base_url,
+                    model_name=self.ocr_model_name,
+                    domain=self.domain
+                )
+                result = ocr_processor.parse(file_path)
+                if isinstance(result, dict):
+                    mk_content = result.get("content", "")
+                elif hasattr(result, 'content'):
+                    mk_content = result.content
+                else:
+                    mk_content = str(result)
+            elif self.use_mineru:
                 output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
                 # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
