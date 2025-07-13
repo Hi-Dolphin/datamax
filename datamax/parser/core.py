@@ -2,6 +2,7 @@ import importlib
 import json
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Dict, List, Union, Optional, Any
 
@@ -72,7 +73,7 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
+        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
             module_name = f"datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
@@ -123,6 +124,9 @@ class DataMax(BaseLife):
         :param ttl: Time to live for the cache.
         """
         super().__init__(domain=domain)
+        # Validate TTL
+        if ttl < 0:
+            raise ValueError("TTL must be non-negative integer")
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
@@ -130,7 +134,39 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+        self._cache = {}
+        self._cache_lock = threading.Lock()  # For thread-safe cache operations
 
+        # Start background cleaner if caching enabled
+        if self.ttl > 0:
+            self._start_cache_cleaner()
+
+    def _start_cache_cleaner(self) -> None:
+        """
+        Initialize a daemon thread for periodic cache cleanup.
+
+        The cleaner runs every min(ttl/2, 300) seconds to remove expired entries.
+        Runs as daemon thread to allow graceful program exit.
+        """
+
+        def _cleaner():
+            while True:
+                sleep_interval = max(1, min(self.ttl // 2, 300))  # Clamp between 1-300s
+                time.sleep(sleep_interval)
+
+                with self._cache_lock:
+                    current_time = time.time()
+                    self._cache = {
+                        k: v for k, v in self._cache.items()
+                        if v["ttl"] > current_time
+                    }
+
+        cleaner_thread = threading.Thread(
+            target=_cleaner,
+            name="cache_cleaner",
+            daemon=True
+        )
+        cleaner_thread.start()
     def set_data(self, file_name, parsed_data):
         """
         Set cached data
