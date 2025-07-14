@@ -20,10 +20,17 @@ class PdfOcrProcessor(BaseLife):
     """PDF转Markdown"""
 
     def __init__(self, api_key: str, base_url: str, model_name: str, domain: str = "Technology"):
+        # OCR模型可选列表
+        OCR_MODEL_MAP = {
+            1: "qwen-vl-ocr",
+            "qwen-vl-ocr": "qwen-vl-ocr",
+        }
+        if model_name not in OCR_MODEL_MAP and model_name not in OCR_MODEL_MAP.values():
+            raise ValueError("ocr_model_name参数错误，只能为：1(qwen-vl-ocr)")
         super().__init__(domain=domain)
         self.api_key = api_key
         self.base_url = base_url
-        self.model_name = model_name
+        self.model_name = OCR_MODEL_MAP.get(model_name, model_name)
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.domain = domain
 
