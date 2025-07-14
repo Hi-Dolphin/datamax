@@ -396,9 +396,7 @@ class DataMax(BaseLife):
         import datamax.utils.qa_generator as qa_gen
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
         data = []
-        if use_mllm is True:
-            pass
-        elif content is not None:
+        if content is not None:
             text = content
         else:
             processed = self.get_data()
@@ -410,6 +408,7 @@ class DataMax(BaseLife):
                 text = processed.get("content", "")
             else:
                 text = processed
+            print(text)
             file_path = self.file_path
 
         # 打点：开始 DATA_LABELLING
@@ -424,7 +423,7 @@ class DataMax(BaseLife):
             )
         try:
             base_url = qa_gen.complete_api_url(base_url)
-            if use_mllm:
+            if use_mllm and self.use_mineru:
                 logger.info("使用多模态QA生成器...")
                 if isinstance(self.file_path, list):
                     file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
