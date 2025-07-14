@@ -4,15 +4,10 @@ import os
 import time
 from pathlib import Path
 from typing import Any
-from typing import Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
-
-import datamax.utils.qa_generator as qa_gen
-from datamax.parser.base import BaseLife
-from datamax.utils import data_cleaner
 
 import datamax.utils.qa_generator as qa_gen
 from datamax.parser.base import BaseLife
@@ -544,7 +539,7 @@ class DataMax(BaseLife):
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 print("\n===== 预览前10条QA对 =====")
                 for i, qa in enumerate(data[:10]):
-                    print(f"\n--- QA对 {i+1} ---")
+                    print(f"\n--- QA对 {i + 1} ---")
                     print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
                     print(f"答案: {qa.get('output', 'N/A')}")
                     print(f"标签: {qa.get('label', 'N/A')}")
