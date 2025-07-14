@@ -39,14 +39,18 @@ class PdfProcessor:
 
         if ds.classify() == SupportedPdfParseMethod.OCR:
             ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
-                md_writer, os.path.basename(markdown_path), image_dir  # filename
+                md_writer,
+                os.path.basename(markdown_path),
+                image_dir,  # filename
             )
         else:
             ds.apply(doc_analyze, ocr=False).pipe_txt_mode(image_writer).dump_md(
-                md_writer, os.path.basename(markdown_path), image_dir  # filename
+                md_writer,
+                os.path.basename(markdown_path),
+                image_dir,  # filename
             )
 
-        with open(markdown_path, "r", encoding="utf-8") as f:
+        with open(markdown_path, encoding="utf-8") as f:
             markdown_content = f.read()
 
         return markdown_content

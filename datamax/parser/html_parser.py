@@ -1,4 +1,3 @@
-from typing import Union
 
 from bs4 import BeautifulSoup
 
@@ -7,14 +6,14 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class HtmlParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+    def __init__(self, file_path: str | list, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod
     def read_html_file(file_path: str) -> str:
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 data = f.read()
                 soup = BeautifulSoup(data, "html.parser")
                 return soup.get_text(separator="\n", strip=True)

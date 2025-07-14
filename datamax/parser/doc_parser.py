@@ -5,13 +5,13 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
 
 import chardet
 from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+
 
 # 尝试导入OLE相关库（用于读取DOC内部结构）
 try:
@@ -47,10 +47,10 @@ except ImportError:
 class DocParser(BaseLife):
     def __init__(
         self,
-        file_path: Union[str, list],
+        file_path: str | list,
         to_markdown: bool = False,
         use_uno: bool = True,
-        domain: str = "Technology"
+        domain: str = "Technology",
     ):
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -59,17 +59,17 @@ class DocParser(BaseLife):
         # 优先使用UNO（除非明确禁用）
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info(f"🚀 DocParser初始化完成 - 使用UNO API进行单线程高效处理")
+            logger.info("🚀 DocParser初始化完成 - 使用UNO API进行单线程高效处理")
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
                 logger.warning(
-                    f"⚠️ UNO不可用，回退到传统命令行方式\n"
-                    f"💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
-                    f"📖 请参考上述错误信息中的安装指南"
+                    "⚠️ UNO不可用，回退到传统命令行方式\n"
+                    "💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
+                    "📖 请参考上述错误信息中的安装指南"
                 )
             else:
-                logger.info(f"🚀 DocParser初始化完成 - 使用传统命令行方式")
+                logger.info("🚀 DocParser初始化完成 - 使用传统命令行方式")
 
         logger.info(f"📄 文件路径: {file_path}, 转换为markdown: {to_markdown}")
 
@@ -110,7 +110,7 @@ class DocParser(BaseLife):
             return ""
 
         except Exception as e:
-            logger.error(f"💥 综合内容提取失败: {str(e)}")
+            logger.error(f"💥 综合内容提取失败: {e!s}")
             return ""
 
     def _extract_ole_content(self, doc_path: str) -> str:
@@ -142,7 +142,7 @@ class DocParser(BaseLife):
                     if text:
                         all_texts.append(text)
                 except Exception as e:
-                    logger.error(f"💥 解析WordDocument流失败: {str(e)}")
+                    logger.error(f"💥 解析WordDocument流失败: {e!s}")
 
             # 尝试读取其他可能包含文本的流
             text_content = []
@@ -168,7 +168,7 @@ class DocParser(BaseLife):
             return ""
 
         except Exception as e:
-            logger.warning(f"⚠️ OLE解析失败: {str(e)}")
+            logger.warning(f"⚠️ OLE解析失败: {e!s}")
 
         return ""
 
@@ -211,7 +211,7 @@ class DocParser(BaseLife):
             return "\n".join(text_parts) if text_parts else ""
 
         except Exception as e:
-            logger.error(f"💥 解析Word流失败: {str(e)}")
+            logger.error(f"💥 解析Word流失败: {e!s}")
             return ""
 
     def _filter_printable_text(self, text: str) -> str:
@@ -231,7 +231,7 @@ class DocParser(BaseLife):
             elif char.isprintable() or char.isspace():
                 result.append(char)
             # 保留常用标点符号
-            elif char in '，。！？；：""' "（）【】《》、·…—":
+            elif char in '，。！？；：""（）【】《》、·…—':
                 result.append(char)
 
         return "".join(result)
@@ -315,7 +315,7 @@ class DocParser(BaseLife):
             return "\n\n".join(embedded_content) if embedded_content else ""
 
         except Exception as e:
-            logger.warning(f"⚠️ 提取嵌入对象失败: {str(e)}")
+            logger.warning(f"⚠️ 提取嵌入对象失败: {e!s}")
             return ""
 
     def _clean_extracted_text(self, text: str) -> str:
@@ -405,7 +405,7 @@ class DocParser(BaseLife):
             return result
 
         except Exception as e:
-            logger.error(f"💥 清理文本失败: {str(e)}")
+            logger.error(f"💥 清理文本失败: {e!s}")
             return text
 
     def _combine_extracted_content(self, content_list: list) -> str:
@@ -448,7 +448,7 @@ class DocParser(BaseLife):
 
             except Exception as e:
                 logger.error(
-                    f"💥 UNO转换失败: {str(e)}\n"
+                    f"💥 UNO转换失败: {e!s}\n"
                     f"🔍 诊断信息：\n"
                     f"   - 错误类型: {type(e).__name__}\n"
                     f"   - LibreOffice是否已安装？尝试运行: soffice --version\n"
@@ -508,10 +508,10 @@ class DocParser(BaseLife):
                 return txt_path
 
         except subprocess.SubprocessError as e:
-            logger.error(f"💥 subprocess执行失败: {str(e)}")
-            raise Exception(f"执行转换命令时发生错误: {str(e)}")
+            logger.error(f"💥 subprocess执行失败: {e!s}")
+            raise Exception(f"执行转换命令时发生错误: {e!s}")
         except Exception as e:
-            logger.error(f"💥 DOC到TXT转换过程中发生未知错误: {str(e)}")
+            logger.error(f"💥 DOC到TXT转换过程中发生未知错误: {e!s}")
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
@@ -528,7 +528,7 @@ class DocParser(BaseLife):
                 logger.debug(f"🔍 检测到文件编码: {encoding}")
 
             # 读取文件内容
-            with open(txt_path, "r", encoding=encoding, errors="replace") as f:
+            with open(txt_path, encoding=encoding, errors="replace") as f:
                 content = f.read()
 
             logger.info(f"📄 TXT文件读取完成 - 内容长度: {len(content)} 字符")
@@ -537,10 +537,10 @@ class DocParser(BaseLife):
             return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 TXT文件未找到: {str(e)}")
+            logger.error(f"🚫 TXT文件未找到: {e!s}")
             raise Exception(f"文件未找到: {txt_path}")
         except Exception as e:
-            logger.error(f"💥 读取TXT文件时发生错误: {str(e)}")
+            logger.error(f"💥 读取TXT文件时发生错误: {e!s}")
             raise
 
     def read_doc_file(self, doc_path: str) -> str:
@@ -584,13 +584,13 @@ class DocParser(BaseLife):
                 return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件未找到: {str(e)}")
+            logger.error(f"🚫 文件未找到: {e!s}")
             raise Exception(f"文件未找到: {doc_path}")
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {str(e)}")
+            logger.error(f"🔒 文件权限错误: {e!s}")
             raise Exception(f"无权限访问文件: {doc_path}")
         except Exception as e:
-            logger.error(f"💥 读取DOC文件时发生错误: {str(e)}")
+            logger.error(f"💥 读取DOC文件时发生错误: {e!s}")
             raise
 
     def _check_content_quality(self, content: str) -> bool:
@@ -609,14 +609,14 @@ class DocParser(BaseLife):
                 or "\u4e00" <= c <= "\u9fff"  # 中文
                 or "\u3040" <= c <= "\u30ff"  # 日文
                 or "\uac00" <= c <= "\ud7af"  # 韩文
-                or c in '，。！？；：""' "（）【】《》、·…—\n\r\t "
+                or c in '，。！？；：""（）【】《》、·…—\n\r\t '
             )
         )
 
         # 如果可识别字符占比低于70%，认为质量不佳
         if recognizable / total_chars < 0.7:
             logger.warning(
-                f"⚠️ 内容质量检查失败：可识别字符比例 {recognizable}/{total_chars} = {recognizable/total_chars:.2%}"
+                f"⚠️ 内容质量检查失败：可识别字符比例 {recognizable}/{total_chars} = {recognizable / total_chars:.2%}"
             )
             return False
 
@@ -704,14 +704,14 @@ class DocParser(BaseLife):
             return result
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件不存在错误: {str(e)}")
+            logger.error(f"🚫 文件不存在错误: {e!s}")
             raise
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {str(e)}")
+            logger.error(f"🔒 文件权限错误: {e!s}")
             raise Exception(f"无权限访问文件: {file_path}")
         except Exception as e:
             logger.error(
-                f"💀 解析DOC文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {str(e)}"
+                f"💀 解析DOC文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {e!s}"
             )
             raise
 
@@ -803,5 +803,5 @@ class DocParser(BaseLife):
             return self._parse_word_stream(data)
 
         except Exception as e:
-            logger.error(f"💥 解析WPS流失败: {str(e)}")
+            logger.error(f"💥 解析WPS流失败: {e!s}")
             return ""

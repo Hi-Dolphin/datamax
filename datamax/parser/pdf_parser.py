@@ -1,6 +1,5 @@
 import os
 import subprocess
-from typing import Union
 
 from langchain_community.document_loaders import PyMuPDFLoader
 from loguru import logger
@@ -11,12 +10,11 @@ from datamax.utils.mineru_operator import pdf_processor
 
 
 class PdfParser(BaseLife):
-
     def __init__(
         self,
-        file_path: Union[str, list],
+        file_path: str | list,
         use_mineru: bool = False,
-        domain: str = "Technology"
+        domain: str = "Technology",
     ):
         super().__init__(domain=domain)
 
@@ -77,7 +75,6 @@ class PdfParser(BaseLife):
             raise e
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
-
         lc_start = self.generate_lifecycle(
             source_file=file_path,
             domain=self.domain,
@@ -102,7 +99,7 @@ class PdfParser(BaseLife):
                 output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
 
                 if os.path.exists(output_mineru):
-                    mk_content = open(output_mineru, "r", encoding="utf-8").read()
+                    mk_content = open(output_mineru, encoding="utf-8").read()
                 else:
                     mk_content = pdf_processor.process_pdf(file_path)
             else:

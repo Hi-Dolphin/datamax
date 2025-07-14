@@ -4,50 +4,93 @@
 
 [中文](README_zh.md) | **English**
 
-[![PyPI version](https://badge.fury.io/py/pydatamax.svg)](https://badge.fury.io/py/pydatamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://badge.fury.io/py/datamax.svg)](https://badge.fury.io/py/datamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
-A powerful multi-format file parsing, data cleaning, and AI annotation toolkit.
+A powerful multi-format file parsing, data cleaning, and AI annotation toolkit built for modern Python applications.
 
-## ✨ Core Features
+## ✨ Key Features
 
 - 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
-- 🧹 **Intelligent Cleaning**: Three-layer cleaning process with anomaly detection, privacy protection, and text filtering
-- 🤖 **AI Annotation**: LLM-based automatic data annotation and pre-labeling
-- ⚡ **Batch Processing**: Efficient multi-file parallel processing
-- 🎯 **Easy Integration**: Clean API design, ready to use out of the box
+- 🧹 **Intelligent Cleaning**: Advanced data cleaning with anomaly detection, privacy protection, and text filtering
+- 🤖 **AI Annotation**: LLM-powered automatic annotation and QA generation
+- ⚡ **High Performance**: Efficient batch processing with caching and parallel execution
+- 🎯 **Developer Friendly**: Modern SDK design with type hints, configuration management, and comprehensive error handling
+- ☁️ **Cloud Ready**: Built-in support for OSS, MinIO, and other cloud storage providers
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-pip install pydatamax
+# Install the latest version
+pip install datamax
+
+# With optional dependencies
+pip install datamax[mineru,ocr,dev]
 ```
 
 ### Basic Usage
 
 ```python
-from datamax import DataMax
+import datamax
 
-# Parse a single file, default domain="Technology"
-dm = DataMax(file_path="document.pdf")
-data = dm.get_data()
+# Simple file parsing
+client = datamax.DataMaxClient()
+result = client.parse_file("document.pdf")
+print(result["content"])
 
 # Batch processing
-dm = DataMax(file_path=["file1.docx", "file2.pdf"])
-data = dm.get_data()
+results = client.parse_files(["doc1.pdf", "doc2.docx", "doc3.txt"])
 
-# Specify domain（preset values：Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science；custom options also available）
-dm = DataMax(file_path="report.pdf", domain="Finance")
-data = dm.get_data()
+# Parse entire directory
+results = client.parse_directory("./documents", pattern="*.pdf")
+
+# With configuration
+client = datamax.DataMaxClient(
+    domain="Legal",
+    parse={"use_mineru": True, "chunk_size": 1000},
+    ai={"api_key": "your-key", "model_name": "gpt-4"}
+)
+```
+
+### Advanced Usage
+
+```python
+import datamax
+
+# Configure globally
+datamax.configure(
+    domain="Finance",
+    ai={
+        "api_key": "your-openai-key",
+        "base_url": "https://api.openai.com/v1",
+        "model_name": "gpt-4"
+    }
+)
+
+# Complete pipeline: parse -> clean -> annotate
+client = datamax.DataMaxClient()
+result = client.process_pipeline(
+    file_path="financial_report.pdf",
+    clean_methods=["abnormal", "private", "filter"],
+    annotate=True,
+    question_number=5
+)
 
 # Data cleaning
-cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
+cleaned = client.clean_data(
+    content="Raw text with noise and PII data...",
+    methods=["abnormal", "filter", "private"]
+)
 
 # AI annotation
-qa_data = dm.get_pre_label(
+annotations = client.annotate(
+    content="Document content for annotation...",
+    question_number=10,
+    language="en"
+)
     api_key="sk-xxx",
     base_url="https://api.provider.com/v1",
     model_name="model-name",

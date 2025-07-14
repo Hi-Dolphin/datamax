@@ -10,6 +10,7 @@ from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
+
 warnings.filterwarnings("ignore")
 
 
@@ -93,16 +94,16 @@ class XlsxParser(BaseLife):
             return markdown_content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件未找到: {str(e)}")
+            logger.error(f"🚫 文件未找到: {e!s}")
             raise
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {str(e)}")
+            logger.error(f"🔒 文件权限错误: {e!s}")
             raise Exception(f"无权限访问文件: {file_path}")
         except pd.errors.EmptyDataError as e:
-            logger.error(f"📭 Excel文件为空: {str(e)}")
+            logger.error(f"📭 Excel文件为空: {e!s}")
             raise Exception(f"Excel文件为空或无法读取: {file_path}")
         except Exception as e:
-            logger.error(f"💥 pandas读取Excel失败: {str(e)}")
+            logger.error(f"💥 pandas读取Excel失败: {e!s}")
             raise
 
     def _parse(self, file_path: str, result_queue: Queue) -> dict:
@@ -180,7 +181,7 @@ class XlsxParser(BaseLife):
             except Exception:
                 pass
 
-            logger.error(f"💀 解析Excel文件失败: {file_path}, 错误: {str(e)}")
+            logger.error(f"💀 解析Excel文件失败: {file_path}, 错误: {e!s}")
             # 将错误也放入队列
             error_result = {
                 "error": str(e),
@@ -214,6 +215,6 @@ class XlsxParser(BaseLife):
 
         except Exception as e:
             logger.error(
-                f"💀 Excel解析失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {str(e)}"
+                f"💀 Excel解析失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {e!s}"
             )
             raise

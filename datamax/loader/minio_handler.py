@@ -8,6 +8,7 @@ from minio import Minio
 from minio.commonconfig import Tags
 from minio.error import S3Error
 
+
 load_dotenv()
 
 
@@ -29,7 +30,7 @@ class MinIOClient:
                 secure=self.secure,
             )
             return client
-        except S3Error as e:
+        except S3Error:
             raise
 
     @staticmethod
@@ -41,7 +42,7 @@ class MinIOClient:
             try:
                 self.client.make_bucket(bucket_name)
                 logger.info(f"Bucket '{bucket_name}' created successfully.")
-            except S3Error as e:
+            except S3Error:
                 raise
 
     def remove_bucket(self, bucket_name):
@@ -49,7 +50,7 @@ class MinIOClient:
             try:
                 self.client.remove_bucket(bucket_name)
                 logger.info(f"Bucket '{bucket_name}' removed successfully.")
-            except S3Error as e:
+            except S3Error:
                 raise
 
     def upload_file(self, file_path, bucket_name, object_name):
@@ -59,7 +60,7 @@ class MinIOClient:
                 logger.info(
                     f"File '{file_path}' uploaded to bucket '{bucket_name}' as '{object_name}'."
                 )
-            except S3Error as e:
+            except S3Error:
                 raise
 
     def download_file(self, bucket_name, object_name, file_path):
@@ -70,7 +71,7 @@ class MinIOClient:
                     f"Object '{object_name}' from bucket '{bucket_name}' downloaded to '{file_path}'."
                 )
                 return file_path
-            except Exception as e:
+            except Exception:
                 try:
                     illegal_chars = r'[\/:*?"<>|]'
                     file_path = re.sub(illegal_chars, "_", file_path)
@@ -79,7 +80,7 @@ class MinIOClient:
                         f"Object {object_name} from bucket {bucket_name} downloaded to {file_path}'."
                     )
                     return file_path
-                except Exception as e:
+                except Exception:
                     raise
 
     def list_objects(self, bucket_name, prefix=None):
@@ -96,14 +97,14 @@ class MinIOClient:
                 for obj in objects:
                     result_list.append(obj.object_name)
                 return result_list
-            except S3Error as e:
+            except S3Error:
                 raise
 
     def remove_object(self, bucket_name, object_name):
         if self.client:
             try:
                 self.client.remove_object(bucket_name, object_name)
-            except S3Error as e:
+            except S3Error:
                 raise
 
     def calculate_bucket_stats(self, bucket_name, prefix):
@@ -124,7 +125,7 @@ class MinIOClient:
             response = self.client.get_object(bucket_name, object_name)
             content = response.read().decode("utf-8")
             return content
-        except Exception as e:
+        except Exception:
             raise
 
     def get_object_tag(self, bucket_name, object_name):
@@ -133,7 +134,7 @@ class MinIOClient:
                 bucket_name=bucket_name, object_name=object_name
             )
             return tags
-        except Exception as e:
+        except Exception:
             raise
 
     def update_object_tag(self, bucket_name, object_name, tags):
@@ -170,7 +171,7 @@ class MinIOClient:
                     bucket_name=bucket_name, object_name=object_name, tags=tags_obj
                 )
             return tag_info
-        except Exception as e:
+        except Exception:
             raise
 
     def reset_object_tag(self, bucket_name, object_name):
@@ -179,7 +180,7 @@ class MinIOClient:
                 bucket_name=bucket_name, object_name=object_name
             )
             return True
-        except Exception as e:
+        except Exception:
             raise
 
     def get_object_tmp_link(self, bucket_name, object_name, expires):
@@ -187,5 +188,5 @@ class MinIOClient:
             return self.client.presigned_get_object(
                 bucket_name, object_name, expires=timedelta(days=expires)
             )
-        except Exception as e:
+        except Exception:
             raise

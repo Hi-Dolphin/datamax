@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
 
 import chardet
 from loguru import logger
@@ -11,6 +10,7 @@ from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.ppt_extract import PPtExtractor
+
 
 # 尝试导入UNO处理器
 try:
@@ -20,7 +20,12 @@ except ImportError:
 
 
 class PptParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], use_uno: bool = None, domain: str = "Technology"):
+    def __init__(
+        self,
+        file_path: str | list,
+        use_uno: bool = None,
+        domain: str = "Technology",
+    ):
         super().__init__(domain=domain)
         self.file_path = file_path
 
@@ -43,7 +48,7 @@ class PptParser(BaseLife):
                 else:
                     return pptx_path
 
-            except Exception as e:
+            except Exception:
                 if (
                     hasattr(self, "_fallback_to_subprocess")
                     and self._fallback_to_subprocess

@@ -10,12 +10,14 @@ import cv2
 import numpy as np
 from PIL import Image
 
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.append(str(ROOT_DIR))
 
 from paddle.utils import try_import
 from paddleocr import PPStructure, save_structure_res
+
 
 sys.path.append("/usr/local/lib/python3.10/dist-packages/paddleocr")
 from ppstructure.recovery.recovery_to_doc import convert_info_docx, sorted_layout_boxes
@@ -69,7 +71,7 @@ def recovery(img_path, output, use_gpu, gpu_id):
         formula_model_dir=f"{ROOT_DIR}/ocr_model_dir/formula/rec_latex_ocr_infer",
     )
     for index, (new_img_path, imgs) in enumerate(img_paths):
-        print("processing {}/{} page:".format(index + 1, len(img_paths)))
+        print(f"processing {index + 1}/{len(img_paths)} page:")
         result = engine(imgs, img_idx=index)
         save_structure_res(result, output, img_name, index)
         h, w, _ = imgs.shape
@@ -80,7 +82,7 @@ def recovery(img_path, output, use_gpu, gpu_id):
         convert_info_docx(imgs, all_res, output, img_name)
         os.rename(
             f"./output/{img_name}_ocr.docx",
-            f'./output/{os.path.basename(img_path).replace(".pdf", "")}_ocr.docx',
+            f"./output/{os.path.basename(img_path).replace('.pdf', '')}_ocr.docx",
         )
     except Exception as e:
         raise e

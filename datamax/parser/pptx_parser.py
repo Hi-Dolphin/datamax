@@ -1,4 +1,3 @@
-from typing import Union
 
 from loguru import logger
 from pptx import Presentation
@@ -8,8 +7,8 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class PptxParser(BaseLife):
-    def __init__(self, file_path: Union[str, list],domain: str = "Technology"):
-        super().__init__(domain = domain)
+    def __init__(self, file_path: str | list, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
 
     @staticmethod

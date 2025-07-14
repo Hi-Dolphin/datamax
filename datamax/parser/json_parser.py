@@ -5,7 +5,6 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class JsonParser(BaseLife):
-
     def __init__(self, file_path, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -13,7 +12,7 @@ class JsonParser(BaseLife):
     @staticmethod
     def read_json_file(file_path: str) -> str:
         """Read and pretty print a JSON file."""
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
         return json.dumps(data, indent=2, ensure_ascii=False)
 

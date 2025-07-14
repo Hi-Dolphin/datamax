@@ -267,9 +267,7 @@ class PrivacyDesensitization:
     def replace_number(self):
         # Replace all types of numeric private data
         # Bank card
-        self.parsed_data = self.replace_bank_id(
-            token="BANK_ID"
-        )  # nosec B106 - 这是数据脱敏标记，不是密码
+        self.parsed_data = self.replace_bank_id(token="BANK_ID")  # nosec B106 - 这是数据脱敏标记，不是密码
 
         # Landline + mobile phone
         self.parsed_data = jio.replace_phone_number(self.parsed_data, "COSCO_NUMBER")

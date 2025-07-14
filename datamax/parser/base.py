@@ -1,7 +1,6 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Union
 
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.tokenizer import DashScopeClient
@@ -13,13 +12,13 @@ class LifeCycle:
     """
 
     def __init__(
-        self, update_time: str, life_type: list, life_metadata: Dict[str, str]
+        self, update_time: str, life_type: list, life_metadata: dict[str, str]
     ):
         self.update_time = update_time  # Update time
         self.life_type = life_type  # Life cycle type
         self.life_metadata = life_metadata  # Life cycle metadata
 
-    def update(self, update_time: str, life_type: list, life_metadata: Dict[str, str]):
+    def update(self, update_time: str, life_type: list, life_metadata: dict[str, str]):
         self.update_time = update_time
         self.life_type = life_type
         self.life_metadata.update(life_metadata)
@@ -44,7 +43,7 @@ class MarkdownOutputVo:
     def __init__(self, extension: str, content: str):
         self.extension: str = extension  # File type
         self.content: str = content  # Markdown content
-        self.lifecycle: List[LifeCycle] = []  # Life cycle data
+        self.lifecycle: list[LifeCycle] = []  # Life cycle data
 
     def add_lifecycle(self, lifecycle: LifeCycle):
         self.lifecycle.append(lifecycle)
@@ -56,6 +55,7 @@ class MarkdownOutputVo:
             "lifecycle": [lc.to_dict() for lc in self.lifecycle],
         }
         return data_dict
+
 
 # ========== 新增：预置领域列表 ==========
 PREDEFINED_DOMAINS = [
@@ -71,8 +71,10 @@ PREDEFINED_DOMAINS = [
     # … 如有需要可以继续扩展
 ]
 
+
 class BaseLife:
     tk_client = DashScopeClient()
+
     def __init__(self, *, domain: str = "Technology", **kwargs):
         """
         BaseLife 初始化：接收 domain 并做校验／警告，
@@ -94,7 +96,7 @@ class BaseLife:
     def generate_lifecycle(
         source_file: str,
         domain: str,
-        life_type: Union[LifeType, str, List[Union[LifeType, str]]],
+        life_type: LifeType | str | list[LifeType | str],
         usage_purpose: str,
     ) -> LifeCycle:
         """
@@ -107,7 +109,7 @@ class BaseLife:
             raw = [life_type]
 
         # 2) 如果是枚举，就取它的 value
-        life_list: List[str] = [
+        life_list: list[str] = [
             lt.value if isinstance(lt, LifeType) else lt for lt in raw
         ]
 

@@ -6,13 +6,13 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Optional, Union
 
 import chardet
 from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+
 
 # 尝试导入UNO处理器
 try:
@@ -39,7 +39,7 @@ except ImportError:
 class DocxParser(BaseLife):
     def __init__(
         self,
-        file_path: Union[str, list],
+        file_path: str | list,
         to_markdown: bool = False,
         use_uno: bool = True,
         domain: str = "Technology",
@@ -51,17 +51,17 @@ class DocxParser(BaseLife):
         # 优先使用UNO（除非明确禁用）
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info(f"🚀 DocxParser初始化完成 - 使用UNO API进行单线程高效处理")
+            logger.info("🚀 DocxParser初始化完成 - 使用UNO API进行单线程高效处理")
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
                 logger.warning(
-                    f"⚠️ UNO不可用，回退到传统命令行方式\n"
-                    f"💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
-                    f"📖 请参考上述错误信息中的安装指南"
+                    "⚠️ UNO不可用，回退到传统命令行方式\n"
+                    "💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
+                    "📖 请参考上述错误信息中的安装指南"
                 )
             else:
-                logger.info(f"🚀 DocxParser初始化完成 - 使用传统命令行方式")
+                logger.info("🚀 DocxParser初始化完成 - 使用传统命令行方式")
 
         logger.info(f"📄 文件路径: {file_path}, 转换为markdown: {to_markdown}")
 
@@ -86,7 +86,7 @@ class DocxParser(BaseLife):
 
             except Exception as e:
                 logger.error(
-                    f"💥 UNO转换失败: {str(e)}\n"
+                    f"💥 UNO转换失败: {e!s}\n"
                     f"🔍 诊断信息：\n"
                     f"   - 错误类型: {type(e).__name__}\n"
                     f"   - LibreOffice是否已安装？尝试运行: soffice --version\n"
@@ -146,10 +146,10 @@ class DocxParser(BaseLife):
                 return txt_path
 
         except subprocess.SubprocessError as e:
-            logger.error(f"💥 subprocess执行失败: {str(e)}")
-            raise Exception(f"执行转换命令时发生错误: {str(e)}")
+            logger.error(f"💥 subprocess执行失败: {e!s}")
+            raise Exception(f"执行转换命令时发生错误: {e!s}")
         except Exception as e:
-            logger.error(f"💥 DOCX到TXT转换过程中发生未知错误: {str(e)}")
+            logger.error(f"💥 DOCX到TXT转换过程中发生未知错误: {e!s}")
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
@@ -166,7 +166,7 @@ class DocxParser(BaseLife):
                 logger.debug(f"🔍 检测到文件编码: {encoding}")
 
             # 读取文件内容
-            with open(txt_path, "r", encoding=encoding, errors="replace") as f:
+            with open(txt_path, encoding=encoding, errors="replace") as f:
                 content = f.read()
 
             logger.info(f"📄 TXT文件读取完成 - 内容长度: {len(content)} 字符")
@@ -175,10 +175,10 @@ class DocxParser(BaseLife):
             return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 TXT文件未找到: {str(e)}")
+            logger.error(f"🚫 TXT文件未找到: {e!s}")
             raise Exception(f"文件未找到: {txt_path}")
         except Exception as e:
-            logger.error(f"💥 读取TXT文件时发生错误: {str(e)}")
+            logger.error(f"💥 读取TXT文件时发生错误: {e!s}")
             raise
 
     def extract_all_content(self, docx_path: str) -> str:
@@ -223,7 +223,7 @@ class DocxParser(BaseLife):
                     all_content.append(("textboxes", textbox_content))
 
         except Exception as e:
-            logger.error(f"💥 综合内容提取失败: {str(e)}")
+            logger.error(f"💥 综合内容提取失败: {e!s}")
             return ""
 
         # 合并所有内容
@@ -276,7 +276,7 @@ class DocxParser(BaseLife):
 
             return ""
         except Exception as e:
-            logger.error(f"💥 提取altChunk内容失败: {str(e)}")
+            logger.error(f"💥 提取altChunk内容失败: {e!s}")
             return ""
 
     def _extract_standard_document_content(self, docx_zip: zipfile.ZipFile) -> str:
@@ -336,7 +336,7 @@ class DocxParser(BaseLife):
                     return content
             return ""
         except Exception as e:
-            logger.error(f"💥 提取标准文档内容失败: {str(e)}")
+            logger.error(f"💥 提取标准文档内容失败: {e!s}")
             return ""
 
     def _extract_embedded_objects(self, docx_zip: zipfile.ZipFile) -> str:
@@ -353,7 +353,7 @@ class DocxParser(BaseLife):
 
             return " ".join(embedded_content) if embedded_content else ""
         except Exception as e:
-            logger.error(f"💥 提取嵌入对象失败: {str(e)}")
+            logger.error(f"💥 提取嵌入对象失败: {e!s}")
             return ""
 
     def _extract_headers_footers(self, docx_zip: zipfile.ZipFile) -> str:
@@ -399,7 +399,7 @@ class DocxParser(BaseLife):
 
             return "\n".join(header_footer_content) if header_footer_content else ""
         except Exception as e:
-            logger.error(f"💥 提取页眉页脚失败: {str(e)}")
+            logger.error(f"💥 提取页眉页脚失败: {e!s}")
             return ""
 
     def _extract_comments(self, docx_zip: zipfile.ZipFile) -> str:
@@ -435,7 +435,7 @@ class DocxParser(BaseLife):
 
             return ""
         except Exception as e:
-            logger.error(f"💥 提取注释失败: {str(e)}")
+            logger.error(f"💥 提取注释失败: {e!s}")
             return ""
 
     def _extract_textbox_content(self, docx_zip: zipfile.ZipFile) -> str:
@@ -484,7 +484,7 @@ class DocxParser(BaseLife):
 
             return "\n".join(textbox_content) if textbox_content else ""
         except Exception as e:
-            logger.error(f"💥 提取文本框内容失败: {str(e)}")
+            logger.error(f"💥 提取文本框内容失败: {e!s}")
             return ""
 
     def _combine_extracted_content(self, content_list: list) -> str:
@@ -592,7 +592,7 @@ class DocxParser(BaseLife):
                     )
                     logger.info("📧 解码quoted-printable编码")
                 except Exception as e:
-                    logger.warning(f"⚠️ quoted-printable解码失败: {str(e)}")
+                    logger.warning(f"⚠️ quoted-printable解码失败: {e!s}")
 
             logger.debug(f"📄 提取的HTML内容长度: {len(html_content)} 字符")
 
@@ -600,7 +600,7 @@ class DocxParser(BaseLife):
             return self._html_to_clean_text(html_content)
 
         except Exception as e:
-            logger.error(f"💥 从MHT提取HTML失败: {str(e)}")
+            logger.error(f"💥 从MHT提取HTML失败: {e!s}")
             return ""
 
     def _html_to_clean_text(self, html_content: str) -> str:
@@ -713,7 +713,7 @@ class DocxParser(BaseLife):
             return main_content
 
         except Exception as e:
-            logger.error(f"💥 HTML转简洁文本失败: {str(e)}")
+            logger.error(f"💥 HTML转简洁文本失败: {e!s}")
             # 如果转换失败，返回原始文本的基础清理版本
             return re.sub(r"<[^>]+>", "", html_content)
 
@@ -722,7 +722,7 @@ class DocxParser(BaseLife):
         # 对于非MHT的HTML内容，使用这个更通用的方法
         return self._html_to_clean_text(html_content)
 
-    def extract_altchunk_content(self, docx_path: str) -> Optional[str]:
+    def extract_altchunk_content(self, docx_path: str) -> str | None:
         """
         提取包含altChunk的DOCX文件内容 (保持向后兼容)
         """
@@ -730,7 +730,7 @@ class DocxParser(BaseLife):
             with zipfile.ZipFile(docx_path, "r") as docx:
                 return self._extract_altchunk_content_internal(docx)
         except Exception as e:
-            logger.error(f"💥 提取altChunk内容失败: {str(e)}")
+            logger.error(f"💥 提取altChunk内容失败: {e!s}")
             return None
 
     def read_docx_file(self, docx_path: str) -> str:
@@ -769,13 +769,13 @@ class DocxParser(BaseLife):
                 return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件未找到: {str(e)}")
+            logger.error(f"🚫 文件未找到: {e!s}")
             raise Exception(f"文件未找到: {docx_path}")
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {str(e)}")
+            logger.error(f"🔒 文件权限错误: {e!s}")
             raise Exception(f"无权限访问文件: {docx_path}")
         except Exception as e:
-            logger.error(f"💥 读取DOCX文件时发生错误: {str(e)}")
+            logger.error(f"💥 读取DOCX文件时发生错误: {e!s}")
             raise
 
     def parse(self, file_path: str):
@@ -853,14 +853,14 @@ class DocxParser(BaseLife):
             return result
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件不存在错误: {str(e)}")
+            logger.error(f"🚫 文件不存在错误: {e!s}")
             raise
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {str(e)}")
+            logger.error(f"🔒 文件权限错误: {e!s}")
             raise Exception(f"无权限访问文件: {file_path}")
         except Exception as e:
             logger.error(
-                f"💀 解析DOCX文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {str(e)}"
+                f"💀 解析DOCX文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {e!s}"
             )
             raise
 

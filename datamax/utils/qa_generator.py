@@ -2,19 +2,18 @@ import json
 import os.path
 import re
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional, List, Any
-import uuid
 
 import requests
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
-from pyexpat.errors import messages
-from tqdm import tqdm  
-from dotenv import load_dotenv
-from datamax.utils.domain_tree import DomainTree   #for cache domain tree
+from tqdm import tqdm
+
+from datamax.utils.domain_tree import DomainTree  # for cache domain tree
+
 
 lock = threading.Lock()
 
@@ -22,6 +21,7 @@ lock = threading.Lock()
 # set your api key and base url in .env file
 API_KEY = os.getenv("DASHSCOPE_API_KEY", "your-api-key-here")
 BASE_URL = os.getenv("DASHSCOPE_BASE_URL")
+
 
 def complete_api_url(base_url: str) -> str:
     """
@@ -35,6 +35,7 @@ def complete_api_url(base_url: str) -> str:
     if not url.endswith("/chat/completions"):
         url = f"{url}/chat/completions"
     return url
+
 
 # ------------prompt-----------------
 def get_system_prompt_for_match_label(tags_json, question):
@@ -169,6 +170,7 @@ def get_system_prompt_for_domain_tree(text):
     """
     return system_prompt
 
+
 def get_system_prompt_for_question(query_text, question_number):
     """Generate system prompt for question generation task"""
     system_prompt = f"""
@@ -284,56 +286,59 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
 
         pages = splitter.split_documents(documents)
         page_content = [i.page_content for i in pages]
-        logger.info(f"📄 Markdown文件 '{file_name}' 被分解为 {len(page_content)} 个chunk")
+        logger.info(
+            f"📄 Markdown文件 '{file_name}' 被分解为 {len(page_content)} 个chunk"
+        )
         return page_content
 
-
     except Exception as e:
-        logger.error(f"加载 {Path(md_path).name} 失败: {str(e)}")
+        logger.error(f"加载 {Path(md_path).name} 失败: {e!s}")
         return []
 
 
-def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False) -> list:
+def load_and_split_text(
+    file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False
+) -> list:
     """
     Parse other formats to markdown and split
-    
+
     Args:
         file_path: Path to the markdown file
         chunk_size: Size of each chunk
         chunk_overlap: Overlap between chunks
         use_mineru: Whether to use MinerU for PDF parsing
-        
+
     Returns:
         List of document chunks
     """
     try:
         from datamax.parser.core import DataMax
-        
+
         # 获取文件扩展名用于日志输出
         file_ext = os.path.splitext(file_path)[1].lower()
         file_name = os.path.basename(file_path)
-        
+
         logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
-        
+
         # 使用DataMax解析文件，传递use_mineru参数
         dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru)
         parsed_data = dm.get_data()
-        
+
         if not parsed_data:
             logger.error(f"文件解析失败: {file_name}")
             return []
-            
+
         # 获取解析后的内容
         if isinstance(parsed_data, list):
             # 如果是多个文件，取第一个
-            content = parsed_data[0].get('content', '')
+            content = parsed_data[0].get("content", "")
         else:
-            content = parsed_data.get('content', '')
-            
+            content = parsed_data.get("content", "")
+
         if not content:
             logger.error(f"文件内容为空: {file_name}")
             return []
-            
+
         # 使用LangChain的文本分割器进行切分
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -341,23 +346,29 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
             length_function=len,
             is_separator_regex=False,
         )
-        
+
         # 直接分割文本内容
         page_content = splitter.split_text(content)
-        
+
         # 根据文件类型提供不同的日志信息
-        if file_ext == '.pdf':
+        if file_ext == ".pdf":
             if use_mineru:
-                logger.info(f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk")
+                logger.info(
+                    f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk"
+                )
             else:
-                logger.info(f"📄 PDF文件 '{file_name}' 使用PyMuPDF解析，被分解为 {len(page_content)} 个chunk")
+                logger.info(
+                    f"📄 PDF文件 '{file_name}' 使用PyMuPDF解析，被分解为 {len(page_content)} 个chunk"
+                )
         else:
-            logger.info(f"📄 {file_ext.upper()}文件 '{file_name}' 被分解为 {len(page_content)} 个chunk")
-            
+            logger.info(
+                f"📄 {file_ext.upper()}文件 '{file_name}' 被分解为 {len(page_content)} 个chunk"
+            )
+
         return page_content
-        
+
     except Exception as e:
-        logger.error(f"处理文件 {Path(file_path).name} 失败: {str(e)}")
+        logger.error(f"处理文件 {Path(file_path).name} 失败: {e!s}")
         return []
 
 
@@ -457,11 +468,13 @@ def process_match_tags(
     tags_json: list,
     temperature: float = 0.7,
     top_p: float = 0.9,
-    max_workers: int = 3
+    max_workers: int = 3,
 ):
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     logger.info(f"开始并发生成问题匹配标签... (max_workers={max_workers})")
     results = []
+
     def match_one_question(q):
         prompt = get_system_prompt_for_match_label(tags_json, [q])
         match = llm_generator(
@@ -478,11 +491,10 @@ def process_match_tags(
         future_to_q = {executor.submit(match_one_question, q): q for q in questions}
         for future in as_completed(future_to_q):
             res = future.result()
-            #print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
+            # print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
             results.append(res)
     logger.success(f"问题匹配标签生成成功, 共生成 {len(results)} 个问题")
     return results
-
 
 
 def process_domain_tree(
@@ -495,8 +507,8 @@ def process_domain_tree(
     max_retries: int = 3,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
-    logger.info(f"领域树生成开始...")
-    
+    logger.info("领域树生成开始...")
+
     for attempt in range(max_retries):
         try:
             message = [
@@ -516,7 +528,7 @@ def process_domain_tree(
             response = requests.post(base_url, headers=headers, json=data)
             response.raise_for_status()
             result = response.json()
-            
+
             # Parse LLM response
             if "choices" in result and len(result["choices"]) > 0:
                 output = result["choices"][0]["message"]["content"]
@@ -525,20 +537,28 @@ def process_domain_tree(
                     if json_output is not None:
                         domain_tree = DomainTree()
                         domain_tree.from_json(json_output)
-                        logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
+                        logger.info(
+                            f"领域树生成成功, 共生成 {len(json_output)} 个大标签"
+                        )
                         return domain_tree
                     else:
-                        logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无法解析JSON输出")
+                        logger.warning(
+                            f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无法解析JSON输出"
+                        )
                 else:
-                    logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 空输出")
+                    logger.warning(
+                        f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 空输出"
+                    )
             else:
-                logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无效响应格式")
-                
+                logger.warning(
+                    f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无效响应格式"
+                )
+
         except Exception as e:
             logger.error(f"领域树生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                 logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt == max_retries - 1:
                 error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
                 print(f"❌ {error_msg}")
@@ -547,8 +567,9 @@ def process_domain_tree(
             else:
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
+
                 time.sleep(2)  # 等待2秒后重试
-    
+
     error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
     print(f"❌ {error_msg}")
     logger.error(f"领域树生成失败，已重试 {max_retries} 次: {error_msg}")
@@ -569,7 +590,7 @@ def process_questions(
     total_questions = []
     if message is None:
         message = []
-    
+
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
@@ -584,25 +605,33 @@ def process_questions(
                     type="question",
                 )
                 if questions:
-                    return [{"question": question, "page": page} for question in questions]
+                    return [
+                        {"question": question, "page": page} for question in questions
+                    ]
                 else:
-                    logger.warning(f"问题生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+                    logger.warning(
+                        f"问题生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果"
+                    )
             except Exception as e:
                 logger.error(f"问题生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                     logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt < max_retries - 1:
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
+
                 time.sleep(2)  # 等待2秒后重试
-        
+
         logger.error(f"问题生成失败，已重试 {max_retries} 次")
         return []
 
     logger.info(f"开始生成问题 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_generate_questions_with_retry, page) for page in page_content]
+        futures = [
+            executor.submit(_generate_questions_with_retry, page)
+            for page in page_content
+        ]
         with tqdm(as_completed(futures), total=len(futures), desc="生成问题") as pbar:
             for future in pbar:
                 result = future.result()
@@ -618,7 +647,7 @@ def process_answers(
     model: str,
     base_url: str,
     question_items: list,
-    message: Optional[list] = None,
+    message: list | None = None,
     max_workers=5,
     max_retries: int = 3,
 ) -> dict:
@@ -626,6 +655,7 @@ def process_answers(
     qa_pairs = {}
     if message is None:
         message = []
+
     def _generate_answer_with_retry(item):
         """Inner function for answer generation with retry"""
         for attempt in range(max_retries):
@@ -642,26 +672,34 @@ def process_answers(
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]  # llm_generator returns a list
                 else:
-                    logger.warning(f"答案生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+                    logger.warning(
+                        f"答案生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果"
+                    )
             except Exception as e:
                 logger.error(f"答案生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                     logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt < max_retries - 1:
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
+
                 time.sleep(2)  # retry after 2 seconds
-        
+
         # all retries failed
-        question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
+        question_text = (
+            item["question"][:20] + "..."
+            if len(item["question"]) > 20
+            else item["question"]
+        )
         logger.error(f"网络状态不佳！舍弃了（{question_text}）问题的对应问答对")
         return None  # return None to discard the question with answer
 
     logger.info(f"开始生成答案 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_generate_answer_with_retry, item): item for item in question_items
+            executor.submit(_generate_answer_with_retry, item): item
+            for item in question_items
         }
 
         with tqdm(as_completed(futures), total=len(futures), desc="生成答案") as pbar:
@@ -677,9 +715,9 @@ def process_answers(
 
 # find tagpath by label
 
+
 def find_tagpath_by_label(domain_tree: DomainTree, label: str):
     return domain_tree.find_path(label)
-
 
 
 def generatr_qa_pairs(
@@ -690,12 +728,13 @@ def generatr_qa_pairs(
     question_number: int = 5,
     message: list = None,
     max_workers: int = 5,
-    domain_tree: DomainTree = None,  
+    domain_tree: DomainTree = None,
 ) -> list:
     if message is None:
         message = []
     if domain_tree is None:
         from datamax.utils.domain_tree import DomainTree
+
         domain_tree = DomainTree([])
     qa_pairs = process_answers(
         question_items=question_info,
@@ -705,9 +744,7 @@ def generatr_qa_pairs(
         base_url=base_url,
         model=model_name,
     )
-    logger.success(
-        f"完成! 共生成 {len(qa_pairs)} 个问答对"
-    )
+    logger.success(f"完成! 共生成 {len(qa_pairs)} 个问答对")
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
@@ -725,7 +762,7 @@ def generatr_qa_pairs(
                 "output": answer,
                 "label": label,
                 "tag-path": tag_path,
-                "method": method
+                "method": method,
             }
             res_list.append(qa_entry)
     return res_list
@@ -744,7 +781,9 @@ def _interactive_tree_modification(domain_tree):
     print("3. 删除节点：xxx")
     print("4. 更新节点：新名称；原先节点：旧名称")
     print("5. 结束树操作")
-    print("注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’")
+    print(
+        "注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’"
+    )
     print("\n请输入操作指令（输入'结束树操作'退出）:")
     while True:
         try:
@@ -761,18 +800,24 @@ def _interactive_tree_modification(domain_tree):
                         if domain_tree.add_node(node_name):
                             print(f"✅ 成功将节点 '{node_name}' 作为根节点添加")
                         else:
-                            print(f"❌ 添加失败：未知错误")
+                            print("❌ 添加失败：未知错误")
                     elif len(parts) == 2:
                         if domain_tree.add_node(node_name, parent_name):
-                            print(f"✅ 成功添加节点 '{node_name}' 到父节点 '{parent_name}' 下")
+                            print(
+                                f"✅ 成功添加节点 '{node_name}' 到父节点 '{parent_name}' 下"
+                            )
                         else:
                             print(f"❌ 添加失败：未找到父节点 '{parent_name}'")
                     elif len(parts) == 3:
                         child_name = parts[2].replace("子节点：", "").strip()
-                        if domain_tree.insert_node_between(node_name, parent_name, child_name):
-                            print(f"✅ 成功插入节点 '{node_name}' 到 '{parent_name}' 和 '{child_name}' 之间")
+                        if domain_tree.insert_node_between(
+                            node_name, parent_name, child_name
+                        ):
+                            print(
+                                f"✅ 成功插入节点 '{node_name}' 到 '{parent_name}' 和 '{child_name}' 之间"
+                            )
                         else:
-                            print(f"❌ 插入失败：请检查父节点和子节点的关系")
+                            print("❌ 插入失败：请检查父节点和子节点的关系")
                     else:
                         print("❌ 格式错误：请使用正确的格式")
                 else:
@@ -793,19 +838,25 @@ def _interactive_tree_modification(domain_tree):
                     else:
                         print(f"❌ 更新失败：未找到节点 '{old_name}'")
                 else:
-                    print("❌ 格式错误：请使用正确的格式，如：更新节点：新名称；原先节点：旧名称")
+                    print(
+                        "❌ 格式错误：请使用正确的格式，如：更新节点：新名称；原先节点：旧名称"
+                    )
             else:
                 print("❌ 未知操作，请使用正确的格式")
             print("\n📝 当前树结构:")
             print(domain_tree.visualize())
             print("\n请输入下一个操作指令:")
             print("支持的操作:")
-            print("1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）")
+            print(
+                "1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）"
+            )
             print("2. 增加节点：xxx；父节点：xxx；子节点：xxx")
             print("3. 删除节点：xxx")
             print("4. 更新节点：新名称；原先节点：旧名称")
             print("5. 结束树操作")
-            print("注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’")
+            print(
+                "注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’"
+            )
         except KeyboardInterrupt:
             print("\n\n⚠️⚠️操作被中断⚠️⚠️，继续QA对生成...")
             break
@@ -834,52 +885,51 @@ def full_qa_labeling_process(
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
     """
-    from datamax.utils.qa_generator import (
-        process_domain_tree,
-        process_questions,
-        process_match_tags,
-        generatr_qa_pairs,
-        load_and_split_markdown,
-        load_and_split_text,
-    )
     import uuid
-    import os
+
+    from datamax.utils.qa_generator import (
+        generatr_qa_pairs,
+        process_domain_tree,
+        process_match_tags,
+        process_questions,
+    )
 
     # 验证必需参数
     if not content:
         logger.error("必须提供content参数")
         return []
-    
+
     if not api_key:
         logger.error("必须提供api_key参数")
         return []
-    
+
     if not base_url:
         logger.error("必须提供base_url参数")
         return []
-    
+
     if not model_name:
         logger.error("必须提供model_name参数")
         return []
 
     # 1. text split - 只处理content，不处理file_path
     logger.info("使用文本内容进行分割")
-    
+
     # 尝试检测内容类型
     content_type = "文本"
-    if content.strip().startswith('#') or '**' in content or '```' in content:
+    if content.strip().startswith("#") or "**" in content or "```" in content:
         content_type = "Markdown"
         logger.info("📄 检测到Markdown格式内容")
-    elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
+    elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
         content_type = "PDF转换内容"
         logger.info("📄 检测到PDF转换内容")
         if use_mineru:
             logger.info("📄 使用MinerU解析的PDF内容")
         else:
             logger.info("📄 使用PyMuPDF解析的PDF内容")
-    
+
     # 直接使用LangChain的文本分割器进行切分，不创建临时文件
     from langchain.text_splitter import RecursiveCharacterTextSplitter
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -887,21 +937,27 @@ def full_qa_labeling_process(
         is_separator_regex=False,
     )
     page_content = splitter.split_text(content)
-    
+
     # 添加内容分块完成的日志
     if content_type == "PDF转换内容":
         if use_mineru:
-            logger.info(f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+            logger.info(
+                f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块"
+            )
         else:
-            logger.info(f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
+            logger.info(
+                f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块"
+            )
     else:
-        logger.info(f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块")
+        logger.info(
+            f"✅ {content_type}内容处理完成，共生成 {len(page_content)} 个文本块"
+        )
 
     # 2. domain tree generation
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-        
+
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
@@ -921,19 +977,19 @@ def full_qa_labeling_process(
                 # tree generation failed, use text generation strategy
                 logger.info("领域树生成失败，采用纯文本生成策略")
                 use_tree_label = False
-        
+
         # 统一的交互式编辑逻辑
         if interactive_tree and domain_tree and domain_tree.tree:
             tree_source = "自定义" if custom_domain_tree is not None else "生成"
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print(f"🌳 {tree_source}的领域树结构:")
-            print("="*60)
+            print("=" * 60)
             print(domain_tree.visualize())
-            print("="*60)
+            print("=" * 60)
             if custom_domain_tree is not None:
                 print("💡 您可以对自定义树进行修改，或输入'结束树操作'直接使用")
             domain_tree = _interactive_tree_modification(domain_tree)
-    #generate questions
+    # generate questions
     question_info = process_questions(
         api_key=api_key,
         model=model_name,
@@ -947,14 +1003,19 @@ def full_qa_labeling_process(
         if "qid" not in question_item:
             question_item["qid"] = str(uuid.uuid4())
     # 4.label tagging
-    if use_tree_label and domain_tree and hasattr(domain_tree, 'to_json') and domain_tree.to_json():
+    if (
+        use_tree_label
+        and domain_tree
+        and hasattr(domain_tree, "to_json")
+        and domain_tree.to_json()
+    ):
         q_match_list = process_match_tags(
             api_key=api_key,
             base_url=base_url,
             model=model_name,
             tags_json=domain_tree.to_json(),
             questions=[q["question"] for q in question_info],
-            max_workers=max_workers
+            max_workers=max_workers,
         )
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
         for question_item in question_info:
@@ -970,7 +1031,7 @@ def full_qa_labeling_process(
         model_name=model_name,
         question_number=question_number,
         max_workers=max_workers,
-        domain_tree=domain_tree if use_tree_label else None
+        domain_tree=domain_tree if use_tree_label else None,
     )
     return qa_list
 
@@ -978,7 +1039,7 @@ def full_qa_labeling_process(
 if __name__ == "__main__":
     # split text into chunks
     page_content = load_and_split_markdown(
-        md_path="知识图谱.md",  
+        md_path="知识图谱.md",
         chunk_size=500,
         chunk_overlap=100,
     )
@@ -997,8 +1058,8 @@ if __name__ == "__main__":
     # question_info is the largest question set, will be adjusted according to the modification of the domain tree
     question_info = process_questions(
         page_content=page_content,
-        question_number=5,  
-        max_workers=10,  
+        question_number=5,
+        max_workers=10,
         api_key=API_KEY,
         base_url=BASE_URL,
         model="qwen-plus",
@@ -1010,7 +1071,7 @@ if __name__ == "__main__":
 
     if not question_info:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
-        
+
     # check if domain_tree is empty
     if not domain_tree or not domain_tree.to_json():
         logger.info("领域树为空, 未进行打标")
@@ -1021,8 +1082,8 @@ if __name__ == "__main__":
             base_url=BASE_URL,
             model="qwen-plus",
             tags_json=domain_tree.to_json(),
-            questions= [question_item["question"] for question_item in question_info],
-            max_workers=3
+            questions=[question_item["question"] for question_item in question_info],
+            max_workers=3,
         )
         logger.info(f"问题匹配标签完成, 结果是: {q_match_list}")
         # merge label to question_info
@@ -1031,7 +1092,16 @@ if __name__ == "__main__":
             question_item["label"] = label_map.get(question_item["question"], "")
         # get filtered question_info
         question_list = [question_item["question"] for question_item in question_info]
-        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in question_list]
+        question_info = [
+            {
+                "question": question_item["question"],
+                "page": question_item["page"],
+                "qid": question_item["qid"],
+                "label": question_item["label"],
+            }
+            for question_item in question_info
+            if question_item["question"] in question_list
+        ]
 
     # final answer
     r = generatr_qa_pairs(
@@ -1039,10 +1109,10 @@ if __name__ == "__main__":
         api_key=API_KEY,
         base_url=BASE_URL,
         model_name="qwen-plus",
-        question_number=5,  
-        max_workers=10,  
-        domain_tree=domain_tree
-        # message=[] 
+        question_number=5,
+        max_workers=10,
+        domain_tree=domain_tree,
+        # message=[]
     )
 
     print(r)

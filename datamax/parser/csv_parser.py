@@ -5,7 +5,6 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class CsvParser(BaseLife):
-
     def __init__(self, file_path, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path

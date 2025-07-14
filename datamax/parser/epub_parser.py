@@ -1,5 +1,3 @@
-import os
-from typing import Union
 
 import ebooklib
 import loguru
@@ -11,7 +9,7 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class EpubParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+    def __init__(self, file_path: str | list, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
 

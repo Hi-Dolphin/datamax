@@ -1,4 +1,3 @@
-from typing import Union
 
 import chardet
 
@@ -7,7 +6,7 @@ from datamax.utils.lifecycle_types import LifeType
 
 
 class TxtParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], domain: str = "Technology"):
+    def __init__(self, file_path: str | list, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
 
@@ -29,7 +28,7 @@ class TxtParser(BaseLife):
         """
         try:
             encoding = TxtParser.detect_encoding(file_path)
-            with open(file_path, "r", encoding=encoding) as file:
+            with open(file_path, encoding=encoding) as file:
                 return file.read()
         except Exception as e:
             raise e
@@ -65,7 +64,7 @@ class TxtParser(BaseLife):
 
             return output_vo.to_dict()
 
-        except Exception as e:
+        except Exception:
             # 5) 处理失败
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,

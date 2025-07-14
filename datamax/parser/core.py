@@ -3,15 +3,16 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Union, Optional, Any
+from typing import Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
-from datamax.utils.lifecycle_types import LifeType
-from datamax.utils import data_cleaner
-from datamax.parser.base import BaseLife
+
 import datamax.utils.qa_generator as qa_gen
+from datamax.parser.base import BaseLife
+from datamax.utils import data_cleaner
+from datamax.utils.lifecycle_types import LifeType
 
 
 class ModelInvoker:
@@ -73,7 +74,7 @@ class ParserFactory:
             return None
 
         if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
-            module_name = f"datamax.parser.image_parser"
+            module_name = "datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
             module_name = f"datamax.parser.{file_extension[1:]}_parser"
@@ -82,7 +83,7 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            if parser_class_name != 'PdfParser' and use_mineru == True:
+            if parser_class_name != "PdfParser" and use_mineru == True:
                 raise ValueError("MinerU is only supported for PDF files")
 
             # Special handling for PdfParser arguments
@@ -92,14 +93,27 @@ class ParserFactory:
                     use_mineru=use_mineru,
                     domain=domain,
                 )
-            elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
+            elif (
+                parser_class_name == "DocxParser"
+                or parser_class_name == "DocParser"
+                or parser_class_name == "WpsParser"
+            ):
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
+                    file_path=file_path,
+                    to_markdown=to_markdown,
+                    use_uno=True,
+                    domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(
+                    file_path=file_path,
+                    domain=domain,
+                )
             else:
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(
+                    file_path=file_path,
+                    domain=domain,
+                )
 
         except (ImportError, AttributeError) as e:
             raise e
@@ -108,7 +122,7 @@ class ParserFactory:
 class DataMax(BaseLife):
     def __init__(
         self,
-        file_path: Union[str, list] = "",
+        file_path: str | list = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
@@ -234,7 +248,7 @@ class DataMax(BaseLife):
         except Exception as e:
             raise e
 
-    def clean_data(self, method_list: List[str], text: str = None):
+    def clean_data(self, method_list: list[str], text: str = None):
         """
         Clean data
 
@@ -261,11 +275,23 @@ class DataMax(BaseLife):
             # 3) 执行清洗步骤
             for method in method_list:
                 if method == "abnormal":
-                    cleaned_text = data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
+                    cleaned_text = (
+                        data_cleaner.AbnormalCleaner(cleaned_text)
+                        .to_clean()
+                        .get("text")
+                    )
                 elif method == "filter":
-                    cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter().get("text", "")
+                    cleaned_text = (
+                        data_cleaner.TextFilter(cleaned_text)
+                        .to_filter()
+                        .get("text", "")
+                    )
                 elif method == "private":
-                    cleaned_text = data_cleaner.PrivacyDesensitization(cleaned_text).to_private().get("text")
+                    cleaned_text = (
+                        data_cleaner.PrivacyDesensitization(cleaned_text)
+                        .to_private()
+                        .get("text")
+                    )
 
             # 4) 清洗成功，触发“清洗完成”
             lc_end = self.generate_lifecycle(
@@ -275,7 +301,7 @@ class DataMax(BaseLife):
                 usage_purpose="Data Cleaning",
             ).to_dict()
 
-        except Exception as e:
+        except Exception:
             # 5) 清洗失败，触发“清洗失败”
             lc_fail = self.generate_lifecycle(
                 source_file=self.file_path,
@@ -304,45 +330,50 @@ class DataMax(BaseLife):
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
-        
+
         rules:
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
         """
-        base_url = base_url.strip().rstrip('/')
+        base_url = base_url.strip().rstrip("/")
 
         def has_version(path_parts):
             """Check if path contains a version number"""
-            return any(part.startswith('v') and part[1:].isdigit() for part in path_parts)
+            return any(
+                part.startswith("v") and part[1:].isdigit() for part in path_parts
+            )
 
-        if not base_url.startswith('https://'):
-            if base_url.startswith('http://'):
-                base_url = base_url.replace('http://', 'https://')
+        if not base_url.startswith("https://"):
+            if base_url.startswith("http://"):
+                base_url = base_url.replace("http://", "https://")
             else:
-                base_url = f'https://{base_url}'
+                base_url = f"https://{base_url}"
 
         # Check if URL is complete with endpoint
-        if any(x in base_url for x in ['/completions']):
+        if any(x in base_url for x in ["/completions"]):
             return base_url
 
         # Split URL into components
-        parts = base_url.split('/')
+        parts = base_url.split("/")
         domain_part = parts[2]
         path_parts = parts[3:] if len(parts) > 3 else []
 
         # Check if path already has a version
         if has_version(path_parts):
             # Join path parts and clean trailing slash
-            path = '/'.join(path_parts).rstrip('/')
+            path = "/".join(path_parts).rstrip("/")
             # Remove any existing /chat or /completions parts
-            path = path.replace('/chat', '')
+            path = path.replace("/chat", "")
             # Re-add single /chat/completions
             return f"https://{domain_part}/{path}/chat/completions"
         else:
             # Add default version and endpoint (original logic)
-            path = '/'.join(path_parts).rstrip('/')
-            return f"https://{domain_part}/{path}/v1/chat/completions" if path \
+            path = "/".join(path_parts).rstrip("/")
+            return (
+                f"https://{domain_part}/{path}/v1/chat/completions"
+                if path
                 else f"https://{domain_part}/v1/chat/completions"
+            )
 
     def get_pre_label(
         self,
@@ -359,7 +390,7 @@ class DataMax(BaseLife):
         use_tree_label: bool = False,
         messages: list = None,
         interactive_tree: bool = False,
-        custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
+        custom_domain_tree: list[dict[str, Any]] | None = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -391,6 +422,7 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
+
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
         if content is not None:
             text = content
@@ -446,13 +478,13 @@ class DataMax(BaseLife):
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 print("\n===== 预览前10条QA对 =====")
                 for i, qa in enumerate(data[:10]):
-                    print(f"\n--- QA对 {i+1} ---")
+                    print(f"\n--- QA对 {i + 1} ---")
                     print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
                     print(f"答案: {qa.get('output', 'N/A')}")
                     print(f"标签: {qa.get('label', 'N/A')}")
                 print("========================\n")
             return data
-        except Exception as e:
+        except Exception:
             # 打点：失败 DATA_LABEL_FAILED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
@@ -559,7 +591,7 @@ class DataMax(BaseLife):
 
     def split_data(
         self,
-        parsed_data: Union[str, dict] = None,
+        parsed_data: str | dict = None,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         use_langchain: bool = False,

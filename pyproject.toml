@@ -1,0 +1,249 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datamax"
+version = "0.2.0"
+description = "A powerful multi-format file parsing, data cleaning and AI annotation toolkit"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ccy", email = "cy.kron@foxmail.com"}
+]
+maintainers = [
+    {name = "ccy", email = "cy.kron@foxmail.com"}
+]
+keywords = ["parsing", "pdf", "docx", "data-cleaning", "ai-annotation", "ocr"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+requires-python = ">=3.10"
+
+dependencies = [
+    # Core parsing dependencies
+    "python-docx>=1.1.2,<2.0.0",
+    "pymupdf>=1.26.0,<2.0.0",
+    "pypdf>=5.5.0,<6.0.0",
+    "openpyxl>=3.1.5,<4.0.0",
+    "python-pptx>=1.0.2,<2.0.0",
+    "xlrd>=2.0.1,<3.0.0",
+    "ebooklib==0.19",
+    "markitdown>=0.1.1,<1.0.0",
+    "unstructured>=0.17.2,<1.0.0",
+    "beautifulsoup4>=4.13.4,<5.0.0",
+    "markdown>=3.8,<4.0.0",
+    "Pillow>=11.2.1,<12.0.0",
+    
+    # Data processing
+    "pandas>=2.2.3,<3.0.0",
+    "numpy>=2.2.6,<3.0.0",
+    "pydantic>=2.11.5,<3.0.0",
+    "pydantic-settings>=2.9.1,<3.0.0",
+    
+    # AI and language processing
+    "openai>=1.82.0,<2.0.0",
+    "langchain>=0.3.0,<1.0.0",
+    "langchain-community>=0.3.0,<1.0.0",
+    "tiktoken>=0.9.0,<1.0.0",
+    "jionlp>=1.5.23,<2.0.0",
+    "langdetect>=1.0.9,<2.0.0",
+    
+    # Cloud storage
+    "oss2>=2.19.1,<3.0.0",
+    "aliyun-python-sdk-core>=2.16.0,<3.0.0",
+    "aliyun-python-sdk-kms>=2.16.5,<3.0.0",
+    "minio>=7.2.15,<8.0.0",
+    "crcmod>=1.7,<2.0.0",
+    
+    # Utilities
+    "loguru>=0.7.3,<1.0.0",
+    "python-dotenv>=1.1.0,<2.0.0",
+    "requests>=2.32.3,<3.0.0",
+    "tqdm>=4.67.1,<5.0.0",
+    "python-magic>=0.4.27,<1.0.0",
+    "PyYAML>=6.0.2,<7.0.0",
+    "packaging>=24.2,<25.0",
+    "chardet>=5.2.0,<6.0.0",
+    "tabulate>=0.9.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "pre-commit>=3.0.0",
+    "mypy>=1.5.0",
+    "bandit>=1.7.5",
+]
+
+mineru = [
+    "magic-pdf[full]>=0.7.0"
+]
+
+ocr = [
+    "paddlepaddle>=2.5.0",
+    "paddleocr>=2.7.0"
+]
+
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "myst-parser>=2.0.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/Hi-Dolphin/datamax"
+Documentation = "https://github.com/Hi-Dolphin/datamax#readme"
+Repository = "https://github.com/Hi-Dolphin/datamax"
+"Bug Tracker" = "https://github.com/Hi-Dolphin/datamax/issues"
+Changelog = "https://github.com/Hi-Dolphin/datamax/releases"
+
+[tool.setuptools]
+packages = ["datamax"]
+
+[tool.setuptools.package-data]
+datamax = ["py.typed"]
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["datamax"]
+force-single-line = false
+lines-after-imports = 2
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  | venv
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["datamax"]
+
+# pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--tb=short",
+    "--cov=datamax",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=80",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["datamax"]
+omit = [
+    "*/tests/*",
+    "*/venv/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "oss2.*",
+    "minio.*",
+    "loguru.*",
+    "langchain.*",
+    "jionlp.*",
+    "magic.*",
+    "ebooklib.*",
+    "markitdown.*",
+    "unstructured.*",
+    "paddleocr.*",
+]
+ignore_missing_imports = true

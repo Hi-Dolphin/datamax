@@ -1,4 +1,3 @@
-from typing import Union
 
 import loguru
 from loguru import logger
@@ -13,11 +12,7 @@ class MarkdownParser(BaseLife):
     Handles .md and .markdown file extensions.
     """
 
-    def __init__(
-        self,
-        file_path: Union[str, list],
-        domain: str = "Technology"
-    ):
+    def __init__(self, file_path: str | list, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
 
@@ -33,7 +28,7 @@ class MarkdownParser(BaseLife):
             str: Content of the markdown file
         """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading markdown file {file_path}: {e}")

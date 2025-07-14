@@ -5,6 +5,7 @@ import pandas as pd
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
+
 warnings.filterwarnings("ignore")
 
 
