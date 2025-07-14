@@ -4,11 +4,8 @@ target/
 *.iml
 *.xml
 /logs
-
-# claude code
 .claude
 .claude/*
-
 serp*.json
 # Byte-compiled / optimized / DLL files
 __pycache__/

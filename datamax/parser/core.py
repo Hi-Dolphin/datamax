@@ -4,10 +4,15 @@ import os
 import time
 from pathlib import Path
 from typing import Any
+from typing import Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
+
+import datamax.utils.qa_generator as qa_gen
+from datamax.parser.base import BaseLife
+from datamax.utils import data_cleaner
 
 import datamax.utils.qa_generator as qa_gen
 from datamax.parser.base import BaseLife
