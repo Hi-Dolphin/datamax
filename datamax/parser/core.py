@@ -38,7 +38,7 @@ class ParserFactory:
     def create_parser(
         file_path: str,
         use_mineru: bool = False,
-        use_ocr: bool = False,
+        use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
         ocr_api_key: str = None,
@@ -51,10 +51,10 @@ class ParserFactory:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
-        :param use_ocr: Flag to indicate whether OCR should be used. (only supported files in .pdf format)
-        :param ocr_api_key: API key for OCR service (required when use_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_ocr=True).
+        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used. (only supported files in .pdf format)
+        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -87,18 +87,21 @@ class ParserFactory:
             module_name = f"datamax.parser.{file_extension[1:]}_parser"
 
         try:
+            # 校验：use_mineru和use_qwen_vl_ocr不能同时为True
+            if use_mineru and use_qwen_vl_ocr:
+                raise ValueError("You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!")
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            if parser_class_name != 'PdfParser' and (use_mineru == True or use_ocr == True):
-                raise ValueError("MinerU and OCR are only supported for PDF files")
+            if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
+                raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
-                    use_ocr=use_ocr,
+                    use_qwen_vl_ocr=use_qwen_vl_ocr,
                     domain=domain,
                     ocr_api_key=ocr_api_key,
                     ocr_base_url=ocr_base_url,
@@ -122,7 +125,7 @@ class DataMax(BaseLife):
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
-        use_ocr: bool = False,
+        use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
@@ -135,17 +138,17 @@ class DataMax(BaseLife):
 
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
-        :param use_ocr: Flag to indicate whether OCR should be used for PDF parsing.
+        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param ocr_api_key: API key for OCR service (required when use_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_ocr=True).
+        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
-        self.use_ocr = use_ocr
+        self.use_qwen_vl_ocr = use_qwen_vl_ocr
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
@@ -647,7 +650,7 @@ class DataMax(BaseLife):
         try:
             parser = ParserFactory.create_parser(
                 use_mineru=self.use_mineru,
-                use_ocr=self.use_ocr,
+                use_qwen_vl_ocr=self.use_qwen_vl_ocr,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,

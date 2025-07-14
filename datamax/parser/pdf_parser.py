@@ -16,7 +16,7 @@ class PdfParser(BaseLife):
         self,
         file_path: Union[str, list],
         use_mineru: bool = False,
-        use_ocr: bool = False,
+        use_qwen_vl_ocr: bool = False,
         domain: str = "Technology",
         ocr_api_key: str = None,
         ocr_base_url: str = None,
@@ -26,15 +26,15 @@ class PdfParser(BaseLife):
 
         self.file_path = file_path
         self.use_mineru = use_mineru
-        self.use_ocr = use_ocr
+        self.use_qwen_vl_ocr = use_qwen_vl_ocr
         self.ocr_api_key = ocr_api_key
         self.ocr_base_url = ocr_base_url
         self.ocr_model_name = ocr_model_name
         
         # 验证OCR参数
-        if self.use_ocr:
+        if self.use_qwen_vl_ocr:
             if not all([self.ocr_api_key, self.ocr_base_url, self.ocr_model_name]):
-                raise ValueError("OCR requires api_key, base_url, and model_name to be provided")
+                raise ValueError("Qwen-VL OCR requires api_key, base_url, and model_name to be provided")
 
     def mineru_process(self, input_pdf_filename, output_dir):
         proc = None
@@ -101,8 +101,8 @@ class PdfParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            if self.use_ocr:
-                # 使用OCR处理PDF
+            if self.use_qwen_vl_ocr:
+                # 使用Qwen-VL OCR处理PDF
                 from datamax.parser.pdf_parser_ocr_demo import PdfOcrProcessor
                 ocr_processor = PdfOcrProcessor(
                     api_key=self.ocr_api_key,
@@ -117,6 +117,13 @@ class PdfParser(BaseLife):
                     mk_content = result.content
                 else:
                     mk_content = str(result)
+                # 保存为markdown文件
+                output_dir = "uploaded_files"
+                output_folder_name = os.path.basename(file_path).replace(".pdf", "")
+                output_markdown = f"{output_dir}/markdown/{output_folder_name}.md"
+                os.makedirs(os.path.dirname(output_markdown), exist_ok=True)
+                with open(output_markdown, "w", encoding="utf-8") as f:
+                    f.write(mk_content)
             elif self.use_mineru:
                 output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")

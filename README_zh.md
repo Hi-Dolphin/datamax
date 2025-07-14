@@ -79,13 +79,13 @@ qa_data = dm.get_pre_label(
 # PDF高级解析（需要MinerU）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
-# PDF OCR解析（需要API凭证）
+# PDF OCR解析（需要API凭证）（当前仅支持qwen-vl-ocr模型）
 dm = DataMax(
     file_path="scanned.pdf", 
-    use_ocr=True,
+    use_qwen_vl_ocr=True,
     ocr_api_key="your-api-key",
-    ocr_base_url="https://api.openai.com/v1",
-    ocr_model_name="gpt-4o-mini"
+    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ocr_model_name="qwen-vl-ocr"
 )
 
 # Word转Markdown
