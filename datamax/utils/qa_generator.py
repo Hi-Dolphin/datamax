@@ -5,6 +5,8 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Optional, List, Any
+import uuid
 from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
@@ -139,6 +141,7 @@ def get_system_prompt_for_domain_tree(text):
         5. 为适当的一级标签添加二级标签
         6. 检查分类逻辑的合理性
         7. 生成符合格式的JSON输出
+
 
 
         ## 需要分析的目录
@@ -298,7 +301,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
 def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False, use_qwen_vl_ocr: bool = False) -> list:
     """
     Parse other formats to markdown and split
-
+    
     Args:
         file_path: Path to the markdown file
         chunk_size: Size of each chunk
@@ -322,6 +325,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru, use_qwen_vl_ocr=use_qwen_vl_ocr)
         parsed_data = dm.get_data()
 
+
         if not parsed_data:
             logger.error(f"File parsing failed: {file_name}")
             return []
@@ -331,7 +335,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
             # If multiple files, take the first one
             content = parsed_data[0].get("content", "")
         else:
-            content = parsed_data.get("content", "")
+            content = parsed_data.get('content', '')
 
         if not content:
             logger.error(f"File content is empty: {file_name}")
@@ -348,6 +352,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         # Directly split text content
         page_content = splitter.split_text(content)
 
+
         # 根据文件类型提供不同的日志信息
         if file_ext == '.pdf':
             if use_qwen_vl_ocr:
@@ -360,7 +365,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
             logger.info(f"📄 {file_ext.upper()} file '{file_name}' split into {len(page_content)} chunks")
             
         return page_content
-
+        
     except Exception as e:
         logger.error(f"Failed to process file {Path(file_path).name}: {str(e)}")
         return []
@@ -417,11 +422,27 @@ def llm_generator(
     """Generate content using LLM API"""
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
+        client = OpenAI(api_key=api_key, base_url=base_url)
         if not message:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=message,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
+        output = response.choices[0].message.content
+
+        if type == "question":
+            fmt_output = extract_json_from_llm_output(output)
+            return fmt_output if fmt_output is not None else []
+        else:
+            return [output] if output else []
 
         response = client.chat.completions.create(
             model=model,
@@ -525,7 +546,7 @@ def process_domain_tree(
         except Exception as e:
             logger.error(f"Domain tree generation error (attempt {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+                logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
             
             if attempt == max_retries - 1:
                 error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
@@ -557,7 +578,7 @@ def process_questions(
     total_questions = []
     if message is None:
         message = []
-
+    
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
@@ -580,8 +601,8 @@ def process_questions(
             except Exception as e:
                 logger.error(f"Question generation error (attempt {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
-            
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+
             if attempt < max_retries - 1:
                 logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
                 import time
@@ -637,14 +658,14 @@ def process_answers(
             except Exception as e:
                 logger.error(f"Answer generation error (attempt {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
-            
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+
             if attempt < max_retries - 1:
                 logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
                 import time
 
                 time.sleep(2)  # retry after 2 seconds
-
+        
         # all retries failed
         question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
         logger.error(f"Network status is poor! Discarded QA pair for question: ({question_text})")
@@ -821,7 +842,7 @@ def full_qa_labeling_process(
     messages: list = None,
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
-    use_mineru: bool = False,  # Add use_mineru parameter
+    use_mineru: bool = False,  # 添加use_mineru参数
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction, 
@@ -840,15 +861,15 @@ def full_qa_labeling_process(
     if not content:
         logger.error("content parameter is required. Check content is null or not. Check file_path is null or not.")
         return []
-
+    
     if not api_key:
         logger.error("api_key parameter is required")
         return []
-
+    
     if not base_url:
         logger.error("base_url parameter is required")
         return []
-
+    
     if not model_name:
         logger.error("model_name parameter is required")
         return []
@@ -893,7 +914,7 @@ def full_qa_labeling_process(
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-
+        
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
@@ -965,3 +986,76 @@ def full_qa_labeling_process(
         domain_tree=domain_tree if use_tree_label else None,
     )
     return qa_list
+
+
+if __name__ == "__main__":
+    # split text into chunks
+    page_content = load_and_split_markdown(
+        md_path="知识图谱.md",
+        chunk_size=500,
+        chunk_overlap=100,
+    )
+
+    # generate domain tree
+    domain_tree = process_domain_tree(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model="qwen-plus",
+        text=page_content,
+        temperature=0.7,
+        top_p=0.9,
+    )
+
+    # generate question_info containing chuck and questions
+    # question_info is the largest question set, will be adjusted according to the modification of the domain tree
+    question_info = process_questions(
+        page_content=page_content,
+        question_number=5,
+        max_workers=10,
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model="qwen-plus",
+    )
+
+    # add unique id to each question
+    for question_item in question_info:
+        question_item["qid"] = str(uuid.uuid4())
+
+    if not question_info:
+        logger.error("未能生成任何问题，请检查输入文档和API设置")
+
+    # check if domain_tree is empty
+    if not domain_tree or not domain_tree.to_json():
+        logger.info("领域树为空, 未进行打标")
+    else:
+        # use DomainTree instance to match label
+        q_match_list = process_match_tags(
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            model="qwen-plus",
+            tags_json=domain_tree.to_json(),
+            questions= [question_item["question"] for question_item in question_info],
+            max_workers=3
+        )
+        logger.info(f"问题匹配标签完成, 结果是: {q_match_list}")
+        # merge label to question_info
+        label_map = {item["question"]: item.get("label", "") for item in q_match_list}
+        for question_item in question_info:
+            question_item["label"] = label_map.get(question_item["question"], "")
+        # get filtered question_info
+        question_list = [question_item["question"] for question_item in question_info]
+        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in question_list]
+
+    # final answer
+    r = generatr_qa_pairs(
+        question_info=question_info,
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model_name="qwen-plus",
+        question_number=5,
+        max_workers=10,
+        domain_tree=domain_tree
+        # message=[]
+    )
+
+    print(r)

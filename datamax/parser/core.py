@@ -119,20 +119,15 @@ class ParserFactory:
             if parser_class_name == "PdfParser":
                 return parser_class(
                     use_mineru=use_mineru,
-                    use_qwen_vl_ocr=use_qwen_vl_ocr,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    **common_kwargs
+                    domain=domain,
                 )
             elif parser_class_name == "ImageParser":
                 return parser_class(
-                    file_path=file_path,
-                    use_mllm = use_mllm,
-                    api_key = api_key,
-                    base_url = base_url,
-                    model_name = model_name,
-                    system_prompt = system_prompt,
+                    use_mllm = False,
+                    api_key = None,
+                    base_url = None,
+                    model_name = None,
+                    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
                     use_gpu=False
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
@@ -480,28 +475,29 @@ class DataMax(BaseLife):
         # If content is passed externally, use it directly; otherwise go through parse/clean process
         data = []
 
-        if use_mllm:
-            if isinstance(self.file_path, list):
-                file_names = [f for f in self.file_path]
-            elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                file_names = [self.file_path]
-            elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                file_names = [f for f in list(Path(self.file_path).rglob("*.*"))]
-            md_names = [os.path.splitext(f)[0].lower() + '.md' for f in file_names]
-            saved_md_dir = os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown')
-            if os.path.isdir(saved_md_dir):
-                processed_md_names = [os.path.basename(f) for f in list(Path(saved_md_dir).rglob("*.md"))]
-                file_names = [file for file in file_names if os.path.basename(file) not in md_names]
-            
+        if isinstance(self.file_path, list):
+            file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
+        elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+            file_names = [os.path.basename(self.file_path).replace('.pdf', '.md')]
+        elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+            file_names = [
+                os.path.basename(file).replace('.pdf', '.md') for file in list(Path(self.file_path).rglob("*.*"))
+            ]
 
+        if use_mllm:
+            saved_md_dir = os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown')
+            # 获取文件夹下的所有文件名
+            if os.path.isdir(saved_md_dir):
+                processed_file_names = [os.path.basename(f) for f in saved_md_dir if f.endswith('.md')]
+            # 移除已处理文件
+            file_names = [file for file in file_names if file not in processed_file_names]
+        
         if content is not None:
             text = content
         else:
-            if use_mllm:
-                self.file_path, file_names = file_names, self.file_path
+            self.file_path, file_names = file_names, self.file_path
             processed = self.get_data()
-            if use_mllm:
-                self.file_path, file_names = file_names, self.file_path
+            self.file_path, file_names = file_names, self.file_path
             # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
             if isinstance(processed, list):
                 parts = [d["content"] if isinstance(d, dict) else d for d in processed]
@@ -526,6 +522,8 @@ class DataMax(BaseLife):
             # base_url = qa_gen.complete_api_url(base_url)
             if use_mllm:
                 logger.info("使用多模态QA生成器...")
+
+                file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
                 from datamax.utils import multimodal_qa_generator as generator_module
                 for file_name in [os.path.abspath(f) for f in Path(saved_md_dir).rglob("*.md")]:
                     new_data = generator_module.generatr_qa_pairs(
