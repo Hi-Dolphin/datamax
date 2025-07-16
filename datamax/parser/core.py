@@ -80,21 +80,22 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
+        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
             module_name = f"datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
             module_name = f"datamax.parser.{file_extension[1:]}_parser"
 
         try:
-            # 校验：use_mineru和use_qwen_vl_ocr不能同时为True
+            # use_mineru & use_qwen_vl_ocr can't be used at the same time
             if use_mineru and use_qwen_vl_ocr:
                 raise ValueError("You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!")
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
+            # use mineru and qwen_vl_ocr only for pdf files currently
             if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
-                raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files")
+                raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files currently")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
