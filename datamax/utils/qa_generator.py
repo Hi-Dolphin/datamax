@@ -293,7 +293,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
         return []
 
 
-def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False, use_ocr: bool = False) -> list:
+def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False, use_qwen_vl_ocr: bool = False) -> list:
     """
     Parse other formats to markdown and split
     
@@ -302,7 +302,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         chunk_size: Size of each chunk
         chunk_overlap: Overlap between chunks
         use_mineru: Whether to use MinerU for PDF parsing
-        use_ocr: Whether to use OCR for PDF parsing
+        use_qwen_vl_ocr: Whether to use Qwen-VL OCR for PDF parsing
         
     Returns:
         List of document chunks
@@ -316,8 +316,8 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         
         logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
         
-        # 使用DataMax解析文件，传递use_mineru和use_ocr参数
-        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru, use_ocr=use_ocr)
+        # 使用DataMax解析文件，传递use_mineru和use_qwen_vl_ocr参数
+        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru, use_qwen_vl_ocr=use_qwen_vl_ocr)
         parsed_data = dm.get_data()
         
         if not parsed_data:
@@ -348,8 +348,8 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         
         # 根据文件类型提供不同的日志信息
         if file_ext == '.pdf':
-            if use_ocr:
-                logger.info(f"📄 PDF文件 '{file_name}' 使用OCR解析，被分解为 {len(page_content)} 个chunk")
+            if use_qwen_vl_ocr:
+                logger.info(f"📄 PDF文件 '{file_name}' 使用Qwen-VL OCR解析，被分解为 {len(page_content)} 个chunk")
             elif use_mineru:
                 logger.info(f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk")
             else:
