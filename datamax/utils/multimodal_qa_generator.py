@@ -1,5 +1,5 @@
-# datamax/utils/multimodal_qa_generator.py
-
+import base64
+import mimetypes
 import json
 import os
 import re
@@ -140,6 +140,30 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
         return []
 
 
+def _encode_image_to_base64(file_path: str) -> str:
+    """
+    将图片文件编码为 Base64 Data URI。
+
+    Args:
+        file_path: 图片文件的路径。
+
+    Returns:
+        一个 Base64 编码的 Data URI 字符串。
+    """
+    # 从文件扩展名推断 MIME 类型
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type is None:
+        # 如果无法确定，则默认为 jpeg
+        mime_type = "image/jpeg"
+
+    # 以二进制模式读取图片文件
+    with open(file_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+
+    # 格式化为 Data URI
+    return f"data:{mime_type};base64,{encoded_string}"
+
+
 def generate_multimodal_qa(
     api_key: str,
     model: str,
@@ -150,19 +174,26 @@ def generate_multimodal_qa(
     temperature: float = 0.7,
 ) -> List[Dict[str, str]]:
     """
-    Generate content and parse JSON output using an OpenAI-compatible multimodal dialogue API
+    使用兼容 OpenAI 的多模态对话 API 生成内容并解析 JSON 输出
     """
-    # 新增：验证模型名称
-    if model not in SUPPORTED_MULTIMODAL_MODELS:
-        logger.error(f"模型 '{model}' 不是一个受支持的多模态模型。受支持的模型列表: {SUPPORTED_MULTIMODAL_MODELS}")
-        return []
+    # 验证模型名称
+    # if model not in SUPPORTED_MULTIMODAL_MODELS:
+    #     logger.error(f"模型 '{model}' 不是一个受支持的多模态模型。受支持的模型列表: {SUPPORTED_MULTIMODAL_MODELS}")
+    #     return []
 
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
         
         user_content = []
+        
         for path in image_paths:
-            user_content.append({'type': 'image_url', 'image_url': {'url': f'file://{os.path.abspath(path)}'}})
+            if not os.path.exists(path):
+                print(f"图片路径不存在: {path}")
+                continue
+            
+            base64_image = _encode_image_to_base64(path)
+            user_content.append({'type': 'image_url', 'image_url': {'url': base64_image}})
+
 
         
         user_content.append({'type': 'text', 'text': f"这是你需要处理的上下文文本：\n\n---\n{context_text}\n---"})
@@ -201,6 +232,7 @@ def generate_multimodal_qa(
         import traceback
         traceback.print_exc()
         return []
+
 
 def generatr_qa_pairs(
     file_path: str,

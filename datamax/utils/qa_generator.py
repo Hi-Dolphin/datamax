@@ -29,6 +29,8 @@ def complete_api_url(base_url: str) -> str:
     E.g. if user passes "https://api.provider.com/v1" it will become
     "https://api.provider.com/v1/chat/completions".
     """
+    if base_url is None:
+        return None
     url = base_url.rstrip("/")
     # 如果还没以 /chat/completions 结尾，就自动拼上
     if not url.endswith("/chat/completions"):
@@ -315,7 +317,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
 
         # 使用DataMax解析文件，传递use_mllm参数
-        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mllm)
+        dm = DataMax(file_path=file_path, to_markdown=True, use_mllm=use_mllm)
         parsed_data = dm.get_data()
 
         if not parsed_data:
