@@ -76,14 +76,14 @@ qa_data = dm.get_pre_label(
 #### 高级功能
 
 ```python
-# PDF高级解析（需要MinerU）
+# PDF高级解析（可选MinerU或调用多模态大模型）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
 # Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# 图片OCR
-dm = DataMax(file_path="image.jpg", use_mineru=True)
+# 图片OCR（需要MinerU，可选多模态大模型）
+dm = DataMax(file_path="image.jpg", use_mllm=False)
 ```
 
 ### 批处理解析
@@ -231,6 +231,14 @@ qa_data = dm.get_pre_label(
 ```
 
 ### 接入多模态模型进行AI标注
+
+可用模型名称：
+- qwen-vl-plus
+- qwen-vl-max
+- qwen-vl-max-latest
+- gpt-4-vision-preview
+- gpt-4o
+- gemini-pro-vision
 
 ```python
 import os

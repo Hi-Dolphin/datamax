@@ -6,13 +6,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional, List, Any
 import uuid
-
-import requests
+from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
 from pyexpat.errors import messages
-from tqdm import tqdm  
+from tqdm import tqdm
 from dotenv import load_dotenv
 from datamax.utils.domain_tree import DomainTree   #for cache domain tree
 
@@ -137,7 +136,7 @@ def get_system_prompt_for_domain_tree(text):
         5. 为适当的一级标签添加二级标签
         6. 检查分类逻辑的合理性
         7. 生成符合格式的JSON输出
-        
+
 
         ## 需要分析的目录
         ${text}
@@ -293,47 +292,47 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
         return []
 
 
-def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False) -> list:
+def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mllm: bool = False) -> list:
     """
     Parse other formats to markdown and split
-    
+
     Args:
         file_path: Path to the markdown file
         chunk_size: Size of each chunk
         chunk_overlap: Overlap between chunks
-        use_mineru: Whether to use MinerU for PDF parsing
-        
+        use_mllm: Whether to use the professional parser (MinerU for PDF).
+
     Returns:
         List of document chunks
     """
     try:
         from datamax.parser.core import DataMax
-        
+
         # 获取文件扩展名用于日志输出
         file_ext = os.path.splitext(file_path)[1].lower()
         file_name = os.path.basename(file_path)
-        
+
         logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
-        
-        # 使用DataMax解析文件，传递use_mineru参数
-        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru)
+
+        # 使用DataMax解析文件，传递use_mllm参数
+        dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mllm)
         parsed_data = dm.get_data()
-        
+
         if not parsed_data:
             logger.error(f"文件解析失败: {file_name}")
             return []
-            
+
         # 获取解析后的内容
         if isinstance(parsed_data, list):
             # 如果是多个文件，取第一个
             content = parsed_data[0].get('content', '')
         else:
             content = parsed_data.get('content', '')
-            
+
         if not content:
             logger.error(f"文件内容为空: {file_name}")
             return []
-            
+
         # 使用LangChain的文本分割器进行切分
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -341,21 +340,21 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
             length_function=len,
             is_separator_regex=False,
         )
-        
+
         # 直接分割文本内容
         page_content = splitter.split_text(content)
-        
+
         # 根据文件类型提供不同的日志信息
         if file_ext == '.pdf':
-            if use_mineru:
+            if use_mllm:
                 logger.info(f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk")
             else:
                 logger.info(f"📄 PDF文件 '{file_name}' 使用PyMuPDF解析，被分解为 {len(page_content)} 个chunk")
         else:
             logger.info(f"📄 {file_ext.upper()}文件 '{file_name}' 被分解为 {len(page_content)} 个chunk")
-            
+
         return page_content
-        
+
     except Exception as e:
         logger.error(f"处理文件 {Path(file_path).name} 失败: {str(e)}")
         return []
@@ -411,35 +410,27 @@ def llm_generator(
 ) -> list:
     """Generate content using LLM API"""
     try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
         if not message:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "model": model,
-            "messages": message,
-            "temperature": temperature,
-            "top_p": top_p,
-        }
 
-        response = requests.post(base_url, headers=headers, json=data, timeout=120)
-        response.raise_for_status()
-        result = response.json()
+        response = client.chat.completions.create(
+            model=model,
+            messages=message,
+            temperature=temperature,
+            top_p=top_p,
+        )
 
-        # Parse LLM response
-        if "choices" in result and len(result["choices"]) > 0:
-            output = result["choices"][0]["message"]["content"]
-            if type == "question":
-                fmt_output = extract_json_from_llm_output(output)
-                return fmt_output if fmt_output is not None else []
-            else:
-                return [output] if output else []
-        return []
+        output = response.choices[0].message.content
+
+        if type == "question":
+            fmt_output = extract_json_from_llm_output(output)
+            return fmt_output if fmt_output is not None else []
+        else:
+            return [output] if output else []
 
     except Exception as e:
         logger.error(f"LLM提取关键词失败: {e}")
@@ -496,49 +487,40 @@ def process_domain_tree(
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
     logger.info(f"领域树生成开始...")
-    
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
     for attempt in range(max_retries):
         try:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            data = {
-                "model": model,
-                "messages": message,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-            response = requests.post(base_url, headers=headers, json=data)
-            response.raise_for_status()
-            result = response.json()
-            
-            # Parse LLM response
-            if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"]["content"]
-                if output:
-                    json_output = extract_json_from_llm_output(output)
-                    if json_output is not None:
-                        domain_tree = DomainTree()
-                        domain_tree.from_json(json_output)
-                        logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
-                        return domain_tree
-                    else:
-                        logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无法解析JSON输出")
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=message,
+                temperature=temperature,
+                top_p=top_p,
+            )
+
+            output = response.choices[0].message.content
+            if output:
+                json_output = extract_json_from_llm_output(output)
+                if json_output is not None:
+                    domain_tree = DomainTree()
+                    domain_tree.from_json(json_output)
+                    logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
+                    return domain_tree
                 else:
-                    logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 空输出")
+                    logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无法解析JSON输出")
             else:
-                logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无效响应格式")
-                
+                logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 空输出")
+
         except Exception as e:
             logger.error(f"领域树生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                 logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt == max_retries - 1:
                 error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
                 print(f"❌ {error_msg}")
@@ -548,7 +530,7 @@ def process_domain_tree(
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
                 time.sleep(2)  # 等待2秒后重试
-    
+
     error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
     print(f"❌ {error_msg}")
     logger.error(f"领域树生成失败，已重试 {max_retries} 次: {error_msg}")
@@ -569,7 +551,7 @@ def process_questions(
     total_questions = []
     if message is None:
         message = []
-    
+
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
@@ -591,12 +573,12 @@ def process_questions(
                 logger.error(f"问题生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                     logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt < max_retries - 1:
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
                 time.sleep(2)  # 等待2秒后重试
-        
+
         logger.error(f"问题生成失败，已重试 {max_retries} 次")
         return []
 
@@ -647,12 +629,12 @@ def process_answers(
                 logger.error(f"答案生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                     logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-            
+
             if attempt < max_retries - 1:
                 logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
                 import time
                 time.sleep(2)  # retry after 2 seconds
-        
+
         # all retries failed
         question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
         logger.error(f"网络状态不佳！舍弃了（{question_text}）问题的对应问答对")
@@ -690,7 +672,7 @@ def generatr_qa_pairs(
     question_number: int = 5,
     message: list = None,
     max_workers: int = 5,
-    domain_tree: DomainTree = None,  
+    domain_tree: DomainTree = None,
 ) -> list:
     if message is None:
         message = []
@@ -829,7 +811,7 @@ def full_qa_labeling_process(
     messages: list = None,
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
-    use_mineru: bool = False,  # 添加use_mineru参数
+    use_mllm: bool = False,
 ):
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
@@ -849,22 +831,22 @@ def full_qa_labeling_process(
     if not content:
         logger.error("必须提供content参数")
         return []
-    
+
     if not api_key:
         logger.error("必须提供api_key参数")
         return []
-    
+
     if not base_url:
         logger.error("必须提供base_url参数")
         return []
-    
+
     if not model_name:
         logger.error("必须提供model_name参数")
         return []
 
     # 1. text split - 只处理content，不处理file_path
     logger.info("使用文本内容进行分割")
-    
+
     # 尝试检测内容类型
     content_type = "文本"
     if content.strip().startswith('#') or '**' in content or '```' in content:
@@ -873,11 +855,11 @@ def full_qa_labeling_process(
     elif any(keyword in content.lower() for keyword in ['pdf', 'page', 'document']):
         content_type = "PDF转换内容"
         logger.info("📄 检测到PDF转换内容")
-        if use_mineru:
+        if use_mllm:
             logger.info("📄 使用MinerU解析的PDF内容")
         else:
             logger.info("📄 使用PyMuPDF解析的PDF内容")
-    
+
     # 直接使用LangChain的文本分割器进行切分，不创建临时文件
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     splitter = RecursiveCharacterTextSplitter(
@@ -887,10 +869,10 @@ def full_qa_labeling_process(
         is_separator_regex=False,
     )
     page_content = splitter.split_text(content)
-    
+
     # 添加内容分块完成的日志
     if content_type == "PDF转换内容":
-        if use_mineru:
+        if use_mllm:
             logger.info(f"✅ MinerU解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
         else:
             logger.info(f"✅ PyMuPDF解析的PDF内容处理完成，共生成 {len(page_content)} 个文本块")
@@ -901,7 +883,7 @@ def full_qa_labeling_process(
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-        
+
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
@@ -921,7 +903,7 @@ def full_qa_labeling_process(
                 # tree generation failed, use text generation strategy
                 logger.info("领域树生成失败，采用纯文本生成策略")
                 use_tree_label = False
-        
+
         # 统一的交互式编辑逻辑
         if interactive_tree and domain_tree and domain_tree.tree:
             tree_source = "自定义" if custom_domain_tree is not None else "生成"
@@ -978,7 +960,7 @@ def full_qa_labeling_process(
 if __name__ == "__main__":
     # split text into chunks
     page_content = load_and_split_markdown(
-        md_path="知识图谱.md",  
+        md_path="知识图谱.md",
         chunk_size=500,
         chunk_overlap=100,
     )
@@ -997,8 +979,8 @@ if __name__ == "__main__":
     # question_info is the largest question set, will be adjusted according to the modification of the domain tree
     question_info = process_questions(
         page_content=page_content,
-        question_number=5,  
-        max_workers=10,  
+        question_number=5,
+        max_workers=10,
         api_key=API_KEY,
         base_url=BASE_URL,
         model="qwen-plus",
@@ -1010,7 +992,7 @@ if __name__ == "__main__":
 
     if not question_info:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
-        
+
     # check if domain_tree is empty
     if not domain_tree or not domain_tree.to_json():
         logger.info("领域树为空, 未进行打标")
@@ -1039,10 +1021,10 @@ if __name__ == "__main__":
         api_key=API_KEY,
         base_url=BASE_URL,
         model_name="qwen-plus",
-        question_number=5,  
-        max_workers=10,  
+        question_number=5,
+        max_workers=10,
         domain_tree=domain_tree
-        # message=[] 
+        # message=[]
     )
 
     print(r)

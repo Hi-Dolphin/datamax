@@ -81,14 +81,14 @@ Predefined domain options include：["Technology","Finance","Health","Education"
 #### Advanced Features
 
 ```python
-# Advanced PDF parsing (requires MinerU)
+# Advanced PDF parsing (MinerU or MLLM is available)
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
 # Word to Markdown conversion
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# Image OCR
-dm = DataMax(file_path="image.jpg", use_ocr=True)
+# Image OCR(requires MinerU, MLLM is available)
+dm = DataMax(file_path="image.jpg", use_mllm=False)
 ```
 ### Batch Processing
 ```python
@@ -236,6 +236,15 @@ qa_data = dm.get_pre_label(
 ```
 
 ### AI Annotation for multimodal files
+
+Available model names:
+- qwen-vl-plus
+- qwen-vl-max
+- qwen-vl-max-latest
+- gpt-4-vision-preview
+- gpt-4o
+- gemini-pro-vision
+
 
 ```python
 import os
