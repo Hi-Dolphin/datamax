@@ -29,6 +29,8 @@ def complete_api_url(base_url: str) -> str:
     E.g. if user passes "https://api.provider.com/v1" it will become
     "https://api.provider.com/v1/chat/completions".
     """
+    if base_url is None:
+        return None
     url = base_url.rstrip("/")
     # If it doesn't end with /chat/completions, append it automatically
     if not url.endswith("/chat/completions"):
