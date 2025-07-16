@@ -361,6 +361,7 @@ class DataMax(BaseLife):
         messages: list = None,
         interactive_tree: bool = False,
         custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
+        use_distill: bool = False,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -461,6 +462,7 @@ class DataMax(BaseLife):
                     interactive_tree=interactive_tree,
                     custom_domain_tree=custom_domain_tree,
                     use_mineru=self.use_mineru,  # 传递use_mineru参数
+                    use_distill=use_distill,  # 传递use_distill参数
             )
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 # 打点：成功 DATA_LABELLED

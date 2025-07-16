@@ -254,6 +254,47 @@ def get_system_prompt_for_answer(text, query_question):
     return system_prompt
 
 
+def get_system_prompt_for_distill(original_question: str, tag_path: str, label: str) -> str:
+    """Generate system prompt for question distillation task"""
+    system_prompt = f"""
+        # 角色使命
+        你是一位专业的知识蒸馏专家，擅长基于已有的问题、标签和标签路径，生成更精确、更专业的问题。
+
+        ## 核心任务
+        基于给定的原始问题、标签路径和标签，生成一个更精细、更专业的问题。
+
+        ## 输入信息
+        - 原始问题: {original_question}
+        - 标签路径: {tag_path}
+        - 标签: {label}
+
+        ## 约束条件
+        - 新问题必须基于原始问题，但更加精确和专业
+        - 新问题必须与标签路径和标签高度相关
+        - 新问题应该更加具体，避免模糊性
+        - 保持问题的核心意图，但提升表达的专业性
+        - 确保新问题仍然可以在原文中找到答案
+
+        ## 处理流程
+        1. 【分析原始问题】理解原始问题的核心意图
+        2. 【分析标签信息】理解标签路径和标签的专业领域
+        3. 【问题优化】基于标签信息优化问题表达
+        4. 【质量检查】确保新问题更加精确和专业
+
+        ## 输出格式
+        - 只输出优化后的新问题，不要输出任何其他内容
+        - 新问题应该是一个完整的问句
+        - 不要添加引号或其他格式标记
+
+        ## 输出示例
+        原始问题: "什么是机器学习？"
+        标签路径: "1.1 机器学习基础"
+        标签: "1.1 机器学习基础"
+        新问题: "机器学习的基本定义、核心原理和主要应用领域是什么？"
+    """
+    return system_prompt
+
+
 # ------------spliter----------------
 def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -> list:
     """
@@ -717,7 +758,8 @@ def generatr_qa_pairs(
             answer = qa_pairs[question]
             tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
             qid = question_item.get("qid", "")
-            method = "text with tree label" if domain_tree else "text"
+            # 使用问题项中的method字段，如果没有则使用默认值
+            method = question_item.get("method", "text with tree label" if domain_tree else "text")
             qa_entry = {
                 "qid": qid,
                 "instruction": question,
@@ -729,6 +771,86 @@ def generatr_qa_pairs(
             }
             res_list.append(qa_entry)
     return res_list
+
+
+def process_distill_questions(
+    api_key: str,
+    model: str,
+    base_url: str,
+    question_items: list,
+    domain_tree: DomainTree = None,
+    max_workers: int = 5,
+    max_retries: int = 3,
+) -> list:
+    """Generate distilled questions using multi-threading with retry mechanism"""
+    distilled_questions = []
+    
+    def _generate_distilled_question_with_retry(item):
+        """Inner function for distilled question generation with retry"""
+        original_question = item["question"]
+        label = item.get("label", "")
+        
+        # 检查标签是否为"其他"或标签路径为空
+        if label == "其他" or not label:
+            logger.warning(f"跳过标签为'其他'或为空的问题: {original_question[:50]}...")
+            return None
+        
+        # 获取标签路径
+        tag_path = ""
+        if domain_tree:
+            tag_path = find_tagpath_by_label(domain_tree, label)
+        
+        if not tag_path:
+            logger.warning(f"跳过标签路径为空的问题: {original_question[:50]}...")
+            return None
+        
+        for attempt in range(max_retries):
+            try:
+                prompt = get_system_prompt_for_distill(original_question, tag_path, label)
+                distilled_question = llm_generator(
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    prompt=prompt,
+                    type="answer",  # 使用answer类型，因为蒸馏只返回一个字符串
+                )
+                if distilled_question and len(distilled_question) > 0:
+                    # 创建新的问题项，继承原有的标签和路径信息
+                    new_item = item.copy()
+                    new_item["question"] = distilled_question[0]  # llm_generator返回列表，取第一个
+                    new_item["method"] = "text tree and distill"
+                    return new_item
+                else:
+                    logger.warning(f"蒸馏问题生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+            except Exception as e:
+                logger.error(f"蒸馏问题生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)  # 等待2秒后重试
+        
+        logger.error(f"蒸馏问题生成失败，已重试 {max_retries} 次")
+        return None
+
+    logger.info(f"开始蒸馏问题生成 (线程数: {max_workers}, 重试次数: {max_retries})...")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_generate_distilled_question_with_retry, item): item for item in question_items
+        }
+
+        with tqdm(as_completed(futures), total=len(futures), desc="蒸馏问题生成") as pbar:
+            for future in pbar:
+                result = future.result()
+                if result is not None:  # 只添加成功蒸馏的问题
+                    with lock:
+                        distilled_questions.append(result)
+                    pbar.set_postfix({"已蒸馏问题": len(distilled_questions)})
+    
+    logger.success(f"蒸馏问题生成完成，共生成 {len(distilled_questions)} 个蒸馏问题")
+    return distilled_questions
 
 
 def _interactive_tree_modification(domain_tree):
@@ -830,6 +952,7 @@ def full_qa_labeling_process(
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
     use_mineru: bool = False,  # 添加use_mineru参数
+    use_distill: bool = False,  # 添加use_distill参数
 ):
     """
     封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
@@ -838,6 +961,7 @@ def full_qa_labeling_process(
         process_domain_tree,
         process_questions,
         process_match_tags,
+        process_distill_questions,
         generatr_qa_pairs,
         load_and_split_markdown,
         load_and_split_text,
@@ -962,7 +1086,25 @@ def full_qa_labeling_process(
     else:
         for question_item in question_info:
             question_item["label"] = ""
-    # 5.generate answers
+    
+    # 5. distillation (if enabled)
+    if use_distill and use_tree_label and domain_tree:
+        logger.info("开始蒸馏机制处理...")
+        distilled_question_info = process_distill_questions(
+            api_key=api_key,
+            model=model_name,
+            base_url=base_url,
+            question_items=question_info,
+            domain_tree=domain_tree,
+            max_workers=max_workers,
+        )
+        if distilled_question_info:
+            question_info = distilled_question_info
+            logger.info(f"蒸馏完成，使用 {len(question_info)} 个蒸馏后的问题进行答案生成")
+        else:
+            logger.warning("蒸馏失败，使用原始问题进行答案生成")
+    
+    # 6.generate answers
     qa_list = generatr_qa_pairs(
         question_info=question_info,
         api_key=api_key,
