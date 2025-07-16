@@ -80,8 +80,30 @@ class ImageParser(BaseLife):
                 raise ValueError("API key is required when use_mllm is True")
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
+    def _encode_image_to_base64(self, file_path: str) -> str:
+        """
+        Encodes an image file to a Base64 data URI.
 
-    def _parse_with_mllm(self, query: str) -> str:
+        Args:
+            file_path: The path to the image file.
+
+        Returns:
+            A Base64 encoded data URI string.
+        """
+        # Infer the MIME type of the image from the file extension
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if mime_type is None:
+            # Default to JPEG if the MIME type cannot be determined
+            mime_type = "image/jpeg"
+
+        # Read the image file in binary mode
+        with open(file_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+
+        # Format as a data URI
+        return f"data:{mime_type};base64,{encoded_string}"
+
+    def _parse_with_mllm(self, prompt: str) -> str:
         """
         Parse image using Qwen model.
         
@@ -128,20 +150,20 @@ class ImageParser(BaseLife):
             return ""
 
 
-    def parse(self, file_path: str, prompt: Optional[str] = None) -> str:
+    def parse(self, file_path: str, system_prompt: Optional[str] = None) -> str:
         """
         Parse the image file using either Qwen model or traditional PDF conversion method.
         
         Args:
             file_path: Path to the image file
-            query: Optional query/prompt for Qwen model (default: None)
-            
+            prompt: Optional prompt/prompt for Qwen model (default: None)
+
         Returns:
             Parsed text content from the image
         """
         try:
             if self.use_mllm:
-                return self._parse_with_mllm(query)
+                return self._parse_with_mllm(system_prompt)
 
             # Fall back to traditional method if not using pro parser
             base_name = pathlib.Path(file_path).stem
@@ -160,7 +182,7 @@ class ImageParser(BaseLife):
             img = Image.open(file_path)
             img.save(output_pdf_path, "PDF", resolution=100.0)
 
-            pdf_parser = PdfParser(output_pdf_path, use_mineru=False)
+            pdf_parser = PdfParser(output_pdf_path, use_mineru=True)
             result = pdf_parser.parse(output_pdf_path)
 
             if os.path.exists(output_pdf_path):

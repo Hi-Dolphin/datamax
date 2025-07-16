@@ -444,21 +444,6 @@ def llm_generator(
         else:
             return [output] if output else []
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=message,
-            temperature=temperature,
-            top_p=top_p,
-        )
-
-        output = response.choices[0].message.content
-
-        if type == "question":
-            fmt_output = extract_json_from_llm_output(output)
-            return fmt_output if fmt_output is not None else []
-        else:
-            return [output] if output else []
-
     except Exception as e:
         logger.error(f"LLM keyword extraction failed: {e}")
         if hasattr(e, "__traceback__") and e.__traceback__ is not None:
