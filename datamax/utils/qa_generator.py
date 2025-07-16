@@ -5,13 +5,12 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-
-import requests
+from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
 from pyexpat.errors import messages
-from tqdm import tqdm  
+from tqdm import tqdm
 from dotenv import load_dotenv
 from datamax.utils.domain_tree import DomainTree   # for cache domain tree
 
@@ -138,7 +137,7 @@ def get_system_prompt_for_domain_tree(text):
         5. 为适当的一级标签添加二级标签
         6. 检查分类逻辑的合理性
         7. 生成符合格式的JSON输出
-        
+
 
         ## 需要分析的目录
         ${text}
@@ -328,7 +327,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         # Get parsed content
         if isinstance(parsed_data, list):
             # If multiple files, take the first one
-            content = parsed_data[0].get('content', '')
+            content = parsed_data[0].get("content", "")
         else:
             content = parsed_data.get("content", "")
 
@@ -415,35 +414,27 @@ def llm_generator(
 ) -> list:
     """Generate content using LLM API"""
     try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
         if not message:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "model": model,
-            "messages": message,
-            "temperature": temperature,
-            "top_p": top_p,
-        }
 
-        response = requests.post(base_url, headers=headers, json=data, timeout=120)
-        response.raise_for_status()
-        result = response.json()
+        response = client.chat.completions.create(
+            model=model,
+            messages=message,
+            temperature=temperature,
+            top_p=top_p,
+        )
 
-        # Parse LLM response
-        if "choices" in result and len(result["choices"]) > 0:
-            output = result["choices"][0]["message"]["content"]
-            if type == "question":
-                fmt_output = extract_json_from_llm_output(output)
-                return fmt_output if fmt_output is not None else []
-            else:
-                return [output] if output else []
-        return []
+        output = response.choices[0].message.content
+
+        if type == "question":
+            fmt_output = extract_json_from_llm_output(output)
+            return fmt_output if fmt_output is not None else []
+        else:
+            return [output] if output else []
 
     except Exception as e:
         logger.error(f"LLM keyword extraction failed: {e}")
@@ -500,44 +491,35 @@ def process_domain_tree(
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
     logger.info(f"Domain tree generation started...")
-    
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
     for attempt in range(max_retries):
         try:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            data = {
-                "model": model,
-                "messages": message,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-            response = requests.post(base_url, headers=headers, json=data)
-            response.raise_for_status()
-            result = response.json()
 
-            # Parse LLM response
-            if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"]["content"]
-                if output:
-                    json_output = extract_json_from_llm_output(output)
-                    if json_output is not None:
-                        domain_tree = DomainTree()
-                        domain_tree.from_json(json_output)
-                        logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
-                        return domain_tree
-                    else:
-                        logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Unable to parse JSON output")
+            response = client.chat.completions.create(
+                model=model,
+                messages=message,
+                temperature=temperature,
+                top_p=top_p,
+            )
+
+            output = response.choices[0].message.content
+            if output:
+                json_output = extract_json_from_llm_output(output)
+                if json_output is not None:
+                    domain_tree = DomainTree()
+                    domain_tree.from_json(json_output)
+                    logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
+                    return domain_tree
                 else:
-                    logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Empty output")
+                    logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Unable to parse JSON output")
             else:
-                logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Invalid response format")
-                
+                logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Empty output")
+
         except Exception as e:
             logger.error(f"Domain tree generation error (attempt {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:

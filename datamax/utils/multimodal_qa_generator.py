@@ -6,13 +6,21 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
-
-import dashscope
+from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from tqdm import tqdm
 
 lock = threading.Lock()
+
+SUPPORTED_MULTIMODAL_MODELS = [
+    "qwen-vl-plus",
+    "qwen-vl-max",
+    "qwen-vl-max-latest",
+    "gpt-4-vision-preview",
+    "gpt-4o",
+    "gemini-pro-vision"
+]
 
 def get_instruction_prompt(question_number: int) -> str:
     """
@@ -134,73 +142,60 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
         return []
 
 
-def generate_multimodal_qa_with_dashscope(
+def generate_multimodal_qa(
     api_key: str,
     model: str,
     instruction_prompt: str,
     context_text: str,
     image_paths: List[str],
+    base_url: str = None,
     temperature: float = 0.7,
 ) -> List[Dict[str, str]]:
     """
-    Generate content and parse JSON output using the DashScope multimodal dialogue API
+    Generate content and parse JSON output using an OpenAI-compatible multimodal dialogue API
     """
+    # 新增：验证模型名称
+    if model not in SUPPORTED_MULTIMODAL_MODELS:
+        logger.error(f"模型 '{model}' 不是一个受支持的多模态模型。受支持的模型列表: {SUPPORTED_MULTIMODAL_MODELS}")
+        return []
+
     try:
-        dashscope.api_key = api_key
+        client = OpenAI(api_key=api_key, base_url=base_url)
         
         user_content = []
         for path in image_paths:
-            local_file_path = f'file://{os.path.abspath(path)}'
-            user_content.append({'image': local_file_path})
+            user_content.append({'type': 'image_url', 'image_url': {'url': f'file://{os.path.abspath(path)}'}})
+
         
-        user_content.append({'text': f"这是你需要处理的上下文文本：\n\n---\n{context_text}\n---"})
+        user_content.append({'type': 'text', 'text': f"这是你需要处理的上下文文本：\n\n---\n{context_text}\n---"})
         
         messages = [
-            {'role': 'system', 'content': [{'text': instruction_prompt}]},
+            {'role': 'system', 'content': instruction_prompt},
             {'role': 'user', 'content': user_content}
         ]
         
-        response = dashscope.MultiModalConversation.call(
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
-            result_format="message",
             temperature=temperature
         )
 
-        if response.status_code == 200:
-            output_content = response.output.choices[0].get('message', {}).get('content')
+        output_content = response.choices[0].message.content
+        
+        if not output_content:
+            logger.error("从API返回内容中未能提取到有效文本。")
+            return []
 
-            # Check if returned content is a list or string
-            if isinstance(output_content, list) and output_content:
-                # If it's a list, extract the 'text' content from the first element
-                text_content = output_content[0].get('text')
-            elif isinstance(output_content, str):
-                # If it's a string, use directly
-                text_content = output_content
-            else:
-                # Other unexpected cases, log error and return empty
-                logger.error(f"Unrecognized API return content format: {type(output_content)}: {output_content}")
-                return []
-
-            if not text_content:
-                logger.error("Failed to extract valid text from API return content.")
-
-                return []
-
-            json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                json_str = text_content
-
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-
-                logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
-                return []
+        json_match = re.search(r"```json\n([\s\S]*?)\n```", output_content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
         else:
-            logger.error(f"DashScope API call failed: Code: {response.status_code}, Message: {response.message}")
+            json_str = output_content
+
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {e}\n原始输出: {json_str}")
             return []
 
     except Exception as e:
@@ -213,6 +208,7 @@ def generate_multimodal_qa_with_dashscope(
 def generatr_qa_pairs(
     file_path: str,
     api_key: str,
+    base_url: str,
     model_name: str,
     chunk_size=2000,
     chunk_overlap=300,
@@ -223,6 +219,11 @@ def generatr_qa_pairs(
     """
     The main function for generating multimodal question-answer pairs from a Markdown file containing images.
     """
+    # 新增：在处理前验证模型名称
+    if model_name not in SUPPORTED_MULTIMODAL_MODELS:
+        logger.error(f"模型 '{model_name}' 不是一个受支持的多模态模型。受支持的模型列表: {SUPPORTED_MULTIMODAL_MODELS}")
+        return []
+
     chunks_with_images = parse_markdown_and_associate_images(
         file_path, chunk_size, chunk_overlap
     )
@@ -239,8 +240,9 @@ def generatr_qa_pairs(
         
         instruction_prompt = get_instruction_prompt(question_number)
         
-        generated_dialogs = generate_multimodal_qa_with_dashscope(
+        generated_dialogs = generate_multimodal_qa(
             api_key=api_key,
+            base_url=base_url,
             model=model_name,
             instruction_prompt=instruction_prompt,
             context_text=context_text,
