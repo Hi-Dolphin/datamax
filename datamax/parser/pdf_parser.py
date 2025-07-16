@@ -12,7 +12,6 @@ from openai import OpenAI
 from langchain_community.document_loaders import PyMuPDFLoader
 
 from datamax.parser.base import MarkdownOutputVo, BaseLife
-from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.mineru_operator import pdf_processor
 
@@ -30,7 +29,7 @@ class PdfOcrProcessor(BaseLife):
             "qwen-vl-plus-latest": "qwen-vl-plus-latest",
         }
         if model_name not in OCR_MODEL_MAP and model_name not in OCR_MODEL_MAP.values():
-            raise ValueError("ocr_model_name参数错误，只能为：1(qwen-vl-ocr)")
+            raise ValueError("ocr_model_name参数错误，只能为：qwen-vl-ocr[-latest]")
         super().__init__(domain=domain)
         self.api_key = api_key
         self.base_url = base_url
