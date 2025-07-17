@@ -110,7 +110,7 @@ class ParserFactory:
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
             if use_mineru == True:
-                if parser_class_name != "PdfParser" or parser_class_name != "ImageParser":
+                if parser_class_name != "PdfParser":
                     raise ValueError("MinerU is only supported for PDF or image files")
 
             if use_mllm == True:
@@ -482,18 +482,17 @@ class DataMax(BaseLife):
 
         if use_mllm:
             if isinstance(self.file_path, list):
-                file_names = [os.path.splitext(f)[0].lower() + '.md' for f in self.file_path]
+                file_names = [f for f in self.file_path]
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                file_names = [os.path.splitext(self.file_path)[0].lower()+'.md']
+                file_names = [self.file_path]
             elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                file_names = [os.path.splitext(file)[0].lower() + '.md' for file in list(Path(self.file_path).rglob("*.*"))]
-            
+                file_names = [f for f in list(Path(self.file_path).rglob("*.*"))]
+            md_names = [os.path.splitext(f)[0].lower() + '.md' for f in file_names]
             saved_md_dir = os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown')
             if os.path.isdir(saved_md_dir):
-                processed_file_names = [os.path.basename(f) for f in list(Path(saved_md_dir).rglob("*.md"))]
-                file_names = [file for file in file_names if os.path.basename(file) not in processed_file_names]
+                processed_md_names = [os.path.basename(f) for f in list(Path(saved_md_dir).rglob("*.md"))]
+                file_names = [file for file in file_names if os.path.basename(file) not in md_names]
             
-            print(f"将处理的文件名转换为：{file_names}")
 
         if content is not None:
             text = content
