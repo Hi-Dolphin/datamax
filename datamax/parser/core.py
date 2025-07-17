@@ -170,18 +170,15 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
-<<<<<<< HEAD
         self.ocr_api_key = ocr_api_key
         self.ocr_base_url = ocr_base_url
         self.ocr_model_name = ocr_model_name
         # use ocr api as default api
         self.api_key = ocr_api_key
         self.base_url = ocr_base_url
-=======
         self.api_key = api_key
         self.base_url = base_url
         self.model_name = model_name
->>>>>>> main
 
     def set_data(self, file_name, parsed_data):
         """
@@ -429,12 +426,8 @@ class DataMax(BaseLife):
         use_tree_label: bool = False,
         messages: list = None,
         interactive_tree: bool = False,
-<<<<<<< HEAD
-        custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
-        use_distill: bool = False,
-=======
         custom_domain_tree: list[dict[str, Any]] | None = None,
->>>>>>> main
+        use_distill: bool = False,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -469,15 +462,14 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
-<<<<<<< HEAD
         
-        # 优先使用实例变量中的api_key和base_url，如果方法参数中没有提供的话
+        # Use instance variables for api_key and base_url if not provided in method parameters
         if api_key is None:
             api_key = self.api_key
         if base_url is None:
             base_url = self.base_url
             
-        # 验证必需的参数
+        # Validate required parameters
         if api_key is None:
             raise ValueError("API key is required. Please provide it either in DataMax initialization or in get_pre_label method.")
         if base_url is None:
@@ -485,10 +477,7 @@ class DataMax(BaseLife):
         if model_name is None:
             raise ValueError("Model name is required.")
             
-        # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
-=======
         # If content is passed externally, use it directly; otherwise go through parse/clean process
->>>>>>> main
         data = []
         if content is not None:
             text = content
@@ -502,7 +491,6 @@ class DataMax(BaseLife):
                 text = processed.get("content", "")
             else:
                 text = processed
-            print(text)
             file_path = self.file_path
 
         # Mark: start DATA_LABELLING
@@ -552,12 +540,8 @@ class DataMax(BaseLife):
                     messages=messages,
                     interactive_tree=interactive_tree,
                     custom_domain_tree=custom_domain_tree,
-<<<<<<< HEAD
-                    use_mineru=self.use_mineru,  # 传递use_mineru参数
-                    use_distill=use_distill,  # 传递use_distill参数
-=======
                     use_mineru=self.use_mineru,  # Pass use_mineru parameter
->>>>>>> main
+                    use_distill=use_distill,  # pass use_distill parameter
             )
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 # Mark: success DATA_LABELLED
