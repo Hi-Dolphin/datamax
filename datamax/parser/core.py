@@ -158,6 +158,9 @@ class DataMax(BaseLife):
         self.ocr_api_key = ocr_api_key
         self.ocr_base_url = ocr_base_url
         self.ocr_model_name = ocr_model_name
+        # use ocr api as default api
+        self.api_key = ocr_api_key
+        self.base_url = ocr_base_url
 
     def set_data(self, file_name, parsed_data):
         """
@@ -377,9 +380,9 @@ class DataMax(BaseLife):
         *,
         content: str = None,
         use_mllm: bool = False,
-        api_key: str,
-        base_url: str,
-        model_name: str,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str ,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         question_number: int = 5,
@@ -396,9 +399,9 @@ class DataMax(BaseLife):
 
         :param content: Processed document content
         :param use_mllm: Whether to use mllm model
-        :param api_key: API key
-        :param base_url: API base URL
-        :param model_name: Model name
+        :param api_key: API key (optional, will use instance api_key if not provided)
+        :param base_url: API base URL (optional, will use instance base_url if not provided)
+        :param model_name: Model name (required)
         :param chunk_size: Chunk size
         :param chunk_overlap: Overlap length
         :param question_number: Number of questions generated per chunk
@@ -408,6 +411,7 @@ class DataMax(BaseLife):
         :param messages: Custom messages
         :param interactive_tree: Whether to allow interactive tree modification
         :param custom_domain_tree: Custom domain tree structure in the format:
+        :param use_distill: Whether to use distillation mechanism
             [
                 {
                     "label": "1 一级领域标签",
@@ -423,6 +427,21 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
+        
+        # 优先使用实例变量中的api_key和base_url，如果方法参数中没有提供的话
+        if api_key is None:
+            api_key = self.api_key
+        if base_url is None:
+            base_url = self.base_url
+            
+        # 验证必需的参数
+        if api_key is None:
+            raise ValueError("API key is required. Please provide it either in DataMax initialization or in get_pre_label method.")
+        if base_url is None:
+            raise ValueError("Base URL is required. Please provide it either in DataMax initialization or in get_pre_label method.")
+        if model_name is None:
+            raise ValueError("Model name is required.")
+            
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
         data = []
         if content is not None:
