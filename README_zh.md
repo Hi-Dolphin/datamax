@@ -440,7 +440,7 @@ print(data)
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
-- 💬 微信交流群：<br><img src='wechat.png' width=300>
+- 💬 微信交流群：<br><img src='wechat.jpg' width=300>
 ---
 
 ⭐ 如果这个项目对您有帮助，请给我们一个星标！
