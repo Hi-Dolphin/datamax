@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "datamax"
+name = "pydatamax"
 version = "0.1.18"
 description = "A powerful multi-format file parsing, data cleaning and AI annotation toolkit"
 readme = "README.md"
