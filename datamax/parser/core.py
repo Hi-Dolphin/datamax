@@ -59,7 +59,24 @@ class ParserFactory:
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
-        parser_class_name = {
+
+        # Define extension groups
+        image_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+        code_extensions = [
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".java",
+            ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
+            ".go", ".rs", ".php", ".rb", ".cs", ".swift", ".kt", ".scala"
+        ]
+
+        # Mapping of extensions to (class_name, module_name)
+        parser_map = {}
+        for ext in image_extensions:
+            parser_map[ext] = ("ImageParser", "datamax.parser.image_parser")
+        for ext in code_extensions:
+            parser_map[ext] = ("CodeParser", "datamax.parser.code_parser")
+
+        # Add other parsers
+        document_parsers = {
             ".md": "MarkdownParser",
             ".docx": "DocxParser",
             ".doc": "DocParser",
@@ -70,23 +87,19 @@ class ParserFactory:
             ".pptx": "PptxParser",
             ".ppt": "PptParser",
             ".pdf": "PdfParser",
-            ".jpg": "ImageParser",
-            ".jpeg": "ImageParser",
-            ".png": "ImageParser",
-            ".webp": "ImageParser",
             ".xlsx": "XlsxParser",
             ".xls": "XlsParser",
             ".csv": "CsvParser",
-        }.get(file_extension)
+        }
+        for ext, class_name in document_parsers.items():
+            module_name = f"datamax.parser.{ext[1:]}_parser"
+            parser_map[ext] = (class_name, module_name)
 
-        if not parser_class_name:
+        mapping = parser_map.get(file_extension)
+        if not mapping:
             return None
 
-        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
-            module_name = f"datamax.parser.image_parser"
-        else:
-            # Dynamically determine the module name based on the file extension
-            module_name = f"datamax.parser.{file_extension[1:]}_parser"
+        parser_class_name, module_name = mapping
 
         try:
             # use_mineru & use_qwen_vl_ocr can't be used at the same time
@@ -99,38 +112,25 @@ class ParserFactory:
             if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
                 raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files currently")
 
-            # Special handling for PdfParser arguments
+            # Instantiate based on parser type
+            common_kwargs = {"file_path": file_path, "domain": domain}
             if parser_class_name == "PdfParser":
                 return parser_class(
-                    file_path=file_path,
                     use_mineru=use_mineru,
                     use_qwen_vl_ocr=use_qwen_vl_ocr,
-                    domain=domain,
                     ocr_api_key=ocr_api_key,
                     ocr_base_url=ocr_base_url,
                     ocr_model_name=ocr_model_name,
+                    **common_kwargs
                 )
-            elif (
-                parser_class_name == "DocxParser"
-                or parser_class_name == "DocParser"
-                or parser_class_name == "WpsParser"
-            ):
+            elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
                 return parser_class(
-                    file_path=file_path,
                     to_markdown=to_markdown,
                     use_uno=True,
-                    domain=domain,
-                )
-            elif parser_class_name == "XlsxParser":
-                return parser_class(
-                    file_path=file_path,
-                    domain=domain,
+                    **common_kwargs
                 )
             else:
-                return parser_class(
-                    file_path=file_path,
-                    domain=domain,
-                )
+                return parser_class(**common_kwargs)
 
         except (ImportError, AttributeError) as e:
             raise e
