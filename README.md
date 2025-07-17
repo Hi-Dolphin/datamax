@@ -84,11 +84,20 @@ Predefined domain options include：["Technology","Finance","Health","Education"
 # Advanced PDF parsing (requires MinerU)
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
+# PDF OCR parsing (requires API credentials)(Only Qwen-VL-OCR[-latest] model is currently available)
+dm = DataMax(
+    file_path="scanned.pdf", 
+    use_qwen_vl_ocr=True,
+    ocr_api_key="your-api-key",
+    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ocr_model_name="qwen-vl-ocr"  
+)
+
 # Word to Markdown conversion
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# Image OCR
-dm = DataMax(file_path="image.jpg", use_ocr=True)
+# Image OCR （need install mineru）
+dm = DataMax(file_path="image.jpg")
 ```
 ### Batch Processing
 ```python
