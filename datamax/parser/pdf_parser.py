@@ -196,6 +196,15 @@ class PdfParser(BaseLife):
 
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_qwen_vl_ocr = use_qwen_vl_ocr
+        self.ocr_api_key = ocr_api_key
+        self.ocr_base_url = ocr_base_url
+        self.ocr_model_name = ocr_model_name
+        
+        # 验证OCR参数
+        if self.use_qwen_vl_ocr:
+            if not all([self.ocr_api_key, self.ocr_base_url, self.ocr_model_name]):
+                raise ValueError("Qwen-VL OCR requires api_key, base_url, and model_name to be provided")
 
     def mineru_process(self, input_pdf_filename, output_dir):
         proc = None
