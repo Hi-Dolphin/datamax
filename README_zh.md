@@ -4,19 +4,25 @@
 
 **中文** | [English](README.md)
 
-[![PyPI version](https://badge.fury.io/py/pydatamax.svg)](https://badge.fury.io/py/pydatamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://badge.fury.io/py/datamax.svg)](https://badge.fury.io/py/datamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
-一个强大的多格式文件解析、数据清洗和AI标注工具库。
+一个强大的多格式文件解析、数据清洗和AI标注工具包，为现代Python应用而建。
 
-## ✨ 核心特性
+## ✨ 主要功能
 
-- 🔄 **多格式支持**: PDF、DOCX/DOC、PPT/PPTX、XLS/XLSX、HTML、EPUB、TXT、图片等
-- 🧹 **智能清洗**: 异常检测、隐私保护、文本过滤三层清洗流程
-- 🤖 **AI标注**: 基于LLM的自动数据标注和预标记
-- ⚡ **批量处理**: 高效的多文件并行处理
-- 🎯 **易于集成**: 简洁的API设计，开箱即用
+- 🔄 **多格式支持**：PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, 图像 等
+
+- 🧹 **智能清洗**：高级数据清洗，包括异常检测、隐私保护和文本过滤
+
+- 🤖 **AI标注**：基于LLM的自动标注和QA生成
+
+- ⚡ **高性能**：高效的批处理，带有缓存和并行执行
+
+- 🎯 **开发者友好**：现代SDK设计，带有类型提示、配置管理和全面错误处理
+
+- ☁️ **云就绪**：内置支持OSS、MinIO和其他云存储提供商
 
 ## 🚀 快速开始
 
@@ -26,34 +32,34 @@
 pip install pydatamax
 ```
 
-### 基础用法
+### 示例
 
 ```python
 from datamax import DataMax
 
-# 解析单个文件，默认 domain="Technology"
-dm = DataMax(file_path="document.pdf")
-data = dm.get_data()
+# prepare info
+FILE_PATHS = ["/your/file/path/1.pdf", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
+LABEL_LLM_API_KEY = "YOUR_API_KEY"
+LABEL_LLM_BASE_URL = "YOUR_BASE_URL"
+LABEL_LLM_MODEL_NAME = "YOUR_MODEL_NAME"
+LLM_TRAIN_OUTPUT_FILE_NAME = "train"
 
-# 批量处理
-dm = DataMax(file_path=["file1.docx", "file2.pdf"])
-data = dm.get_data()
+# init client
+client = DataMax(file_path=FILE_PATHS)
 
-# 指定领域：domain 参数支持预置领域（Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science），也可自定义
-dm = DataMax(file_path="report.pdf", domain="Finance")
-data = dm.get_data()
+# get pre label. return trainable qa list
+qa_list = client.get_pre_label(
+    api_key=LABEL_LLM_API_KEY,
+    base_url=LABEL_LLM_BASE_URL,
+    model_name=LABEL_LLM_MODEL_NAME,
+    question_number=10,
+    max_workers=5)
 
-# 数据清洗
-cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
-
-# AI标注
-qa_data = dm.get_pre_label(
-    api_key="your-api-key",
-    base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo"
-)
+# save label data
+client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 ```
 
+<<<<<<< HEAD
 ## 📖 详细文档
 
 ### 文件解析
@@ -79,11 +85,21 @@ qa_data = dm.get_pre_label(
 # PDF高级解析（需要MinerU）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
+# PDF OCR解析（需要API凭证）（当前仅支持qwen-vl-ocr[-latest]模型）
+# tips: 请注意，use_qwen_vl_ocr参数用于图片或pdf的文字识别。
+dm = DataMax(
+    file_path="scanned.pdf", 
+    use_qwen_vl_ocr=True,
+    ocr_api_key="your-api-key",
+    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ocr_model_name="qwen-vl-ocr"
+)
+
 # Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# 图片OCR
-dm = DataMax(file_path="image.jpg", use_mineru=True)
+# 图片 (需要安装mineru)
+dm = DataMax(file_path="image.jpg")
 ```
 
 ### 批处理解析
@@ -228,7 +244,40 @@ qa_data = dm.get_pre_label(
     question_number=5,
     max_workers=5   
 )
+
+
 ```
+## 🔥 基于 Bespokelabs-Curator 的大模型集成
+DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型，实现多样化的自动化标注能力。
+### 1. 通用大模型调用
+
+```python
+from datamax import DataMax
+
+prompt = "什么是人工智能？"
+result = DataMax.call_llm_with_bespokelabs(
+    prompt=prompt,
+    model_name="your-model-name",
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
+)
+print("LLM调用结果文本:", result)
+```
+### 2.自动化标注示例 — 自动问答对生成
+
+```python
+from datamax import DataMax
+
+text = "人工智能是模拟人类智能的技术。"
+results = DataMax.qa_generator_with_bespokelabs(
+    text,
+    "your-model-name",
+    "your-api-key",
+    "https://api.openai.com/v1"
+)
+print("QA生成结果:", results)
+```
+✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
 
 ### 接入多模态模型进行AI标注
 
@@ -337,21 +386,27 @@ print(data)
 - Python >= 3.10
 - 支持 Windows、macOS、Linux
 
+=======
+>>>>>>> upstream/main
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提出 Issues 和 Pull Requests！
 
-## 📄 许可证
+## 📄 许可
 
-本项目采用 [MIT License](LICENSE) 开源协议。
+本项目基于 [MIT License](LICENSE) 许可。
 
 ## 📞 联系我们
 
-- 📧 Email: cy.kron@foxmail.com
-- 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
+- 📧 邮箱: cy.kron@foxmail.com
+- 🐛 问题: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
-- 💬 微信交流群：<br><img src='wechat.png' width=300>
+- 💬 微信群: <br><img src='wechat.jpg' width=300>
+
 ---
 
+<<<<<<< HEAD
 ⭐ 如果这个项目对您有帮助，请给我们一个星标！
-
+=======
+⭐ 如果这个项目对你有帮助，请给我们一个星！
+>>>>>>> upstream/main
