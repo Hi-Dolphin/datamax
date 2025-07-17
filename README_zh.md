@@ -84,9 +84,9 @@ dm = DataMax(file_path="complex.pdf", use_mineru=True)
 dm = DataMax(
     file_path="scanned.pdf", 
     use_qwen_vl_ocr=True,
-    ocr_api_key="your-api-key",
-    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    ocr_model_name="qwen-vl-ocr"
+    api_key="your-api-key",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model_name="qwen-vl-ocr"
 )
 
 # Word转Markdown
