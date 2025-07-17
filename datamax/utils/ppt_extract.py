@@ -1,7 +1,6 @@
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Union
 
 from loguru import logger
 from PIL.Image import Image
@@ -17,7 +16,6 @@ from werkzeug.datastructures import FileStorage
 
 
 class PPtExtractor:
-
     @lru_cache(maxsize=128)
     def generate_img_path(self, id: str, img_name: str) -> str:
         if not isinstance(id, str):
@@ -29,9 +27,9 @@ class PPtExtractor:
     def handle_shape(
         self,
         shape: Shape,
-        content_list: List[Dict[str, str]],
+        content_list: list[dict[str, str]],
         media_dir: Path,
-        img_map: Dict[Path, str],
+        img_map: dict[Path, str],
         id: str,
         skip_image: bool,
     ):
@@ -103,14 +101,14 @@ class PPtExtractor:
                 logger.info(f"Unknown shape type: {shape_type}, {type(shape)}")
         except PermissionError as pe:
             logger.error(f"Permission error: {pe}")
-        except IOError as ie:
+        except OSError as ie:
             logger.error(f"IO error: {ie}")
         except Exception as e:
             logger.error(f"Error handling shape: {e}")
 
     def extract(
         self,
-        presentation_source: Union[FileStorage, Path],
+        presentation_source: FileStorage | Path,
         id: str,
         dir: Path,
         media_dir: Path,
@@ -144,7 +142,7 @@ class PPtExtractor:
             logger.error(f"File not found: {fnfe}")
         except PermissionError as pe:
             logger.error(f"Permission error: {pe}")
-        except IOError as ie:
+        except OSError as ie:
             logger.error(f"IO error: {ie}")
         except Exception as e:
             logger.error(f"Error extracting presentation: {e}")

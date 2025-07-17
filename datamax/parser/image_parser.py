@@ -20,7 +20,7 @@ from datamax.utils.lifecycle_types import LifeType
 class ImageParser(BaseLife):
     """ImageParser class for parsing images using Qwen model or traditional PDF conversion method.
     
-        ## 使用Qwen模型
+        ## Using Qwen Model
         ```python
         parser = ImageParser(
             "image.jpg",
@@ -31,7 +31,7 @@ class ImageParser(BaseLife):
         )
         result = parser.parse("image.jpg", "What is in this image?")
         ```
-        ## 使用传统方法
+        ## Using Traditional Method
         ```python
         parser = ImageParser("image.jpg")
         result = parser.parse("image.jpg")
@@ -48,10 +48,10 @@ class ImageParser(BaseLife):
         system_prompt: Optional[str] = "You are a helpful assistant that accurately describes images in detail.",
         use_mllm: bool = False
     ):
-        # 初始化 BaseLife，记录 domain
+        # Initialize BaseLife, record domain
         super().__init__(domain=domain)
 
-        # 可选的 GPU 环境设置
+        # Optional GPU environment setup
         if use_gpu:
             setup_environment(use_gpu=True)
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
@@ -121,9 +121,9 @@ class ImageParser(BaseLife):
         if response.status_code == 200:
             return response.output.choices[0].message.content[0]["text"]
         else:
-            print(f"HTTP返回码：{response.status_code}")
-            print(f"错误码：{response.code}")
-            print(f"错误信息：{response.message}")
+            print(f"HTTP status code: {response.status_code}")
+            print(f"Error code: {response.code}")
+            print(f"Error message: {response.message}")
 
     def parse(self, file_path: str, query: Optional[str] = None) -> str:
         """
@@ -143,7 +143,7 @@ class ImageParser(BaseLife):
             # Fall back to traditional method if not using Qwen
             base_name = pathlib.Path(file_path).stem
 
-            # 1) 处理开始：生成 DATA_PROCESSING 事件
+            # 1) Processing start: generate DATA_PROCESSING event
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
@@ -162,7 +162,7 @@ class ImageParser(BaseLife):
 
             if os.path.exists(output_pdf_path):
                 os.remove(output_pdf_path)
-            # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED
+            # 2) Processing end: generate DATA_PROCESSED or DATA_PROCESS_FAILED based on whether content is non-empty
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
@@ -175,7 +175,7 @@ class ImageParser(BaseLife):
                 usage_purpose="Parsing",
             )
 
-            # 3) 合并生命周期：先插入 start，再追加 end
+            # 3) Merge lifecycle: insert start first, then append end
             lifecycle = result.get("lifecycle", [])
             lifecycle.insert(0, lc_start.to_dict())
             lifecycle.append(lc_end.to_dict())

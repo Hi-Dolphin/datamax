@@ -4,9 +4,9 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
+
 
 # delayed import of lock and flag
 _uno_imported = False
@@ -39,7 +39,7 @@ def _lazy_import_uno():
             return True
         except ImportError as e:
             _import_error = e
-            logger.error(f"❌ UNO模块导入失败: {str(e)}")
+            logger.error(f"❌ UNO模块导入失败: {e!s}")
             return False
 
 
@@ -126,7 +126,7 @@ class UnoManager:
             self._soffice_process = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            logger.info(f"⏳ 等待LibreOffice服务启动...")
+            logger.info("⏳ 等待LibreOffice服务启动...")
 
             # Intelligent waiting: Polling to check service status, providing flexible time for machines of different performance levels.
             start_time = time.time()
@@ -148,7 +148,7 @@ class UnoManager:
             raise Exception(f"LibreOffice服务启动超时 (等待了{max_wait_time}秒)")
 
         except Exception as e:
-            logger.error(f"❌ 启动LibreOffice服务失败: {str(e)}")
+            logger.error(f"❌ 启动LibreOffice服务失败: {e!s}")
             raise
 
     def _check_soffice_running(self) -> bool:
@@ -176,7 +176,7 @@ class UnoManager:
 
             self._start_soffice_service()
 
-            logger.info(f"🔌 连接到LibreOffice服务...")
+            logger.info("🔌 连接到LibreOffice服务...")
             start_time = time.time()
 
             while time.time() - start_time < self.timeout:
@@ -201,7 +201,7 @@ class UnoManager:
                     logger.debug("⏳ 等待LibreOffice服务就绪...")
                     time.sleep(1)
                 except Exception as e:
-                    logger.error(f"❌ 连接失败: {str(e)}")
+                    logger.error(f"❌ 连接失败: {e!s}")
                     time.sleep(1)
 
             raise TimeoutError(f"连接LibreOffice服务超时（{self.timeout}秒）")
@@ -272,7 +272,7 @@ class UnoManager:
         input_path: str,
         output_path: str,
         output_format: str,
-        filter_name: Optional[str] = None,
+        filter_name: str | None = None,
     ):
         """
         转换文档格式
@@ -335,7 +335,7 @@ class UnoManager:
                             success = True
                             break
                         except Exception as e:
-                            logger.debug(f"🔄 过滤器 {filter_name} 失败: {str(e)}")
+                            logger.debug(f"🔄 过滤器 {filter_name} 失败: {e!s}")
                             continue
 
                     if not success:
@@ -378,7 +378,7 @@ class UnoManager:
 
 
 # global Singleton UnoManager
-_global_uno_manager: Optional[UnoManager] = None
+_global_uno_manager: UnoManager | None = None
 _manager_lock = threading.Lock()
 
 
@@ -421,7 +421,7 @@ def uno_manager_context():
 
 
 def convert_with_uno(
-    input_path: str, output_format: str, output_dir: Optional[str] = None
+    input_path: str, output_format: str, output_dir: str | None = None
 ) -> str:
     """
     使用UNO转换文档格式（便捷函数）
