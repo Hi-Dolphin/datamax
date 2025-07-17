@@ -80,7 +80,7 @@ qa_data = dm.get_pre_label(
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
 # PDF OCR解析（需要API凭证）（当前仅支持qwen-vl-ocr[-latest]模型）
-# tips: 请注意，use_qwen_vl_ocr参数用于图片或pdf的文字识别。
+# tips: 请注意 use_qwen_vl_ocr 参数用于pdf的文字识别。
 dm = DataMax(
     file_path="scanned.pdf", 
     use_qwen_vl_ocr=True,
