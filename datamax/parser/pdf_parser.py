@@ -29,7 +29,7 @@ class PdfOcrProcessor(BaseLife):
             "qwen-vl-plus-latest": "qwen-vl-plus-latest",
         }
         if model_name not in OCR_MODEL_MAP and model_name not in OCR_MODEL_MAP.values():
-            raise ValueError("ocr_model_name参数错误，只能为：qwen-vl-ocr[-latest]")
+            raise ValueError("model_name参数错误，只能为：qwen-vl-ocr[-latest]")
         super().__init__(domain=domain)
         self.api_key = api_key
         self.base_url = base_url
@@ -189,22 +189,22 @@ class PdfParser(BaseLife):
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         domain: str = "Technology",
-        ocr_api_key: str = None,
-        ocr_base_url: str = None,
-        ocr_model_name: str = None,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
     ):
         super().__init__(domain=domain)
 
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_qwen_vl_ocr = use_qwen_vl_ocr
-        self.ocr_api_key = ocr_api_key
-        self.ocr_base_url = ocr_base_url
-        self.ocr_model_name = ocr_model_name
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model_name = model_name
         
         # 验证OCR参数
         if self.use_qwen_vl_ocr:
-            if not all([self.ocr_api_key, self.ocr_base_url, self.ocr_model_name]):
+            if not all([self.api_key, self.base_url, self.model_name]):
                 raise ValueError("Qwen-VL OCR requires api_key, base_url, and model_name to be provided")
 
     @staticmethod
@@ -234,9 +234,9 @@ class PdfParser(BaseLife):
             if self.use_qwen_vl_ocr:
                 # 使用Qwen-VL OCR处理PDF
                 ocr_processor = PdfOcrProcessor(
-                    api_key=self.ocr_api_key,
-                    base_url=self.ocr_base_url,
-                    model_name=self.ocr_model_name,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    model_name=self.model_name,
                     domain=self.domain
                 )
                 result = ocr_processor.parse(file_path)
