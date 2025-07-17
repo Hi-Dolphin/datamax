@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "datamax"
-version = "0.2.0"
+version = "0.1.18"
 description = "A powerful multi-format file parsing, data cleaning and AI annotation toolkit"
 readme = "README.md"
 license = {text = "MIT"}

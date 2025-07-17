@@ -1,6 +1,6 @@
 """DataMax - A powerful multi-format file parsing, data cleaning and AI annotation toolkit."""
 
-__version__ = "0.2.0"
+__version__ = "0.1.18"
 __author__ = "ccy"
 __email__ = "cy.kron@foxmail.com"
 

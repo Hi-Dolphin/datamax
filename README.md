@@ -438,7 +438,7 @@ This project is licensed under the [MIT License](LICENSE).
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
-- 💬 Wechat Group: <br><img src='wechat.png' width=300>
+- 💬 Wechat Group: <br><img src='wechat.jpg' width=300>
 ---
 
 ⭐ If this project helps you, please give us a star!
