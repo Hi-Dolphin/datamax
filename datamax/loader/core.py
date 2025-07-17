@@ -1,5 +1,4 @@
 import os
-from typing import List
 
 from datamax.loader.minio_handler import MinIOClient
 from datamax.loader.oss_handler import OssClient
@@ -8,11 +7,11 @@ from datamax.loader.oss_handler import OssClient
 class DataLoader:
     def __init__(
         self,
-        endpoint: str = None,
-        secret_key: str = None,
-        access_key: str = None,
-        bucket_name: str = None,
-        source: str = None,
+        endpoint: str | None = None,
+        secret_key: str | None = None,
+        access_key: str | None = None,
+        bucket_name: str | None = None,
+        source: str | None = None,
     ):
         if source and source == "Oss":
             self.oss = OssClient(
@@ -28,12 +27,12 @@ class DataLoader:
                 access_key=access_key,
                 bucket_name=bucket_name,
             )
-        self.download_path = str("./download_file")
+        self.download_path = "./download_file"
         self.source = source
         self.bucket_name = bucket_name
 
     @staticmethod
-    def load_from_file(local_file_path) -> List[str]:
+    def load_from_file(local_file_path) -> list[str]:
         if os.path.isfile(local_file_path):
             if os.path.exists(local_file_path):
                 if os.access(local_file_path, os.R_OK):
@@ -53,14 +52,14 @@ class DataLoader:
         else:
             return []
 
-    def load_from_oss_source(self, oss_path: str) -> List[str]:
+    def load_from_oss_source(self, oss_path: str) -> list[str]:
         if not os.path.exists(self.download_path):
             os.makedirs(self.download_path)
 
         self.download(oss_path=oss_path)
 
         file_list = []
-        for root, dirs, files in os.walk(self.download_path):
+        for _root, _dirs, files in os.walk(self.download_path):
             for file in files:
                 file_path = os.path.join(self.download_path, file)
                 file_list.append(file_path)
@@ -81,20 +80,20 @@ class DataLoader:
                 self.mi.download_file(
                     bucket_name=self.bucket_name,
                     object_name=path,
-                    file_path=f'{self.download_path}/{path.split("/")[-1]}',
+                    file_path=f"{self.download_path}/{path.split('/')[-1]}",
                 )
         elif self.source == "Oss":
             keys = self.oss.get_objects_in_folders(prefix=oss_path)
             for path in keys:
                 self.oss.get_object_to_file(
                     object_name=path,
-                    file_path=f'{self.download_path}/{path.split("/")[-1]}',
+                    file_path=f"{self.download_path}/{path.split('/')[-1]}",
                 )
 
     def upload(self, local_file_path: str, save_prefix: str):
         if self.source == "MinIO":
             if os.path.isdir(local_file_path):
-                for root, dirs, files in os.walk(local_file_path):
+                for root, _dirs, files in os.walk(local_file_path):
                     for file in files:
                         file_path = os.path.join(root, file)
                         self.mi.upload_file(
@@ -127,9 +126,9 @@ class DataLoader:
     def share(
         self,
         oss_path: str,
-        expires: int = None,
-        aliyun_oss_url_prefix: str = None,
-        csnt_url_prefix: str = None,
+        expires: int | None = None,
+        aliyun_oss_url_prefix: str | None = None,
+        csnt_url_prefix: str | None = None,
     ):
         if self.source == "MinIO":
             return self.mi.get_object_tmp_link(

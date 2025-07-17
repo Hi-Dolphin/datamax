@@ -1,7 +1,6 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Union
 
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.tokenizer import DashScopeClient
@@ -13,13 +12,13 @@ class LifeCycle:
     """
 
     def __init__(
-        self, update_time: str, life_type: list, life_metadata: Dict[str, str]
+        self, update_time: str, life_type: list, life_metadata: dict[str, str]
     ):
         self.update_time = update_time  # Update time
         self.life_type = life_type  # Life cycle type
         self.life_metadata = life_metadata  # Life cycle metadata
 
-    def update(self, update_time: str, life_type: list, life_metadata: Dict[str, str]):
+    def update(self, update_time: str, life_type: list, life_metadata: dict[str, str]):
         self.update_time = update_time
         self.life_type = life_type
         self.life_metadata.update(life_metadata)
@@ -44,7 +43,7 @@ class MarkdownOutputVo:
     def __init__(self, extension: str, content: str):
         self.extension: str = extension  # File type
         self.content: str = content  # Markdown content
-        self.lifecycle: List[LifeCycle] = []  # Life cycle data
+        self.lifecycle: list[LifeCycle] = []  # Life cycle data
 
     def add_lifecycle(self, lifecycle: LifeCycle):
         self.lifecycle.append(lifecycle)
@@ -57,7 +56,7 @@ class MarkdownOutputVo:
         }
         return data_dict
 
-# ========== 新增：预置领域列表 ==========
+# ========== New: Predefined domain list ==========
 PREDEFINED_DOMAINS = [
     "Technology",
     "Finance",
@@ -68,24 +67,26 @@ PREDEFINED_DOMAINS = [
     "Sales",
     "Entertainment",
     "Science",
-    # … 如有需要可以继续扩展
+    # … Can be extended as needed
 ]
+
 
 class BaseLife:
     tk_client = DashScopeClient()
+
     def __init__(self, *, domain: str = "Technology", **kwargs):
         """
-        BaseLife 初始化：接收 domain 并做校验／警告，
-        其余参数向上层传递（如果有父类的话）。
+        BaseLife initialization: receives domain and performs validation/warning,
+        other parameters are passed to the parent class (if any).
         """
-        # 1) 预置列表校验
+        # 1) Predefined list validation
         if domain not in PREDEFINED_DOMAINS:
-            # 你也可以换成 logger.warning
-            print(f"⚠️ 域 “{domain}” 不在预置列表，将按自定义处理。")
-        # 2) 保存域
+            # You can also change to logger.warning
+            print(f"⚠️ Domain '{domain}' is not in the predefined list, will be handled as custom.")
+        # 2) Save domain
         self.domain = domain
 
-        # 3) 如果有父类 __init__，就把其余参数透传
+        # 3) If there's a parent class __init__, pass through other parameters
         super_init = getattr(super(), "__init__", None)
         if callable(super_init):
             super_init(**kwargs)
@@ -94,19 +95,19 @@ class BaseLife:
     def generate_lifecycle(
         source_file: str,
         domain: str,
-        life_type: Union[LifeType, str, List[Union[LifeType, str]]],
+        life_type: LifeType | str | list[LifeType | str],
         usage_purpose: str,
     ) -> LifeCycle:
         """
-        构造一个 LifeCycle 记录，可以传入单个枚举/字符串或列表混合
+        Construct a LifeCycle record, can pass in a single enum/string or a mixed list
         """
-        # 1) 先统一成 list
+        # 1) First unify to list
         if isinstance(life_type, (list, tuple)):
             raw = list(life_type)
         else:
             raw = [life_type]
 
-        # 2) 如果是枚举，就取它的 value
+        # 2) If it's an enum, take its value
         life_list: List[str] = [
             lt.value if isinstance(lt, LifeType) else lt for lt in raw
         ]

@@ -30,7 +30,7 @@ class PdfProcessor:
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(pdf_file_name)
 
-        # 处理流程
+        # Processing workflow
         ds = PymuDocDataset(pdf_bytes)
         markdown_path = os.path.join(
             local_md_dir, f"{name_without_suff}.md"
@@ -39,26 +39,21 @@ class PdfProcessor:
 
         if ds.classify() == SupportedPdfParseMethod.OCR:
             ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
-                md_writer, os.path.basename(markdown_path), image_dir  # filename
+                md_writer,
+                os.path.basename(markdown_path),
+                image_dir,  # filename
             )
         else:
             ds.apply(doc_analyze, ocr=False).pipe_txt_mode(image_writer).dump_md(
-                md_writer, os.path.basename(markdown_path), image_dir  # filename
+                md_writer,
+                os.path.basename(markdown_path),
+                image_dir,  # filename
             )
 
-        with open(markdown_path, "r", encoding="utf-8") as f:
+        with open(markdown_path, encoding="utf-8") as f:
             markdown_content = f.read()
 
         return markdown_content
 
 
 pdf_processor = PdfProcessor()
-
-# usage example
-if __name__ == "__main__":
-    # pdf_processor = PdfProcessor()
-    print(
-        pdf_processor.process_pdf(
-            "/home/caocaiyu/datamax-service/backend/uploaded_files/fde1daee-e899-4e93-87ff-706234c399c3/20250227132500_5447d25cbf094a3295f9d52d3408a048.pdf"
-        )
-    )

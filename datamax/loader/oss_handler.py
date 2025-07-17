@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from tqdm import tqdm
 
+
 load_dotenv()
 
 
@@ -100,7 +101,7 @@ class OssClient:
                     object_name, file_path, progress_callback=progress_callback
                 )
                 logger.info(
-                    "object name: {}, file path: {}".format(object_name, file_path)
+                    f"object name: {object_name}, file path: {file_path}"
                 )
 
     # Download a folder
@@ -122,7 +123,7 @@ class OssClient:
     def get_all_objects_in_bucket(self, prefix=None, delimiter=None):
         for obj in oss2.ObjectIterator(self.bucket, prefix=prefix, delimiter=delimiter):
             if obj.is_prefix():  # obj is folder
-                logger.info("directory key: {}".format(obj.key))
+                logger.info(f"directory key: {obj.key}")
             else:  # obj is file
                 logger.info(
                     "file key: {}, object last modified: {}, object size: {}".format(
@@ -161,7 +162,7 @@ class OssClient:
             )
         for obj in oss2.ObjectIterator(self.bucket, prefix=object_folder_name):
             self.bucket.delete_object(obj.key)
-            logger.info("delete object key: {}".format(obj.key))
+            logger.info(f"delete object key: {obj.key}")
 
     def get_oss_url(
         self, object_name, url_expires_time, aliyun_oss_url_prefix, csnt_url_prefix

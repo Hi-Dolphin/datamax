@@ -1,17 +1,15 @@
-import html
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
 
 import chardet
 from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+
 
 # Try to import UNO processor
 try:
@@ -38,17 +36,17 @@ except ImportError:
 class WpsParser(BaseLife):
     """
     WPS Document Parser
-    
+
     Supports parsing WPS format files, mainly including:
     1. Microsoft Works .wps files
     2. WPS Office proprietary format .wps files
-    
+
     Uses LibreOffice as the underlying conversion engine, supporting both UNO API and command line methods
     """
 
     def __init__(
         self,
-        file_path: Union[str, list],
+        file_path: str | list,
         to_markdown: bool = False,
         use_uno: bool = True,
     ):
@@ -59,17 +57,21 @@ class WpsParser(BaseLife):
         # Prefer UNO (unless explicitly disabled)
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info(f"🚀 WpsParser initialized - Using UNO API for single-threaded efficient processing")
+            logger.info(
+                "🚀 WpsParser initialized - Using UNO API for single-threaded efficient processing"
+            )
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
                 logger.warning(
-                    f"⚠️ UNO unavailable, falling back to traditional command line method\n"
-                    f"💡 Tip: UNO conversion is faster and more stable, strongly recommend installing and configuring UNO\n"
-                    f"📖 Please refer to the installation guide in the error message above"
+                    "⚠️ UNO unavailable, falling back to traditional command line method\n"
+                    "💡 Tip: UNO conversion is faster and more stable, strongly recommend installing and configuring UNO\n"
+                    "📖 Please refer to the installation guide in the error message above"
                 )
             else:
-                logger.info(f"🚀 WpsParser initialized - Using traditional command line method")
+                logger.info(
+                    "🚀 WpsParser initialized - Using traditional command line method"
+                )
 
         logger.info(f"📄 File path: {file_path}, Convert to markdown: {to_markdown}")
 
@@ -89,12 +91,14 @@ class WpsParser(BaseLife):
                     logger.error(f"❌ Converted TXT file does not exist: {txt_path}")
                     raise Exception(f"File conversion failed {wps_path} ==> {txt_path}")
                 else:
-                    logger.info(f"🎉 TXT file conversion successful, file path: {txt_path}")
+                    logger.info(
+                        f"🎉 TXT file conversion successful, file path: {txt_path}"
+                    )
                     return txt_path
 
             except Exception as e:
                 logger.error(
-                    f"💥 UNO conversion of WPS file failed: {str(e)}\n"
+                    f"💥 UNO conversion of WPS file failed: {e!s}\n"
                     f"🔍 Diagnostic information:\n"
                     f"   - Error type: {type(e).__name__}\n"
                     f"   - Is LibreOffice installed? Try running: soffice --version\n"
@@ -108,7 +112,9 @@ class WpsParser(BaseLife):
                     f"   3. Check file permissions and paths\n"
                     f'   4. Try manual execution: soffice --headless --convert-to txt "{wps_path}"'
                 )
-                logger.warning("⚠️ Automatically falling back to traditional command line method...")
+                logger.warning(
+                    "⚠️ Automatically falling back to traditional command line method..."
+                )
                 return self._wps_to_txt_subprocess(wps_path, dir_path)
         else:
             # Use traditional subprocess method
@@ -127,7 +133,9 @@ class WpsParser(BaseLife):
             exit_code = process.returncode
 
             if exit_code == 0:
-                logger.info(f"✅ WPS to TXT conversion successful - Exit code: {exit_code}")
+                logger.info(
+                    f"✅ WPS to TXT conversion successful - Exit code: {exit_code}"
+                )
                 if stdout:
                     logger.debug(
                         f"📄 Conversion output: {stdout.decode('utf-8', errors='replace')}"
@@ -140,17 +148,20 @@ class WpsParser(BaseLife):
                 logger.error(
                     f"❌ WPS to TXT conversion failed - Exit code: {exit_code}, Error message: {error_msg}"
                 )
-                
+
                 # Check if it's a format not supported issue
-                if "not supported" in error_msg.lower() or "filter" in error_msg.lower():
+                if (
+                    "not supported" in error_msg.lower()
+                    or "filter" in error_msg.lower()
+                ):
                     logger.warning(
-                        f"⚠️ LibreOffice may not support this WPS file format\n"
-                        f"💡 Suggestions:\n"
-                        f"   1. Check if the WPS file is a valid format\n"
-                        f"   2. Try saving as .doc or .docx format using WPS Office software\n"
-                        f"   3. Confirm if LibreOffice version supports this WPS format"
+                        "⚠️ LibreOffice may not support this WPS file format\n"
+                        "💡 Suggestions:\n"
+                        "   1. Check if the WPS file is a valid format\n"
+                        "   2. Try saving as .doc or .docx format using WPS Office software\n"
+                        "   3. Confirm if LibreOffice version supports this WPS format"
                     )
-                
+
                 raise Exception(
                     f"WPS file conversion failed (detected encoding: {encoding}): {error_msg}"
                 )
@@ -166,10 +177,14 @@ class WpsParser(BaseLife):
                 return txt_path
 
         except subprocess.SubprocessError as e:
-            logger.error(f"💥 Subprocess execution failed: {str(e)}")
-            raise Exception(f"Error occurred while executing WPS conversion command: {str(e)}")
+            logger.error(f"💥 Subprocess execution failed: {e!s}")
+            raise Exception(
+                f"Error occurred while executing WPS conversion command: {e!s}"
+            )
         except Exception as e:
-            logger.error(f"💥 Unknown error occurred during WPS to TXT conversion: {str(e)}")
+            logger.error(
+                f"💥 Unknown error occurred during WPS to TXT conversion: {e!s}"
+            )
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
@@ -186,79 +201,87 @@ class WpsParser(BaseLife):
                 logger.debug(f"🔍 Detected file encoding: {encoding}")
 
             # Read file content
-            with open(txt_path, "r", encoding=encoding, errors="replace") as f:
+            with open(txt_path, encoding=encoding, errors="replace") as f:
                 content = f.read()
 
-            logger.info(f"📄 TXT file reading completed - Content length: {len(content)} characters")
+            logger.info(
+                f"📄 TXT file reading completed - Content length: {len(content)} characters"
+            )
             logger.debug(f"👀 First 100 characters preview: {content[:100]}...")
 
             return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 TXT file not found: {str(e)}")
+            logger.error(f"🚫 TXT file not found: {e!s}")
             raise Exception(f"File not found: {txt_path}")
         except Exception as e:
-            logger.error(f"💥 Error occurred while reading TXT file: {str(e)}")
+            logger.error(f"💥 Error occurred while reading TXT file: {e!s}")
             raise
 
     def detect_wps_format(self, wps_path: str) -> str:
         """Detect the specific format type of WPS file"""
         logger.info(f"🔍 Detecting WPS file format: {wps_path}")
-        
+
         try:
             with open(wps_path, "rb") as f:
                 # Read file header
                 header = f.read(512)
-                
+
                 # Check if it's Microsoft Works format
                 if b"Microsoft Works" in header:
                     logger.info("📋 Detected Microsoft Works WPS format")
                     return "ms_works"
-                
+
                 # Check if it's OLE format (possibly WPS Office format)
                 if header[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
                     logger.info("📋 Detected OLE format WPS file")
                     return "ole_based"
-                
+
                 # Check if it contains WPS Office characteristics
                 if b"WPS" in header or b"Kingsoft" in header:
                     logger.info("📋 Detected WPS Office format")
                     return "wps_office"
-                
+
                 # Default processing as generic WPS format
                 logger.info("📋 Detected generic WPS format")
                 return "generic"
-                
+
         except Exception as e:
-            logger.warning(f"⚠️ Error occurred while detecting WPS format: {str(e)}, using default processing method")
+            logger.warning(
+                f"⚠️ Error occurred while detecting WPS format: {e!s}, using default processing method"
+            )
             return "generic"
 
     def read_wps_file(self, wps_path: str) -> str:
         """Directly read WPS file content (as backup solution)"""
         logger.info(f"📖 Attempting to directly read WPS file content: {wps_path}")
-        
+
         format_type = self.detect_wps_format(wps_path)
-        
+
         try:
             # Use different reading strategies for different formats
             content = ""
-            
+
             if format_type == "ms_works":
                 content = self._read_ms_works_wps(wps_path)
             elif format_type == "ole_based":
                 content = self._read_ole_based_wps(wps_path)
             else:
                 content = self._read_generic_wps(wps_path)
-            
+
             if content and len(content.strip()) > 10:
-                logger.info(f"✅ Direct reading of WPS file successful - Content length: {len(content)} characters")
+                logger.info(
+                    f"✅ Direct reading of WPS file successful - Content length: {len(content)} characters"
+                )
                 return content
             else:
-                logger.warning("⚠️ Direct reading of WPS file content is empty or too short")
+                logger.warning(
+                    "⚠️ Direct reading of WPS file content is empty or too short"
+                )
                 return ""
-                
+
         except Exception as e:
-            logger.error(f"💥 Direct reading of WPS file failed: {str(e)}")
+            logger.error(f"💥 Direct reading of WPS file failed: {e!s}")
             return ""
 
     def _read_ms_works_wps(self, wps_path: str) -> str:
@@ -266,7 +289,7 @@ class WpsParser(BaseLife):
         try:
             with open(wps_path, "rb") as f:
                 data = f.read()
-                
+
                 # Try multiple encodings
                 for encoding in ["utf-8", "gbk", "gb18030", "cp1252", "latin1"]:
                     try:
@@ -277,10 +300,10 @@ class WpsParser(BaseLife):
                             return cleaned_text
                     except:
                         continue
-                        
+
             return ""
         except Exception as e:
-            logger.error(f"💥 Failed to read MS Works WPS file: {str(e)}")
+            logger.error(f"💥 Failed to read MS Works WPS file: {e!s}")
             return ""
 
     def _read_ole_based_wps(self, wps_path: str) -> str:
@@ -289,31 +312,37 @@ class WpsParser(BaseLife):
             # Try to import olefile library to handle OLE format
             try:
                 import olefile
+
                 HAS_OLEFILE = True
             except ImportError:
                 HAS_OLEFILE = False
-                logger.warning("⚠️ olefile library not installed, cannot parse OLE format WPS files")
+                logger.warning(
+                    "⚠️ olefile library not installed, cannot parse OLE format WPS files"
+                )
                 return ""
-            
+
             if HAS_OLEFILE:
                 with olefile.OleFileIO(wps_path) as ole:
                     # Try to extract text content
                     streams = ole.listdir()
                     logger.debug(f"📋 Found OLE streams: {streams}")
-                    
+
                     for stream in streams:
                         try:
-                            if any(name in str(stream).lower() for name in ["content", "text", "body", "document"]):
+                            if any(
+                                name in str(stream).lower()
+                                for name in ["content", "text", "body", "document"]
+                            ):
                                 data = ole.openstream(stream).read()
                                 text = self._try_decode_bytes(data)
                                 if text and len(text.strip()) > 20:
                                     return text
                         except:
                             continue
-            
+
             return ""
         except Exception as e:
-            logger.error(f"💥 Failed to read OLE format WPS file: {str(e)}")
+            logger.error(f"💥 Failed to read OLE format WPS file: {e!s}")
             return ""
 
     def _read_generic_wps(self, wps_path: str) -> str:
@@ -321,28 +350,37 @@ class WpsParser(BaseLife):
         try:
             with open(wps_path, "rb") as f:
                 data = f.read()
-                
+
                 # Try to decode
                 decoded_text = self._try_decode_bytes(data)
                 if decoded_text:
                     return self._extract_readable_text(decoded_text)
-                    
+
             return ""
         except Exception as e:
-            logger.error(f"💥 Failed to read generic WPS file: {str(e)}")
+            logger.error(f"💥 Failed to read generic WPS file: {e!s}")
             return ""
 
     def _try_decode_bytes(self, data: bytes) -> str:
         """Try to decode byte data using multiple encodings"""
         # Prefer Chinese encodings and common encodings
         encodings = [
-            "utf-8", "gbk", "gb18030", "gb2312", "big5",
-            "utf-16-le", "utf-16-be", "cp936", "cp1252", "latin1"
+            "utf-8",
+            "gbk",
+            "gb18030",
+            "gb2312",
+            "big5",
+            "utf-16-le",
+            "utf-16-be",
+            "cp936",
+            "cp1252",
+            "latin1",
         ]
 
         # First try to detect encoding using chardet
         try:
             import chardet
+
             detected = chardet.detect(data)
             if detected["encoding"] and detected["confidence"] > 0.7:
                 encodings.insert(0, detected["encoding"])
@@ -371,7 +409,7 @@ class WpsParser(BaseLife):
         try:
             # Remove control characters, but keep Chinese, English and common punctuation
             lines = []
-            for line in text.split('\n'):
+            for line in text.split("\n"):
                 # Extract readable characters from each line
                 readable_chars = []
                 for char in line:
@@ -385,33 +423,33 @@ class WpsParser(BaseLife):
                     elif char in " .,!?;:()[]{}\"'-_/\\":
                         readable_chars.append(char)
                     # Keep Chinese punctuation
-                    elif char in "，。！？；：""''（）【】《》、":
+                    elif char in "，。！？；：''（）【】《》、":
                         readable_chars.append(char)
-                
+
                 line_text = "".join(readable_chars).strip()
                 if line_text and len(line_text) > 2:
                     lines.append(line_text)
-            
+
             # Merge all valid lines
             result = "\n".join(lines)
-            
+
             # Remove too short meaningless fragments
             if len(result.strip()) < 10:
                 return ""
-            
+
             return result
-            
+
         except Exception as e:
-            logger.error(f"💥 Failed to extract readable text: {str(e)}")
+            logger.error(f"💥 Failed to extract readable text: {e!s}")
             return text
 
     def parse(self, file_path: str):
         """
         Main method for parsing WPS files
-        
+
         Args:
             file_path: WPS file path
-            
+
         Returns:
             MarkdownOutputVo: Object containing parsing results
         """
@@ -435,7 +473,7 @@ class WpsParser(BaseLife):
             source_file=file_path,
             domain="office",
             life_type=LifeType.DATA_PROCESSING,
-            usage_purpose="Starting WPS document parsing"
+            usage_purpose="Starting WPS document parsing",
         )
 
         try:
@@ -452,14 +490,16 @@ class WpsParser(BaseLife):
                     txt_path = self.wps_to_txt(file_path, temp_dir)
                     content = self.read_txt_file(txt_path)
                     extraction_method = "LibreOffice conversion"
-                    
+
                     # Validate conversion result quality
                     if len(content.strip()) < 10:
-                        logger.warning("⚠️ LibreOffice conversion result has too little content, trying other methods")
+                        logger.warning(
+                            "⚠️ LibreOffice conversion result has too little content, trying other methods"
+                        )
                         content = ""
-                        
+
                 except Exception as e:
-                    logger.warning(f"⚠️ LibreOffice conversion failed: {str(e)}")
+                    logger.warning(f"⚠️ LibreOffice conversion failed: {e!s}")
                     content = ""
 
                 # Method 2: Direct reading (as backup solution)
@@ -482,20 +522,24 @@ class WpsParser(BaseLife):
                     content = error_msg
                     extraction_method = "Failed"
 
-                logger.info(f"✅ WPS file parsing completed - Extraction method: {extraction_method}, Content length: {len(content)} characters")
+                logger.info(
+                    f"✅ WPS file parsing completed - Extraction method: {extraction_method}, Content length: {len(content)} characters"
+                )
 
                 # Create return object
                 file_extension = self.get_file_extension(file_path)
                 result = MarkdownOutputVo(file_extension, content)
-                
+
                 # Add lifecycle information
-                result.add_lifecycle(processing_lifecycle)  # Add start processing lifecycle
-                
+                result.add_lifecycle(
+                    processing_lifecycle
+                )  # Add start processing lifecycle
+
                 lifecycle = self.generate_lifecycle(
                     source_file=file_path,
                     domain="office",
                     life_type=LifeType.DATA_PROCESSED,
-                    usage_purpose=f"WPS document parsing - {extraction_method}"
+                    usage_purpose=f"WPS document parsing - {extraction_method}",
                 )
                 result.add_lifecycle(lifecycle)
 
@@ -504,38 +548,38 @@ class WpsParser(BaseLife):
                     logger.info("🔄 Converting content to Markdown format...")
                     markdown_content = self.format_as_markdown(content)
                     result.content = markdown_content
-                    
+
                     # Add Markdown conversion lifecycle
                     markdown_lifecycle = self.generate_lifecycle(
                         source_file=file_path,
                         domain="markdown",
                         life_type=LifeType.DATA_PROCESSED,
-                        usage_purpose="WPS content Markdown formatting"
+                        usage_purpose="WPS content Markdown formatting",
                     )
                     result.add_lifecycle(markdown_lifecycle)
 
                 return result
 
         except Exception as e:
-            logger.error(f"💥 Serious error occurred during WPS file parsing: {str(e)}")
-            
+            logger.error(f"💥 Serious error occurred during WPS file parsing: {e!s}")
+
             # Create error return object
             file_extension = self.get_file_extension(file_path)
-            error_content = f"WPS file parsing failed: {str(e)}"
+            error_content = f"WPS file parsing failed: {e!s}"
             result = MarkdownOutputVo(file_extension, error_content)
-            
+
             # Add lifecycle information
             result.add_lifecycle(processing_lifecycle)  # Add start processing lifecycle
-            
+
             # Add error lifecycle
             error_lifecycle = self.generate_lifecycle(
                 source_file=file_path,
                 domain="error",
                 life_type=LifeType.DATA_PROCESS_FAILED,
-                usage_purpose=f"WPS parsing error: {str(e)}"
+                usage_purpose=f"WPS parsing error: {e!s}",
             )
             result.add_lifecycle(error_lifecycle)
-            
+
             return result
 
     def format_as_markdown(self, content: str) -> str:
@@ -547,17 +591,19 @@ class WpsParser(BaseLife):
             logger.info("📝 Starting to format WPS content as Markdown...")
 
             # Basic Markdown formatting
-            lines = content.split('\n')
+            lines = content.split("\n")
             markdown_lines = []
-            
+
             for line in lines:
                 line = line.strip()
                 if not line:
                     markdown_lines.append("")
                     continue
-                
+
                 # Simple title detection (shorter lines that don't end with punctuation)
-                if len(line) < 50 and not line.endswith(('。', '.', '！', '!', '？', '?')):
+                if len(line) < 50 and not line.endswith(
+                    ("。", ".", "！", "!", "？", "?")
+                ):
                     # Possibly a title
                     if len(line) < 20:
                         markdown_lines.append(f"## {line}")
@@ -566,15 +612,15 @@ class WpsParser(BaseLife):
                 else:
                     # Regular paragraph
                     markdown_lines.append(line)
-                    
-            markdown_content = '\n\n'.join(markdown_lines)
-            
+
+            markdown_content = "\n\n".join(markdown_lines)
+
             # Clean up excessive blank lines
-            markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
-            
+            markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
+
             logger.info("✅ Markdown formatting completed")
             return markdown_content.strip()
-            
+
         except Exception as e:
-            logger.error(f"💥 Markdown formatting failed: {str(e)}")
+            logger.error(f"💥 Markdown formatting failed: {e!s}")
             return content

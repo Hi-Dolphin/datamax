@@ -16,6 +16,7 @@ from paddle.utils import try_import
 from PIL import Image
 from transformers import AutoTokenizer
 
+
 fitz = try_import("fitz")
 
 DEFAULT_IMAGE_TOKEN = "<image>"  # nosec B105 - technical const,not a passward
@@ -233,7 +234,7 @@ def convert_to_markdown(md_content, pdf_path):
     """write into markdown"""
     file_extension = os.path.splitext(pdf_path)[1].lower()
     output_file = (
-        f'./got_output/{os.path.basename(pdf_path).replace(file_extension, ".mmd")}'
+        f"./got_output/{os.path.basename(pdf_path).replace(file_extension, '.mmd')}"
     )
     os.makedirs("got_output", exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
