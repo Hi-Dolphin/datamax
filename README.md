@@ -264,10 +264,14 @@ from datamax import DataMax
 
 text = "人工智能是模拟人类智能的技术。"
 results = DataMax.qa_generator_with_bespokelabs(
-    text,
-    "your-model-name",
-    "your-api-key",
-    "https://api.openai.com/v1"
+    text=text,
+    model_name="your-model-name",
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    qa_num=3,                     # 控制生成问答对数量
+    temperature=0.7,              # 调整输出多样性
+    max_tokens=512,               # 限制返回内容长度
+    return_text_only=True         # 是否只返回问答文本
 )
 print("QA生成结果:", results)
 
