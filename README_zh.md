@@ -236,53 +236,30 @@ DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型�
 ### 1. 通用大模型调用
 
 ```python
-import unittest
-from datamax.parser.core import DataMax
+from datamax import DataMax
 
-class TestCallLLM(unittest.TestCase):
-    def test_call_llm(self):
-        """
-        Test the call_llm_with_bespokelabs method independently.
-        """
-        prompt = "什么是人工智能？"
-        try:
-            result = DataMax.call_llm_with_bespokelabs(
-                prompt=prompt,
-                model_name="your-model-name",
-                api_key="your-api-key",
-                base_url="https://api.openai.com/v1"
-            )
-            print("LLM调用结果文本:", result)
-            self.assertIn("人工智能", str(result))
-        except Exception as e:
-            self.fail(f"call_llm_with_bespokelabs raised Exception: {e}")
-
-if __name__ == '__main__':
-    unittest.main()
+prompt = "什么是人工智能？"
+result = DataMax.call_llm_with_bespokelabs(
+    prompt=prompt,
+    model_name="your-model-name",
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
+)
+print("LLM调用结果文本:", result)
 ```
 ### 2.自动化标注示例 — 自动问答对生成
 
 ```python
-import unittest
-from datamax.parser.core import DataMax
+from datamax import DataMax
 
-class TestQAGenerator(unittest.TestCase):
-    def test_qa_generator(self):
-        try:
-            results = DataMax.qa_generator_with_bespokelabs(
-                "人工智能是模拟人类智能的技术。",
-                "your-model-name",
-                "your-api-key",
-                "https://api.openai.com/v1"
-            )
-            print("QA生成结果:", results)
-            self.assertGreater(len(results), 0)
-            self.assertTrue(any("人工智能" in str(item) for item in results))
-        except Exception as e:
-            self.fail(f"qa_generator_with_bespokelabs raised Exception: {e}")
-
-if __name__ == '__main__':
-    unittest.main()
+text = "人工智能是模拟人类智能的技术。"
+results = DataMax.qa_generator_with_bespokelabs(
+    text,
+    "your-model-name",
+    "your-api-key",
+    "https://api.openai.com/v1"
+)
+print("QA生成结果:", results)
 ```
 ✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
 
