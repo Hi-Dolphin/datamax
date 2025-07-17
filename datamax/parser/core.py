@@ -41,6 +41,7 @@ class ParserFactory:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         use_mineru: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
@@ -107,7 +108,7 @@ class ParserFactory:
                     api_key = api_key,
                     base_url = base_url,
                     model_name = model_name,
-                    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
+                    system_prompt = system_prompt,
                     use_gpu=False
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
@@ -132,6 +133,7 @@ class DataMax(BaseLife):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
@@ -142,6 +144,10 @@ class DataMax(BaseLife):
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param use_mllm: Flag to indicate whether mllm should be used for parse IMAGE file.
+        :param api_key: API key for the model (if using mllm).
+        :param base_url: Base URL for the model API (if using mllm).
+        :param model_name: Name of the model to use (if using mllm).
+        :param system_prompt: System prompt for the model (if using mllm).
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         """
@@ -152,6 +158,7 @@ class DataMax(BaseLife):
         self.api_key = api_key
         self.base_url = base_url
         self.model_name = model_name
+        self.system_prompt = system_prompt or "You are a helpful assistant that accurately describes images in detail."
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
@@ -698,6 +705,7 @@ class DataMax(BaseLife):
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model_name=self.model_name,
+                prompt=self.system_prompt,
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
