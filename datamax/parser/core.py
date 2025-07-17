@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -39,9 +39,10 @@ class ParserFactory:
     def create_parser(
         file_path: str,
         use_mllm: bool = False,
-        api_key: str = None,
-        base_url: str = None,
-        model_name: str = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
@@ -131,7 +132,7 @@ class ParserFactory:
                     api_key = api_key,
                     base_url = base_url,
                     model_name = model_name,
-                    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
+                    system_prompt = system_prompt,
                     use_gpu=False
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
@@ -154,13 +155,13 @@ class DataMax(BaseLife):
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         use_mllm: bool = False,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
         system_prompt: str = "You are a helpful assistant that accurately describes images in detail.",
         to_markdown: bool = False,
         ttl: int = 3600,
-        domain: str = "Technology",
-        api_key: str = None,
-        base_url: str = None,
-        model_name: str = None
+        domain: str = "Technology"
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -193,9 +194,6 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model_name = model_name
 
     def set_data(self, file_name, parsed_data):
         """
