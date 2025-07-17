@@ -213,25 +213,26 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
 
 The QA generator now supports:
 - User-provided domain tree for custom initialization
-- Retry mechanism for LLM calls
+- Retry mechanism for LLM calls (default 3 retries)
 - Fallback to text-only mode if domain tree generation fails
 - Use of domain tree labels for more accurate annotation
 - Interactive domain tree editing for fine-tuning
-
+- Optional distillation mechanism
 
 ```python
 # Enhanced QA generation with domain tree integration and interactive editing
 qa_data = dm.get_pre_label(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo",
-    custom_domain_tree=your_domain_tree, #user's domain tree for custom initialization
-    use_tree_label=True,  # new parameter for domain tree integration
-    interactive_tree=True,  # enable interactive tree editing during QA generation
-    chunk_size=500,
-    chunk_overlap=100,
-    question_number=5,
-    max_workers=5
+    model_name="your-model-name",
+    custom_domain_tree=your_domain_tree,  # User-provided domain tree for initialization
+    use_tree_label=True,  # Use domain tree labels for question classification
+    interactive_tree=True,  # Enable interactive tree editing during QA generation
+    chunk_size=500,  # Text chunk size
+    chunk_overlap=100,  # Overlap length
+    question_number=5,  # Number of questions generated per text chunk
+    max_workers=5,  # Number of concurrent worker threads
+    use_distill=True,  # Enable distillation mechanism, optimize question expression based on domain tree
 )
 ```
 
