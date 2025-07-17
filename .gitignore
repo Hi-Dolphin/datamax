@@ -14,6 +14,8 @@ uploaded_files
 uploaded_files/*
 *.jsonl
 serp*.json
+build
+build/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

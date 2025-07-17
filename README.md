@@ -33,7 +33,7 @@ pip install pydatamax
 from datamax import DataMax
 
 # prepare info
-FILE_PATHS = ["/your/file/path/1.pdf", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
+FILE_PATHS = ["/your/file/path/1.md", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
 LABEL_LLM_API_KEY = "YOUR_API_KEY"
 LABEL_LLM_BASE_URL = "YOUR_BASE_URL"
 LABEL_LLM_MODEL_NAME = "YOUR_MODEL_NAME"
