@@ -3,15 +3,16 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Union, Optional, Any
+from typing import Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
-from datamax.utils.lifecycle_types import LifeType
-from datamax.utils import data_cleaner
-from datamax.parser.base import BaseLife
+
 import datamax.utils.qa_generator as qa_gen
+from datamax.parser.base import BaseLife
+from datamax.utils import data_cleaner
+from datamax.utils.lifecycle_types import LifeType
 
 
 class ModelInvoker:
@@ -41,9 +42,9 @@ class ParserFactory:
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
-        ocr_api_key: str = None,
-        ocr_base_url: str = None,
-        ocr_model_name: str = None,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
     ):
         """
         Create a parser instance based on the file extension.
@@ -52,13 +53,30 @@ class ParserFactory:
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used. (only supported files in .pdf format)
-        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
+        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
-        parser_class_name = {
+
+        # Define extension groups
+        image_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+        code_extensions = [
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".java",
+            ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
+            ".go", ".rs", ".php", ".rb", ".cs", ".swift", ".kt", ".scala"
+        ]
+
+        # Mapping of extensions to (class_name, module_name)
+        parser_map = {}
+        for ext in image_extensions:
+            parser_map[ext] = ("ImageParser", "datamax.parser.image_parser")
+        for ext in code_extensions:
+            parser_map[ext] = ("CodeParser", "datamax.parser.code_parser")
+
+        # Add other parsers
+        document_parsers = {
             ".md": "MarkdownParser",
             ".docx": "DocxParser",
             ".doc": "DocParser",
@@ -69,22 +87,19 @@ class ParserFactory:
             ".pptx": "PptxParser",
             ".ppt": "PptParser",
             ".pdf": "PdfParser",
-            ".jpg": "ImageParser",
-            ".jpeg": "ImageParser",
-            ".png": "ImageParser",
-            ".webp": "ImageParser",
             ".xlsx": "XlsxParser",
             ".xls": "XlsParser",
-        }.get(file_extension)
+            ".csv": "CsvParser",
+        }
+        for ext, class_name in document_parsers.items():
+            module_name = f"datamax.parser.{ext[1:]}_parser"
+            parser_map[ext] = (class_name, module_name)
 
-        if not parser_class_name:
+        mapping = parser_map.get(file_extension)
+        if not mapping:
             return None
 
-        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
-            module_name = f"datamax.parser.image_parser"
-        else:
-            # Dynamically determine the module name based on the file extension
-            module_name = f"datamax.parser.{file_extension[1:]}_parser"
+        parser_class_name, module_name = mapping
 
         try:
             # use_mineru & use_qwen_vl_ocr can't be used at the same time
@@ -97,25 +112,25 @@ class ParserFactory:
             if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
                 raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files currently")
 
-            # Special handling for PdfParser arguments
+            # Instantiate based on parser type
+            common_kwargs = {"file_path": file_path, "domain": domain}
             if parser_class_name == "PdfParser":
                 return parser_class(
-                    file_path=file_path,
                     use_mineru=use_mineru,
                     use_qwen_vl_ocr=use_qwen_vl_ocr,
                     domain=domain,
-                    ocr_api_key=ocr_api_key,
-                    ocr_base_url=ocr_base_url,
-                    ocr_model_name=ocr_model_name,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name
                 )
-            elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
+            elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
+                    to_markdown=to_markdown,
+                    use_uno=True,
+                    **common_kwargs
                 )
-            elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path, domain=domain,)
             else:
-                return parser_class(file_path=file_path, domain=domain,)
+                return parser_class(**common_kwargs)
 
         except (ImportError, AttributeError) as e:
             raise e
@@ -124,15 +139,15 @@ class ParserFactory:
 class DataMax(BaseLife):
     def __init__(
         self,
-        file_path: Union[str, list] = "",
+        file_path: str | list = "",
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
-        ocr_api_key: str = None,
-        ocr_base_url: str = None,
-        ocr_model_name: str = None,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -142,9 +157,9 @@ class DataMax(BaseLife):
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
+        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -155,12 +170,18 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+<<<<<<< HEAD
         self.ocr_api_key = ocr_api_key
         self.ocr_base_url = ocr_base_url
         self.ocr_model_name = ocr_model_name
         # use ocr api as default api
         self.api_key = ocr_api_key
         self.base_url = ocr_base_url
+=======
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model_name = model_name
+>>>>>>> main
 
     def set_data(self, file_name, parsed_data):
         """
@@ -265,7 +286,7 @@ class DataMax(BaseLife):
         except Exception as e:
             raise e
 
-    def clean_data(self, method_list: List[str], text: str = None):
+    def clean_data(self, method_list: list[str], text: str = None):
         """
         Clean data
 
@@ -273,14 +294,14 @@ class DataMax(BaseLife):
 
         :return: Cleaned data
         """
-        # 1) 准备原始内容
+        # 1) Prepare original content
         if text:
             cleaned_text = text
         elif self.parsed_data:
             cleaned_text = self.parsed_data.get("content")
         else:
             raise ValueError("No data to clean.")
-        # 2) 触发“清洗开始”
+        # 2) Trigger "cleaning start"
         lc_start = self.generate_lifecycle(
             source_file=self.file_path,
             domain=self.domain,
@@ -289,16 +310,28 @@ class DataMax(BaseLife):
         ).to_dict()
 
         try:
-            # 3) 执行清洗步骤
+            # 3) Execute cleaning steps
             for method in method_list:
                 if method == "abnormal":
-                    cleaned_text = data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
+                    cleaned_text = (
+                        data_cleaner.AbnormalCleaner(cleaned_text)
+                        .to_clean()
+                        .get("text")
+                    )
                 elif method == "filter":
-                    cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter().get("text", "")
+                    cleaned_text = (
+                        data_cleaner.TextFilter(cleaned_text)
+                        .to_filter()
+                        .get("text", "")
+                    )
                 elif method == "private":
-                    cleaned_text = data_cleaner.PrivacyDesensitization(cleaned_text).to_private().get("text")
+                    cleaned_text = (
+                        data_cleaner.PrivacyDesensitization(cleaned_text)
+                        .to_private()
+                        .get("text")
+                    )
 
-            # 4) 清洗成功，触发“清洗完成”
+            # 4) Cleaning successful, trigger "cleaning completed"
             lc_end = self.generate_lifecycle(
                 source_file=self.file_path,
                 domain=self.domain,
@@ -307,73 +340,78 @@ class DataMax(BaseLife):
             ).to_dict()
 
         except Exception as e:
-            # 5) 清洗失败，触发“清洗失败”
+            # 5) Cleaning failed, trigger "cleaning failed"
             lc_fail = self.generate_lifecycle(
                 source_file=self.file_path,
                 domain=self.domain,
                 life_type=LifeType.DATA_CLEAN_FAILED,
                 usage_purpose="Data Cleaning",
             ).to_dict()
-            # 把失败事件也加入到 parsed_data 中再抛出
+            # Add failure event to parsed_data before raising
             if self.parsed_data and isinstance(self.parsed_data, dict):
                 self.parsed_data.setdefault("lifecycle", []).append(lc_start)
                 self.parsed_data["lifecycle"].append(lc_fail)
             raise
 
-        # 6) 更新 content 并合并生命周期
+        # 6) Update content and merge lifecycles
         if self.parsed_data and isinstance(self.parsed_data, dict):
             origin = self.parsed_data
             origin["content"] = cleaned_text
             origin.setdefault("lifecycle", []).extend([lc_start, lc_end])
-            # 重置 parsed_data 以避免二次污染
+            # Reset parsed_data to avoid secondary contamination
             self.parsed_data = None
             return origin
         else:
-            # 仅返回纯文本时，也可以返回 lifecycle 信息
+            # When returning plain text, also return lifecycle information
             return cleaned_text
 
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
-        
+
         rules:
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
         """
-        base_url = base_url.strip().rstrip('/')
+        base_url = base_url.strip().rstrip("/")
 
         def has_version(path_parts):
             """Check if path contains a version number"""
-            return any(part.startswith('v') and part[1:].isdigit() for part in path_parts)
+            return any(
+                part.startswith("v") and part[1:].isdigit() for part in path_parts
+            )
 
-        if not base_url.startswith('https://'):
-            if base_url.startswith('http://'):
-                base_url = base_url.replace('http://', 'https://')
+        if not base_url.startswith("https://"):
+            if base_url.startswith("http://"):
+                base_url = base_url.replace("http://", "https://")
             else:
-                base_url = f'https://{base_url}'
+                base_url = f"https://{base_url}"
 
         # Check if URL is complete with endpoint
-        if any(x in base_url for x in ['/completions']):
+        if any(x in base_url for x in ["/completions"]):
             return base_url
 
         # Split URL into components
-        parts = base_url.split('/')
+        parts = base_url.split("/")
         domain_part = parts[2]
         path_parts = parts[3:] if len(parts) > 3 else []
 
         # Check if path already has a version
         if has_version(path_parts):
             # Join path parts and clean trailing slash
-            path = '/'.join(path_parts).rstrip('/')
+            path = "/".join(path_parts).rstrip("/")
             # Remove any existing /chat or /completions parts
-            path = path.replace('/chat', '')
+            path = path.replace("/chat", "")
             # Re-add single /chat/completions
             return f"https://{domain_part}/{path}/chat/completions"
         else:
             # Add default version and endpoint (original logic)
-            path = '/'.join(path_parts).rstrip('/')
-            return f"https://{domain_part}/{path}/v1/chat/completions" if path \
+            path = "/".join(path_parts).rstrip("/")
+            return (
+                f"https://{domain_part}/{path}/v1/chat/completions"
+                if path
                 else f"https://{domain_part}/v1/chat/completions"
+            )
 
     def get_pre_label(
         self,
@@ -391,8 +429,12 @@ class DataMax(BaseLife):
         use_tree_label: bool = False,
         messages: list = None,
         interactive_tree: bool = False,
+<<<<<<< HEAD
         custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
         use_distill: bool = False,
+=======
+        custom_domain_tree: list[dict[str, Any]] | None = None,
+>>>>>>> main
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -427,6 +469,7 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
+<<<<<<< HEAD
         
         # 优先使用实例变量中的api_key和base_url，如果方法参数中没有提供的话
         if api_key is None:
@@ -443,12 +486,15 @@ class DataMax(BaseLife):
             raise ValueError("Model name is required.")
             
         # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
+=======
+        # If content is passed externally, use it directly; otherwise go through parse/clean process
+>>>>>>> main
         data = []
         if content is not None:
             text = content
         else:
             processed = self.get_data()
-            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
+            # Consistent with original logic, convert multiple files or dict/str to a single string
             if isinstance(processed, list):
                 parts = [d["content"] if isinstance(d, dict) else d for d in processed]
                 text = "\n\n".join(parts)
@@ -459,7 +505,7 @@ class DataMax(BaseLife):
             print(text)
             file_path = self.file_path
 
-        # 打点：开始 DATA_LABELLING
+        # Mark: start DATA_LABELLING
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
             self.parsed_data.setdefault("lifecycle", []).append(
                 self.generate_lifecycle(
@@ -472,7 +518,7 @@ class DataMax(BaseLife):
         try:
             base_url = qa_gen.complete_api_url(base_url)
             if use_mllm and self.use_mineru:
-                logger.info("使用多模态QA生成器...")
+                logger.info("Using multimodal QA generator...")
                 if isinstance(self.file_path, list):
                     file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
                 elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
@@ -483,18 +529,16 @@ class DataMax(BaseLife):
                     ]
                 file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
                 from datamax.utils import multimodal_qa_generator as generator_module
-                for file_name in file_names:
-                    new_data = generator_module.generatr_qa_pairs(
-                        file_path=file_name,
-                        api_key=api_key,
-                        base_url=base_url,
-                        model_name=model_name,
-                        question_number=question_number,
-                        max_workers=max_workers,
-                    )
-                    data = data + new_data
+                data = generator_module.generatr_qa_pairs(
+                file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                question_number=question_number,
+                max_workers=max_workers,
+            )
             else:
-                logger.info("使用标准QA生成器...")
+                logger.info("Using standard QA generator...")
                 data = qa_gen.full_qa_labeling_process(
                     content=text,
                     api_key=api_key,
@@ -508,11 +552,16 @@ class DataMax(BaseLife):
                     messages=messages,
                     interactive_tree=interactive_tree,
                     custom_domain_tree=custom_domain_tree,
+<<<<<<< HEAD
                     use_mineru=self.use_mineru,  # 传递use_mineru参数
                     use_distill=use_distill,  # 传递use_distill参数
+=======
+                    use_mineru=self.use_mineru,  # Pass use_mineru parameter
+>>>>>>> main
             )
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-                # 打点：成功 DATA_LABELLED
+                # Mark: success DATA_LABELLED
+
                 self.parsed_data["lifecycle"].append(
                     self.generate_lifecycle(
                         source_file=self.file_path,
@@ -523,23 +572,22 @@ class DataMax(BaseLife):
                 )
             # show preview of the first 10 qa pairs
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                print("\n===== 预览前10条QA对 =====")
+                print("\n===== Preview of first 10 QA pairs =====")
                 for i, qa in enumerate(data[:10]):
-                    print(f"\n--- QA对 {i+1} ---")
-                    print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
-                    print(f"答案: {qa.get('output', 'N/A')}")
-                    print(f"标签: {qa.get('label', 'N/A')}")
+                    print(f"\n--- QA pair {i+1} ---")
+                    print(f"Question: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(f"Answer: {qa.get('output', 'N/A')}")
+                    print(f"Label: {qa.get('label', 'N/A')}")
                 print("========================\n")
             return data
         except ImportError as e:
-            logger.error(f"无法导入生成器模块: {e}")
-
+            logger.error(f"Cannot import generator module: {e}")
         except Exception as e:
-            logger.error(f"生成预标注数据时发生错误: {e}")
+            logger.error(f"Error occurred while generating pre-labeled data: {e}")
             import traceback
             traceback.print_exc()
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-            # 打点：失败 DATA_LABEL_FAILED
+            # Mark: failure DATA_LABEL_FAILED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
@@ -645,7 +693,7 @@ class DataMax(BaseLife):
 
     def split_data(
         self,
-        parsed_data: Union[str, dict] = None,
+        parsed_data: str | dict = None,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         use_langchain: bool = False,
@@ -713,9 +761,9 @@ class DataMax(BaseLife):
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,
-                ocr_api_key=self.ocr_api_key,
-                ocr_base_url=self.ocr_base_url,
-                ocr_model_name=self.ocr_model_name,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model_name=self.model_name,
             )
             if parser:
                 return parser.parse(file_path=file_path)

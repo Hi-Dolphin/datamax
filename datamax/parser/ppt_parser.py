@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
 
 import chardet
 from loguru import logger
@@ -12,7 +11,7 @@ from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.ppt_extract import PPtExtractor
 
-# 尝试导入UNO处理器
+# Try to import UNO handler
 try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
 except ImportError:
@@ -20,11 +19,16 @@ except ImportError:
 
 
 class PptParser(BaseLife):
-    def __init__(self, file_path: Union[str, list], use_uno: bool = None, domain: str = "Technology"):
+    def __init__(
+        self,
+        file_path: str | list,
+        use_uno: bool = None,
+        domain: str = "Technology",
+    ):
         super().__init__(domain=domain)
         self.file_path = file_path
 
-        # 自动检测是否使用UNO（如果未指定）
+        # Auto-detect whether to use UNO (if not specified)
         if use_uno is None:
             self.use_uno = HAS_UNO
         else:
@@ -32,7 +36,7 @@ class PptParser(BaseLife):
 
     def ppt_to_pptx(self, ppt_path: str, dir_path: str) -> str:
         if self.use_uno:
-            # 使用UNO API进行转换
+            # Use UNO API for conversion
             try:
                 pptx_path = convert_with_uno(ppt_path, "pptx", dir_path)
 
@@ -43,7 +47,7 @@ class PptParser(BaseLife):
                 else:
                     return pptx_path
 
-            except Exception as e:
+            except Exception:
                 if (
                     hasattr(self, "_fallback_to_subprocess")
                     and self._fallback_to_subprocess
@@ -51,11 +55,11 @@ class PptParser(BaseLife):
                     return self._ppt_to_pptx_subprocess(ppt_path, dir_path)
                 raise
         else:
-            # 使用传统的subprocess方式
+            # Use traditional subprocess method
             return self._ppt_to_pptx_subprocess(ppt_path, dir_path)
 
     def _ppt_to_pptx_subprocess(self, ppt_path: str, dir_path: str) -> str:
-        """使用subprocess将.ppt文件转换为.pptx文件（传统方式）"""
+        """Convert .ppt file to .pptx file using subprocess (traditional method)"""
         cmd = f'soffice --headless --convert-to pptx "{ppt_path}" --outdir "{dir_path}"'
         process = subprocess.Popen(
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -108,28 +112,28 @@ class PptParser(BaseLife):
             raise
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
-        # —— 生命周期：开始处理 PPT —— #
+        # —— Lifecycle: Start processing PPT —— #
         lc_start = self.generate_lifecycle(
             source_file=file_path,
             domain=self.domain,
             usage_purpose="Documentation",
             life_type=LifeType.DATA_PROCESSING,
         )
-        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+        logger.debug("⚙️ DATA_PROCESSING lifecycle generated")
 
         try:
             extension = self.get_file_extension(file_path)
             content = self.read_ppt_file(file_path=file_path)
             mk_content = content
 
-            # —— 生命周期：处理完成 —— #
+            # —— Lifecycle: Processing completed —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
-            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
+            logger.debug("⚙️ DATA_PROCESSED lifecycle generated")
 
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
@@ -137,16 +141,16 @@ class PptParser(BaseLife):
             return output_vo.to_dict()
 
         except Exception as e:
-            # —— 生命周期：处理失败 —— #
+            # —— Lifecycle: Processing failed —— #
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+            logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
 
-            # 返回包含失败生命周期的异常信息
+            # Return exception info with failure lifecycle
             raise Exception(
                 {
                     "error": str(e),

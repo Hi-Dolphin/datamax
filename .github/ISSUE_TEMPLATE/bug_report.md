@@ -1,30 +1,30 @@
 ---
-name: Bug报告
-about: 创建bug报告以帮助我们改进
+name: Bug Report
+about: Create a bug report to help us improve
 title: '[BUG] '
 labels: bug
 assignees: ''
 ---
 
-## 问题描述
-简要描述遇到的问题。
+## Issue Description
+A brief description of the issue encountered.
 
-## 重现步骤
-1. 执行 '...'
-2. 查看 '....'
-3. 滚动到 '....'
-4. 出现错误
+## Steps to Reproduce
+1. Execute '...'
+2. View '....'
+3. Scroll to '....'
+4. Error occurs
 
-## 预期行为
-描述您期望发生的情况。
+## Expected Behavior
+Describe what you expected to happen.
 
-## 实际行为
-描述实际发生的情况。
+## Actual Behavior
+Describe what actually happened.
 
-## 环境信息
-- OS: [例如 Windows 10, Ubuntu 20.04]
-- Python版本: [例如 3.10.5]
-- DataMax版本: [例如 0.1.11]
+## Environment Information
+- OS: [e.g. Windows 10, Ubuntu 20.04]
+- Python version: [e.g. 3.10.5]
+- DataMax version: [e.g. 0.1.11]
 
-## 附加信息
-添加任何其他相关信息、截图等。
+## Additional Information
+Add any other relevant information, screenshots, etc.
