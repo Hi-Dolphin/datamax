@@ -289,14 +289,6 @@ class PdfParser(BaseLife):
             elif self.use_mineru:
                 output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
-                # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
-                # if os.path.exists(output_mineru):
-                #     pass
-                # else:
-                # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
-                # mk_content = open(output_mineru, 'r', encoding='utf-8').read()
-
-                # TODO: Check if it's necessary to keep consistent with API's default save path
                 output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
 
                 if os.path.exists(output_mineru):
