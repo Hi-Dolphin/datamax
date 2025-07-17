@@ -4,7 +4,15 @@ target/
 *.iml
 *.xml
 /logs
-
+.claude
+.claude/*
+__temp__
+__temp__/*
+_temp_
+_temp_/*
+uploaded_files
+uploaded_files/*
+*.jsonl
 serp*.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
