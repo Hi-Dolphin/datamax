@@ -31,8 +31,27 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# 解析单个文件，默认 domain="Technology"
+# 使用pymupdf解析单个pdf文件
 dm = DataMax(file_path="document.pdf")
+data = dm.get_data()
+
+# 使用ocr解析单个pdf文件
+dm = DataMax(file_path="document.pdf",use_ocr = True)
+data = dm.get_data()
+
+# 使用mineru解析单个pdf文件或图片
+dm = DataMax(file_path="document.pdf/jpg",use_mineru = True)
+data = dm.get_data()
+
+# 使用多模态模型解析单个图片
+dm = DataMax(
+    file_path="picture.jpg",
+    use_mllm = True,
+    api_key = "sk-xxx",
+    base_url = "https://api.provider.com/v1",
+    model_name = "model-name",
+    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
+)
 data = dm.get_data()
 
 # 批量处理

@@ -31,8 +31,27 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# Parse a single file, default domain="Technology"
+# Parse a single pdf file using pymupdf
 dm = DataMax(file_path="document.pdf")
+data = dm.get_data()
+
+# Parse a single pdf file using ocr
+dm = DataMax(file_path="document.pdf",use_ocr = True)
+data = dm.get_data()
+
+# Parse a single pdf or image file using mineru
+dm = DataMax(file_path="document.pdf/jpg",use_mineru = True)
+data = dm.get_data()
+
+# Parse a single image file using mllm
+dm = DataMax(
+    file_path="picture.jpg",
+    use_mllm = True,
+    api_key = "sk-xxx",
+    base_url = "https://api.provider.com/v1",
+    model_name = "model-name",
+    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
+)
 data = dm.get_data()
 
 # Batch processing
