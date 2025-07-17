@@ -42,9 +42,9 @@ class ParserFactory:
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
-        ocr_api_key: str = None,
-        ocr_base_url: str = None,
-        ocr_model_name: str = None,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
     ):
         """
         Create a parser instance based on the file extension.
@@ -53,9 +53,9 @@ class ParserFactory:
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used. (only supported files in .pdf format)
-        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
+        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -118,10 +118,10 @@ class ParserFactory:
                 return parser_class(
                     use_mineru=use_mineru,
                     use_qwen_vl_ocr=use_qwen_vl_ocr,
-                    ocr_api_key=ocr_api_key,
-                    ocr_base_url=ocr_base_url,
-                    ocr_model_name=ocr_model_name,
-                    **common_kwargs
+                    domain=domain,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name
                 )
             elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
                 return parser_class(
@@ -145,9 +145,9 @@ class DataMax(BaseLife):
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
-        ocr_api_key: str = None,
-        ocr_base_url: str = None,
-        ocr_model_name: str = None,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -157,9 +157,9 @@ class DataMax(BaseLife):
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
+        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -170,9 +170,9 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
-        self.ocr_api_key = ocr_api_key
-        self.ocr_base_url = ocr_base_url
-        self.ocr_model_name = ocr_model_name
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model_name = model_name
 
     def set_data(self, file_name, parsed_data):
         """
@@ -722,9 +722,9 @@ class DataMax(BaseLife):
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,
-                ocr_api_key=self.ocr_api_key,
-                ocr_base_url=self.ocr_base_url,
-                ocr_model_name=self.ocr_model_name,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model_name=self.model_name,
             )
             if parser:
                 return parser.parse(file_path=file_path)
