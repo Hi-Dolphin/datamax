@@ -522,6 +522,7 @@ class DataMax(BaseLife):
             )
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 # Mark: success DATA_LABELLED
+
                 self.parsed_data["lifecycle"].append(
                     self.generate_lifecycle(
                         source_file=self.file_path,
@@ -542,7 +543,6 @@ class DataMax(BaseLife):
             return data
         except ImportError as e:
             logger.error(f"Cannot import generator module: {e}")
-
         except Exception as e:
             logger.error(f"Error occurred while generating pre-labeled data: {e}")
             import traceback
