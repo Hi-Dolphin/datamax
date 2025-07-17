@@ -2,97 +2,109 @@
 
 <div align="center">
 
-[中文](README_zh.md) | **English**
+**中文** | [English](README.md)
 
-[![PyPI version](https://badge.fury.io/py/pydatamax.svg)](https://badge.fury.io/py/pydatamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://badge.fury.io/py/datamax.svg)](https://badge.fury.io/py/datamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
-A powerful multi-format file parsing, data cleaning, and AI annotation toolkit.
+一个强大的多格式文件解析、数据清洗和AI标注工具包，为现代Python应用而建。
 
-## ✨ Core Features
+## ✨ 主要功能
 
-- 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
-- 🧹 **Intelligent Cleaning**: Three-layer cleaning process with anomaly detection, privacy protection, and text filtering
-- 🤖 **AI Annotation**: LLM-based automatic data annotation and pre-labeling
-- ⚡ **Batch Processing**: Efficient multi-file parallel processing
-- 🎯 **Easy Integration**: Clean API design, ready to use out of the box
+- 🔄 **多格式支持**：PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, 图像 等
 
-## 🚀 Quick Start
+- 🧹 **智能清洗**：高级数据清洗，包括异常检测、隐私保护和文本过滤
 
-### Installation
+- 🤖 **AI标注**：基于LLM的自动标注和QA生成
+
+- ⚡ **高性能**：高效的批处理，带有缓存和并行执行
+
+- 🎯 **开发者友好**：现代SDK设计，带有类型提示、配置管理和全面错误处理
+
+- ☁️ **云就绪**：内置支持OSS、MinIO和其他云存储提供商
+
+## 🚀 快速开始
+
+### 安装
 
 ```bash
 pip install pydatamax
 ```
 
-### Basic Usage
+### 示例
 
 ```python
 from datamax import DataMax
 
-# Parse a single file, default domain="Technology"
-dm = DataMax(file_path="document.pdf")
-data = dm.get_data()
+# prepare info
+FILE_PATHS = ["/your/file/path/1.pdf", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
+LABEL_LLM_API_KEY = "YOUR_API_KEY"
+LABEL_LLM_BASE_URL = "YOUR_BASE_URL"
+LABEL_LLM_MODEL_NAME = "YOUR_MODEL_NAME"
+LLM_TRAIN_OUTPUT_FILE_NAME = "train"
 
-# Batch processing
-dm = DataMax(file_path=["file1.docx", "file2.pdf"])
-data = dm.get_data()
+# init client
+client = DataMax(file_path=FILE_PATHS)
 
-# Specify domain（preset values：Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science；custom options also available）
-dm = DataMax(file_path="report.pdf", domain="Finance")
-data = dm.get_data()
+# get pre label. return trainable qa list
+qa_list = client.get_pre_label(
+    api_key=LABEL_LLM_API_KEY,
+    base_url=LABEL_LLM_BASE_URL,
+    model_name=LABEL_LLM_MODEL_NAME,
+    question_number=10,
+    max_workers=5)
 
-# Data cleaning
-cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
-
-# AI annotation
-qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # 文本块大小
-    chunk_overlap=100,     # 重叠长度
-    question_number=5,     # 每块生成问题数
-    max_workers=5          # 并发数
-)
-dm.save_label_data(qa_data)
+# save label data
+client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 ```
 
-## 📖 Detailed Documentation
+<<<<<<< HEAD
+## 📖 详细文档
 
-### File Parsing
+### 文件解析
 
 #### 可选参数：domain
-All parsers support an optional domain: str parameter for specifying the business domain, with "Technology" set as the default value.
-Predefined domain options include：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，Custom strings can also be passed as needed.
+所有解析器均支持一个可选的 domain: str 参数，用于记录业务领域，默认值为 "Technology"。
+预置领域列表：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，也可以传入任意自定义字符串。
 
-#### Supported Formats
+#### 支持的格式
 
-| Format | Extensions | Special Features |
-|--------|------------|------------------|
-| Documents | `.pdf`, `.docx`, `.doc` | OCR support, Markdown conversion |
-| Spreadsheets | `.xlsx`, `.xls` | Structured data extraction |
-| Presentations | `.pptx`, `.ppt` | Slide content extraction |
-| Web | `.html`, `.epub` | Tag parsing |
-| Images | `.jpg`, `.png`, `.jpeg` | OCR text recognition |
-| Text | `.txt` | Automatic encoding detection |
+| 格式 | 扩展名 | 特殊功能 |
+|------|--------|----------|
+| 文档 | `.pdf`, `.docx`, `.doc` | OCR支持、Markdown转换 |
+| 表格 | `.xlsx`, `.xls` | 结构化数据提取 |
+| 演示 | `.pptx`, `.ppt` | 幻灯片内容提取 |
+| 网页 | `.html`, `.epub` | 标签解析 |
+| 图片 | `.jpg`, `.png`, `.jpeg` | OCR文字识别 |
+| 文本 | `.txt` | 编码自动检测 |
 
-#### Advanced Features
+#### 高级功能
 
 ```python
-# Advanced PDF parsing (requires MinerU)
+# PDF高级解析（需要MinerU）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
-# Word to Markdown conversion
+# PDF OCR解析（需要API凭证）（当前仅支持qwen-vl-ocr[-latest]模型）
+# tips: 请注意，use_qwen_vl_ocr参数用于图片或pdf的文字识别。
+dm = DataMax(
+    file_path="scanned.pdf", 
+    use_qwen_vl_ocr=True,
+    ocr_api_key="your-api-key",
+    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ocr_model_name="qwen-vl-ocr"
+)
+
+# Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# Image OCR
-dm = DataMax(file_path="image.jpg", use_ocr=True)
+# 图片 (需要安装mineru)
+dm = DataMax(file_path="image.jpg")
 ```
-### Batch Processing
+
+### 批处理解析
 ```python
-# Parse multiple files in batch
+# 批量解析多个文件
 dm = DataMax(
     file_path=["file1.pdf", "file2.docx"],
     use_mineru=True
@@ -100,90 +112,89 @@ dm = DataMax(
 data = dm.get_data()
 ```
 
-### Cache parsed results
+### 文件缓存
 ```python
-# Cache parsed results to avoid repeated parsing
+# 缓存解析结果，避免重复解析
 dm = DataMax(
     file_path=["file1.pdf", "file2.docx"],
-    ttl=3600  # Cache duration in seconds, default 3600s, 0 means no caching
+    ttl=3600  # 缓存时间，单位秒, 默认3600秒, 如果为0则不缓存
 )
 data = dm.get_data()
 ```
 
-### Data Cleaning
-## Exception Handling
+### 数据清洗
+## 异常处理
 
-- remove_abnormal_chars Remove abnormal characters from text
-- remove_html_tags Remove HTML tags
-- convert_newlines Convert \r to \n and merge multiple \n into single \n
-- single_space Convert multiple spaces (more than 2) to single space
-- tabs_to_spaces Convert tabs to 4 spaces
-- remove_invisible_chars Remove invisible ASCII characters
-- simplify_chinese Convert traditional Chinese to simplified Chinese
+- remove_abnormal_chars 从文本中移除异常字符
+- remove_html_tags 移除HTML标签
+- convert_newlines 将\r转换为\n并将多个\n合并为单个\n
+- single_space 将多个空格(2个以上)转换为单个空格
+- tabs_to_spaces 将制表符转换为4个空格
+- remove_invisible_chars 移除不可见ASCII字符
+- simplify_chinese 将繁体中文转换为简体中文
 
-## Text Filtering
+## 文本过滤
 
-- filter_by_word_repetition Filter by word repetition rate
-- filter_by_char_count Filter by character count
-- filter_by_numeric_content Filter by numeric content ratio
+- filter_by_word_repetition 词重复率过滤
+- filter_by_char_count 按字符数量过滤
+- filter_by_numeric_content 按数字占比过滤
 
-## Privacy Desensitization
+## 隐私脱敏
 
 - replace_ip
 - replace_email
-- replace_customer_number Clean hotline numbers like 4008-123-123
+- replace_customer_number   4008-123-123 清洗热线电话
 - replace_bank_id
 - replace_phone_number
 - replace_qq
 - replace_id_card
 
 
-
 ```python
-# Three cleaning modes
+# 三种清洗模式(快速使用不支持自定义)
 dm.clean_data(method_list=[
-    "abnormal",  # Anomaly data processing
-    "private",   # Privacy information masking
-    "filter"     # Text filtering and normalization
+    "abnormal",  # 异常数据处理
+    "private",   # 隐私信息脱敏
+    "filter"     # 文本过滤规范化
 ])
 
-# Custom cleaning mode
+# 自定义清洗流程(支持自定义)
 from datamax.utils.data_cleaner import TextFilter, PrivacyDesensitization, AbnormalCleaner
 dm = DataMax(
-    file_path=r"C:\Users\cykro\Desktop\HongKongDevMachine.txt"
+    file_path=r"C:\Users\cykro\Desktop\香港开发机.txt"
 )
 parsed_data = dm.get_data().get('content')
-# 1. Text filtering
+# 1. 文本过滤
 tf = TextFilter(parsed_data=parsed_data)
-    # Word repetition filtering - default threshold is 0.6 (max 60% of characters can be repeated)
+    # 词重复率过滤 参数 threshold 默认为 0.6，即文本中最多允许 60% 的字符是重复的
 tf_bool = tf.filter_by_word_repetition(threshold=0.6)
 if tf_bool:
-    print("Text passed word repetition filtering")
+    print("文本通过词重复率过滤")
 else:
-    print("Text failed word repetition filtering")
+    print("文本未通过词重复率过滤")
     
-# Character count filtering - default min_chars=30 (minimum 30 chars), max_chars=500000 (maximum 500000 chars)
+# 按字符数量过滤 参数 min_chars 默认为 30，即文本中最少允许 30 个字符, max_chars 默认为 500000，即文本中最多允许 500000 个字符
 tf_bool = tf.filter_by_char_count(min_chars=30, max_chars=500000)
 if tf_bool:
-    print("Text passed character count filtering")
+    print("文本通过字符数量过滤")
 else:
-    print("Text failed character count filtering")
+    print("文本未通过字符数量过滤")
 
-# Numeric content filtering - default threshold=0.6 (max 60% of characters can be digits)
+# 按数字占比过滤 参数 threshold 默认为 0.6，即文本中最多允许 60% 的字符是数字
 tf_bool = tf.filter_by_numeric_content(threshold=0.6)
 if tf_bool:
-    print("Text passed numeric ratio filtering")
+    print("文本通过数字比例过滤")
 else:
-    print("Text failed numeric ratio filtering")
+print("文本未通过数字比例过滤")
 
-# 2. Privacy desensitization
+# 2. 隐私脱敏
 pd = PrivacyDesensitization(parsed_data=parsed_data)
 res = pd.replace_ip(
     token="MyIP"
 )
 print(res)
 
-# 3. Abnormal character cleaning
+# 3. 异常字符清洗
 ac = AbnormalCleaner(parsed_data=parsed_data)
 res = ac.remove_abnormal_chars()
 res = ac.remove_html_tags()
@@ -194,48 +205,81 @@ res = ac.remove_invisible_chars()
 res = ac.simplify_chinese()
 print(res)
 ```
-# Text Segmentation
+
+### 文本切分
+
 ```python
 dm.split_data(
-    chunk_size=500,      # Chunk size
-    chunk_overlap=100,    # Overlap length
-    use_langchain=True   # Use LangChain for text segmentation
+    chunk_size=500,      # 文本块大小
+    chunk_overlap=100,    # 重叠长度
+    use_langchain=True  # 使用LangChain进行文本切分
 )
 
-# When use_langchain is False, use custom segmentation method
-# Using 。！？ as separators, consecutive separators will be merged
-# chunk_size strictly limits the string length
+# 当use_langchain为False时，使用自定义切分方法
+# 。！？作为分隔符，连续的分隔符会被合并 chunk_size是严格的字符串长度不会超过
 for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=False).get("content"):
     print(chunk)
 ```
 
-### Enhanced QA Generation
+### 增强QA生成
 
-The QA generator now supports:
-- User-provided domain tree for custom initialization
-- Retry mechanism for LLM calls
-- Fallback to text-only mode if domain tree generation fails
-- Use of domain tree labels for more accurate annotation
-- Interactive domain tree editing for fine-tuning
-
+QA生成器现在支持：
+- 用户传入领域树以自定义初始化
+- LLM调用失败重试机制
+- 领域树生成失败时回退到纯文本QA生成模式
+- 使用领域树标签进行更准确的标注
+- 交互式领域树编辑进行精细调优
 
 ```python
-# Enhanced QA generation with domain tree integration and interactive editing
+# 增强QA生成，集成领域树和交互式编辑
 qa_data = dm.get_pre_label(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo",
-    custom_domain_tree=your_domain_tree, #user's domain tree for custom initialization
-    use_tree_label=True,  # new parameter for domain tree integration
-    interactive_tree=True,  # enable interactive tree editing during QA generation
+    model_name="your-model-name",
+    custom_domain_tree=your_domain_tree,  #用户传入自定义树以初始化
+    use_tree_label=True,  # 使用领域树标签
+    interactive_tree=True,  # 在QA生成过程中启用交互式树编辑
     chunk_size=500,
     chunk_overlap=100,
     question_number=5,
-    max_workers=5
+    max_workers=5   
 )
-```
 
-### AI Annotation for multimodal files
+
+```
+## 🔥 基于 Bespokelabs-Curator 的大模型集成
+DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型，实现多样化的自动化标注能力。
+### 1. 通用大模型调用
+
+```python
+from datamax import DataMax
+
+prompt = "什么是人工智能？"
+result = DataMax.call_llm_with_bespokelabs(
+    prompt=prompt,
+    model_name="your-model-name",
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
+)
+print("LLM调用结果文本:", result)
+```
+### 2.自动化标注示例 — 自动问答对生成
+
+```python
+from datamax import DataMax
+
+text = "人工智能是模拟人类智能的技术。"
+results = DataMax.qa_generator_with_bespokelabs(
+    text,
+    "your-model-name",
+    "your-api-key",
+    "https://api.openai.com/v1"
+)
+print("QA生成结果:", results)
+```
+✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
+
+### 接入多模态模型进行AI标注
 
 ```python
 import os
@@ -283,37 +327,36 @@ if __name__ == "__main__":
     main()
 ```
 
+## ⚙️ 环境配置
 
-## ⚙️ Environment Setup
+### 可选依赖
 
-### Optional Dependencies
-
-#### LibreOffice (DOC file support)
+#### LibreOffice（DOC文件支持）
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install libreoffice
+apt update && apt install -y libreoffice libreoffice-dev python3-uno
 ```
 
 **Windows:**
-1. Download and install [LibreOffice](https://www.libreoffice.org/download/)
-2. Add to environment variables: `C:\Program Files\LibreOffice\program`
+1. 下载安装 [LibreOffice](https://www.libreoffice.org/download/)
+2. 添加到环境变量: `C:\Program Files\LibreOffice\program`
 
-#### MinerU (Advanced PDF parsing)
+#### MinerU（高级PDF解析）
 
 ```bash
-# 1.Install MinerU in virtual environment
+# 1.安装MinerU
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
 
-# 2.Install the models
+# 2.安装模型
 python datamax/scripts/download_models.py
 ```
 
-For detailed configuration, please refer to [MinerU Documentation](https://github.com/opendatalab/MinerU)
+详细配置请参考 [MinerU文档](https://github.com/opendatalab/MinerU)
 
-## 🛠️ Development
+## 🛠️ 开发
 
-### Local Installation
+### 本地安装
 
 ```bash
 git clone https://github.com/Hi-Dolphin/datamax.git
@@ -322,77 +365,48 @@ pip install -r requirements.txt
 python setup.py install
 ```
 
-### Developer Mode
+### 本地调试
 
-For developers who want to contribute to the project or make modifications, we recommend using developer mode for a better development experience.
+```python
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-#### Setup Developer Mode
+from datamax import DataMax
 
-```bash
-# Clone the repository
-git clone https://github.com/Hi-Dolphin/datamax.git
-cd datamax
-
-# Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install in developer mode
-pip install -e .
+# 示例代码
+dm = DataMax(file_path="test.pdf")
+data = dm.get_data()
+print(data)
 ```
 
-#### Benefits of Developer Mode
 
-- **Live Updates**: Changes to source code are immediately reflected without reinstallation
-- **Easy Testing**: Test your modifications instantly
-- **Debugging**: Better debugging experience with direct access to source code
-- **Development Workflow**: Seamless integration with your development environment
-
-#### Development Commands
-
-```bash
-# Run tests
-pytest
-
-# Install development dependencies
-pip install -r requirements-dev.txt  # if available
-
-# Check code style
-flake8 datamax/
-black datamax/
-
-# Build package
-python setup.py sdist bdist_wheel
-```
-
-#### Making Changes
-
-After installing in developer mode, you can:
-
-1. Edit source code in the `datamax/` directory
-2. Changes are automatically available when you import the module
-3. Test your changes immediately without reinstalling
-4. Submit pull requests with your improvements
-
-## 📋 System Requirements
+## 📋 系统要求
 
 - Python >= 3.10
-- Supports Windows, macOS, Linux
+- 支持 Windows、macOS、Linux
 
-## 🤝 Contributing
+=======
+>>>>>>> upstream/main
+## 🤝 贡献
 
-Issues and Pull Requests are welcome!
+欢迎提出 Issues 和 Pull Requests！
 
-## 📄 License
+## 📄 许可
 
-This project is licensed under the [MIT License](LICENSE).
+本项目基于 [MIT License](LICENSE) 许可。
 
-## 📞 Contact Us
+## 📞 联系我们
 
-- 📧 Email: cy.kron@foxmail.com
-- 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
-- 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
-- 💬 Wechat Group: <br><img src='wechat.png' width=300>
+- 📧 邮箱: cy.kron@foxmail.com
+- 🐛 问题: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
+- 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
+- 💬 微信群: <br><img src='wechat.jpg' width=300>
+
 ---
 
-⭐ If this project helps you, please give us a star!
+<<<<<<< HEAD
+⭐ 如果这个项目对您有帮助，请给我们一个星标！
+=======
+⭐ 如果这个项目对你有帮助，请给我们一个星！
+>>>>>>> upstream/main
