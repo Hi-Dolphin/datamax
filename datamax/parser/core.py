@@ -18,7 +18,7 @@ from typing import Tuple, List, Any
 
 from bespokelabs import curator
 from pydantic import BaseModel
-
+from bespokelabs.curator.llm.llm import LLM
 logger = logging.getLogger(__name__)
 
 class ModelInvoker:
@@ -173,44 +173,45 @@ class DataMax(BaseLife):
             model_name: str,
             api_key: str,
             base_url: str,
-    ) -> Tuple[str, str]:
+            timeout: int = 30,
+    ) -> tuple[str, str]:
         """
-        Call the BespokeLabs Curator LLM API with a given prompt.
+        Call the BespokeLabs Curator LLM interface to return the text content and status(success/fail)。
 
         Args:
-            prompt (str): Input text prompt for the LLM.
-            model_name (str): The model name to use.
-            api_key (str): API key for authentication.
-            base_url (str): Base URL of the API endpoint.
+            prompt: Input prompt word
+            model_name: Model name
+            api_key: API Key
+            base_url: API server address
+            timeout: Request timeout duration,  seconds
 
         Returns:
-            Tuple[str, str]: Generated text response and status ('success' or 'fail').
+            Tuple[str, str]: Return generated text and status(success or fail)
         """
-        logger.info("Starting LLM call using BespokeLabs Curator.")
         backend_params = {
             "api_key": api_key,
             "base_url": base_url,
+            "request_timeout": timeout,
         }
-        logger.debug(f"Backend parameters configured: {backend_params}")
 
         try:
-            llm = curator.LLM(
+            llm = LLM(
                 model_name=model_name,
                 backend="openai",
                 backend_params=backend_params,
             )
-            logger.info(f"LLM instance created for model: {model_name}")
-
             response = llm(prompt)
-            logger.info("LLM call successful, processing response")
-
-            text = cls._extract_text_from_response(response)
-            logger.debug(f"Response snippet (first 100 chars): {text[:100]}")
-
-            return text, "success"
-
+            # The response is a CuratorResponse object, and the default dataset is a HuggingFace Dataset
+            if hasattr(response, "dataset") and response.dataset is not None and len(response.dataset) > 0:
+                # Take the first response text from the dataset
+                first_item = response.dataset[0]
+                # Retrieve text based on the actual field, typically '__internal_response' or 'response'
+                text = first_item.get("__internal_response") or first_item.get("response") or str(first_item)
+                return text, "success"
+            else:
+                return "", "fail"
         except Exception as e:
-            logger.error(f"Error during LLM call: {e}", exc_info=True)
+            print(f"LLM call error: {e}")
             return "", "fail"
 
     @classmethod
@@ -220,55 +221,78 @@ class DataMax(BaseLife):
             model_name: str,
             api_key: str,
             base_url: str,
-    ) -> List[Any]:
+            qa_num: int = 5,
+            temperature: float = 0.7,
+            max_tokens: int = 512,
+            top_p: float = 1.0,
+            stop: list | None = None,
+    ) -> list[dict]:
         """
-        Generate QA pairs automatically using the LLM.
+        Use BespokeLabs Curator LLM to generate a list of question-answer pairs.
 
         Args:
-            content (str): Text content for QA generation.
-            model_name (str): Model name.
-            api_key (str): API key.
-            base_url (str): API base URL.
+            content: The input text content.
+            model_name: The model name to use.
+            api_key: The API key for authentication.
+            base_url: The base URL of the API endpoint.
+            qa_num: Number of QA pairs to generate.
+            temperature: Sampling temperature for generation.
+            max_tokens: Maximum tokens to generate.
+            top_p: Nucleus sampling parameter.
+            stop: List of stop sequences.
 
         Returns:
-            List[Any]: List of QA pairs or empty list on failure.
+            list[dict]: A list of dictionaries with 'question' and 'answer' keys.
         """
-        logger.info("Starting automatic QA generation.")
+
+        from bespokelabs.curator.llm.llm import LLM
+
+        # Construct a prompt and require the model to output a JSON array
+        prompt_template = f"""
+    请基于以下文本内容生成{qa_num}个简洁的问答对，格式为JSON数组，形如：
+    [
+      {{"question": "问题1", "answer": "答案1"}},
+      {{"question": "问题2", "answer": "答案2"}},
+      ...
+    ]
+
+    文本内容:
+    {content}
+    """
+
         backend_params = {
             "api_key": api_key,
             "base_url": base_url,
         }
-        logger.debug(f"Backend parameters configured: {backend_params}")
 
-        # Prompt to generate JSON array of Q&A
-        prompt = (
-            "请基于以下内容生成几个简洁的问答对，"
-            "要求输出JSON数组格式，每个元素包含question和answer字段：\n\n"
-            f"{content}\n"
+        llm = LLM(
+            model_name=model_name,
+            backend="openai",
+            backend_params=backend_params,
+            generation_params={
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "top_p": top_p,
+                "stop": stop,
+            }
         )
 
         try:
-            llm = curator.LLM(
-                model_name=model_name,
-                backend="openai",
-                backend_params=backend_params,
-            )
-            logger.info(f"LLM instance created for model: {model_name}")
+            # Call the model
+            response = llm(prompt_template)
 
-            response = llm(prompt)
-            logger.info("QA generation call successful")
+            # Reuse _extract_text_from_response to extract plain text
+            generated_text = cls._extract_text_from_response(response)
 
-            text = cls._extract_text_from_response(response)
             import json
-            qas = json.loads(text)
-            if isinstance(qas, list):
-                return qas
-            else:
-                logger.warning("QA generation response is not a list")
-                return []
+            qa_pairs = json.loads(generated_text)
 
+            if isinstance(qa_pairs, list) and all("question" in qa and "answer" in qa for qa in qa_pairs):
+                return qa_pairs
+            else:
+                return []
         except Exception as e:
-            logger.error(f"Error during QA generation: {e}", exc_info=True)
+            print(f"QA generation error: {e}")
             return []
 
     @staticmethod
@@ -302,7 +326,6 @@ class DataMax(BaseLife):
 
         # fallback
         return str(response)
-
     def set_data(self, file_name, parsed_data):
         """
         Set cached data
