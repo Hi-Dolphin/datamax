@@ -409,7 +409,6 @@ class DataMax(BaseLife):
         *,
         content: str = None,
         use_mllm: bool = False,
-        use_mllm: bool = False,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -426,8 +425,6 @@ class DataMax(BaseLife):
         """
         Generate pre-labeling data based on processed document content instead of file path
 
-        :param content: Processed document content
-        :param use_mllm: Whether to use mllm model
         :param content: Processed document content
         :param use_mllm: Whether to use mllm model
         :param api_key: API key
