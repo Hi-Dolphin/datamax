@@ -1,0 +1,38 @@
+# .github/workflows/deploy.yml
+
+name: Deploy Docusaurus Website
+
+# Trigger condition: When the code is pushed to the main branch
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Set permissions for the workflow
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload build directory
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: datamax_docs/build
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
