@@ -168,7 +168,7 @@ class DataMax(BaseLife):
         try:
             llm = curator.LLM(
                 model_name=model_name,
-                backend="openai",  # always use openai backend
+                backend="openai",
                 backend_params=backend_params,
             )
             logger.info(f"LLM instance created for model: {model_name}")
@@ -176,7 +176,6 @@ class DataMax(BaseLife):
             response = llm(prompt)
             logger.info("LLM call successful, processing response")
 
-            # Extract text from CuratorResponse
             text = cls._extract_text_from_response(response)
             logger.debug(f"Response snippet (first 100 chars): {text[:100]}")
 
@@ -213,6 +212,13 @@ class DataMax(BaseLife):
         }
         logger.debug(f"Backend parameters configured: {backend_params}")
 
+        # Prompt to generate JSON array of Q&A
+        prompt = (
+            "请基于以下内容生成几个简洁的问答对，"
+            "要求输出JSON数组格式，每个元素包含question和answer字段：\n\n"
+            f"{content}\n"
+        )
+
         try:
             llm = curator.LLM(
                 model_name=model_name,
@@ -221,14 +227,17 @@ class DataMax(BaseLife):
             )
             logger.info(f"LLM instance created for model: {model_name}")
 
-            # For simplicity, directly call LLM on content,
-            # real scenario may need chunk splitting, etc.
-            response = llm(content)
+            response = llm(prompt)
             logger.info("QA generation call successful")
 
-            qa_result = cls._extract_text_from_response(response)
-            # Return list with the response string (adapt as needed)
-            return [qa_result]
+            text = cls._extract_text_from_response(response)
+            import json
+            qas = json.loads(text)
+            if isinstance(qas, list):
+                return qas
+            else:
+                logger.warning("QA generation response is not a list")
+                return []
 
         except Exception as e:
             logger.error(f"Error during QA generation: {e}", exc_info=True)
@@ -249,20 +258,21 @@ class DataMax(BaseLife):
         if isinstance(response, str):
             return response
 
-        # If response has dataset and 'response' column, extract first row text
+        # If response has 'dataset' attribute and it's not empty
         if hasattr(response, "dataset") and len(response.dataset) > 0:
             try:
                 row = response.dataset[0]
+                # If row is dict with "response"
                 if isinstance(row, dict) and "response" in row:
                     return row["response"]
-                # If row is a BaseModel (pydantic), use model_dump
+                # If row is pydantic BaseModel
                 if isinstance(row, BaseModel):
                     data = row.model_dump()
                     return data.get("response", str(response))
             except Exception as e:
                 logger.warning(f"Failed to extract text from response dataset: {e}")
 
-        # Fallback: return string representation
+        # fallback
         return str(response)
 
     def set_data(self, file_name, parsed_data):
