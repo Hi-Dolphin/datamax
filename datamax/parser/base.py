@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
-
+from typing import List
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.tokenizer import DashScopeClient
 
