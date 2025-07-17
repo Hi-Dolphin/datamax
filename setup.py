@@ -16,7 +16,7 @@ setup(
         "pymupdf>=1.26.0,<2.0.0",
         "pypdf>=5.5.0,<6.0.0",
         "openpyxl>=3.1.5,<4.0.0",
-        "pandas>=2.2.3,<3.0.0",
+        "pandas==2.2.2",
         "numpy>=2.2.6,<3.0.0",
         "requests>=2.32.3,<3.0.0",
         "tqdm>=4.67.1,<5.0.0",
@@ -42,7 +42,7 @@ setup(
         "langchain-community>=0.3.0,<1.0.0",
         "ebooklib==0.19",
         "setuptools",
-        "bespokelabs-curator"
+        "bespokelabs-curator==0.1.26"
     ],
     author="ccy",
     author_email="cy.kron@foxmail.com",

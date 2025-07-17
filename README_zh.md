@@ -79,11 +79,21 @@ qa_data = dm.get_pre_label(
 # PDF高级解析（需要MinerU）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
+# PDF OCR解析（需要API凭证）（当前仅支持qwen-vl-ocr[-latest]模型）
+# tips: 请注意，use_qwen_vl_ocr参数用于图片或pdf的文字识别。
+dm = DataMax(
+    file_path="scanned.pdf", 
+    use_qwen_vl_ocr=True,
+    ocr_api_key="your-api-key",
+    ocr_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ocr_model_name="qwen-vl-ocr"
+)
+
 # Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
-# 图片OCR
-dm = DataMax(file_path="image.jpg", use_mineru=True)
+# 图片 (需要安装mineru)
+dm = DataMax(file_path="image.jpg")
 ```
 
 ### 批处理解析
@@ -236,53 +246,30 @@ DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型�
 ### 1. 通用大模型调用
 
 ```python
-import unittest
-from datamax.parser.core import DataMax
+from datamax import DataMax
 
-class TestCallLLM(unittest.TestCase):
-    def test_call_llm(self):
-        """
-        Test the call_llm_with_bespokelabs method independently.
-        """
-        prompt = "什么是人工智能？"
-        try:
-            result = DataMax.call_llm_with_bespokelabs(
-                prompt=prompt,
-                model_name="your-model-name",
-                api_key="your-api-key",
-                base_url="https://api.openai.com/v1"
-            )
-            print("LLM调用结果文本:", result)
-            self.assertIn("人工智能", str(result))
-        except Exception as e:
-            self.fail(f"call_llm_with_bespokelabs raised Exception: {e}")
-
-if __name__ == '__main__':
-    unittest.main()
+prompt = "什么是人工智能？"
+result = DataMax.call_llm_with_bespokelabs(
+    prompt=prompt,
+    model_name="your-model-name",
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
+)
+print("LLM调用结果文本:", result)
 ```
 ### 2.自动化标注示例 — 自动问答对生成
 
 ```python
-import unittest
-from datamax.parser.core import DataMax
+from datamax import DataMax
 
-class TestQAGenerator(unittest.TestCase):
-    def test_qa_generator(self):
-        try:
-            results = DataMax.qa_generator_with_bespokelabs(
-                "人工智能是模拟人类智能的技术。",
-                "your-model-name",
-                "your-api-key",
-                "https://api.openai.com/v1"
-            )
-            print("QA生成结果:", results)
-            self.assertGreater(len(results), 0)
-            self.assertTrue(any("人工智能" in str(item) for item in results))
-        except Exception as e:
-            self.fail(f"qa_generator_with_bespokelabs raised Exception: {e}")
-
-if __name__ == '__main__':
-    unittest.main()
+text = "人工智能是模拟人类智能的技术。"
+results = DataMax.qa_generator_with_bespokelabs(
+    text,
+    "your-model-name",
+    "your-api-key",
+    "https://api.openai.com/v1"
+)
+print("QA生成结果:", results)
 ```
 ✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
 

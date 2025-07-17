@@ -45,8 +45,12 @@ class ParserFactory:
     def create_parser(
         file_path: str,
         use_mineru: bool = False,
+        use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
+        ocr_api_key: str = None,
+        ocr_base_url: str = None,
+        ocr_model_name: str = None,
     ):
         """
         Create a parser instance based on the file extension.
@@ -54,6 +58,10 @@ class ParserFactory:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
+        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used. (only supported files in .pdf format)
+        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         :return: An instance of the parser class corresponding to the file extension.
         """
         file_extension = os.path.splitext(file_path)[1].lower()
@@ -79,25 +87,33 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
+        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
             module_name = f"datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
             module_name = f"datamax.parser.{file_extension[1:]}_parser"
 
         try:
+            # use_mineru & use_qwen_vl_ocr can't be used at the same time
+            if use_mineru and use_qwen_vl_ocr:
+                raise ValueError("You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!")
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            if parser_class_name != 'PdfParser' and use_mineru == True:
-                raise ValueError("MinerU is only supported for PDF files")
+            # use mineru and qwen_vl_ocr only for pdf files currently
+            if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
+                raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files currently")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    use_qwen_vl_ocr=use_qwen_vl_ocr,
                     domain=domain,
+                    ocr_api_key=ocr_api_key,
+                    ocr_base_url=ocr_base_url,
+                    ocr_model_name=ocr_model_name,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
@@ -117,26 +133,38 @@ class DataMax(BaseLife):
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
+        use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
+        ocr_api_key: str = None,
+        ocr_base_url: str = None,
+        ocr_model_name: str = None,
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
 
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
+        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
+        :param ocr_api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
+        :param ocr_model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_qwen_vl_ocr = use_qwen_vl_ocr
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+        self.ocr_api_key = ocr_api_key
+        self.ocr_base_url = ocr_base_url
+        self.ocr_model_name = ocr_model_name
 
     @classmethod
     def call_llm_with_bespokelabs(
@@ -168,7 +196,7 @@ class DataMax(BaseLife):
         try:
             llm = curator.LLM(
                 model_name=model_name,
-                backend="openai",  # always use openai backend
+                backend="openai",
                 backend_params=backend_params,
             )
             logger.info(f"LLM instance created for model: {model_name}")
@@ -176,7 +204,6 @@ class DataMax(BaseLife):
             response = llm(prompt)
             logger.info("LLM call successful, processing response")
 
-            # Extract text from CuratorResponse
             text = cls._extract_text_from_response(response)
             logger.debug(f"Response snippet (first 100 chars): {text[:100]}")
 
@@ -213,6 +240,13 @@ class DataMax(BaseLife):
         }
         logger.debug(f"Backend parameters configured: {backend_params}")
 
+        # Prompt to generate JSON array of Q&A
+        prompt = (
+            "请基于以下内容生成几个简洁的问答对，"
+            "要求输出JSON数组格式，每个元素包含question和answer字段：\n\n"
+            f"{content}\n"
+        )
+
         try:
             llm = curator.LLM(
                 model_name=model_name,
@@ -221,14 +255,17 @@ class DataMax(BaseLife):
             )
             logger.info(f"LLM instance created for model: {model_name}")
 
-            # For simplicity, directly call LLM on content,
-            # real scenario may need chunk splitting, etc.
-            response = llm(content)
+            response = llm(prompt)
             logger.info("QA generation call successful")
 
-            qa_result = cls._extract_text_from_response(response)
-            # Return list with the response string (adapt as needed)
-            return [qa_result]
+            text = cls._extract_text_from_response(response)
+            import json
+            qas = json.loads(text)
+            if isinstance(qas, list):
+                return qas
+            else:
+                logger.warning("QA generation response is not a list")
+                return []
 
         except Exception as e:
             logger.error(f"Error during QA generation: {e}", exc_info=True)
@@ -249,20 +286,21 @@ class DataMax(BaseLife):
         if isinstance(response, str):
             return response
 
-        # If response has dataset and 'response' column, extract first row text
+        # If response has 'dataset' attribute and it's not empty
         if hasattr(response, "dataset") and len(response.dataset) > 0:
             try:
                 row = response.dataset[0]
+                # If row is dict with "response"
                 if isinstance(row, dict) and "response" in row:
                     return row["response"]
-                # If row is a BaseModel (pydantic), use model_dump
+                # If row is pydantic BaseModel
                 if isinstance(row, BaseModel):
                     data = row.model_dump()
                     return data.get("response", str(response))
             except Exception as e:
                 logger.warning(f"Failed to extract text from response dataset: {e}")
 
-        # Fallback: return string representation
+        # fallback
         return str(response)
 
     def set_data(self, file_name, parsed_data):
@@ -794,9 +832,13 @@ class DataMax(BaseLife):
         try:
             parser = ParserFactory.create_parser(
                 use_mineru=self.use_mineru,
+                use_qwen_vl_ocr=self.use_qwen_vl_ocr,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,
+                ocr_api_key=self.ocr_api_key,
+                ocr_base_url=self.ocr_base_url,
+                ocr_model_name=self.ocr_model_name,
             )
             if parser:
                 return parser.parse(file_path=file_path)
