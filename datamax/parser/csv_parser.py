@@ -16,7 +16,7 @@ class CsvParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            # 1) 处理开始
+            # 1) Start processing
             extension = self.get_file_extension(file_path)
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
@@ -25,11 +25,11 @@ class CsvParser(BaseLife):
                 usage_purpose="Parsing",
             )
 
-            # 2) 核心解析
+            # 2) Core parsing logic
             df = self.read_csv_file(file_path)
             mk_content = df.to_markdown(index=False)
 
-            # 3) 处理结束或失败
+            # 3) End processing or handle failure
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -41,7 +41,7 @@ class CsvParser(BaseLife):
                 usage_purpose="Parsing",
             )
 
-            # 4) 封装输出并添加生命周期
+            # 4) Package output and add lifecycle
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
             output_vo.add_lifecycle(lc_end)

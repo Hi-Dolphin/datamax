@@ -33,7 +33,7 @@ class EpubParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            # 1) 开始处理
+            # 1) Start processing
             start_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -41,15 +41,15 @@ class EpubParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSING,
             )
 
-            # 2) 读取EPUB内容
+            # 2) Read EPUB content
             content = self.read_epub_file(file_path=file_path)
             mk_content = content
 
-            # 3) 创建输出 VO 并添加开始事件
+            # 3) Create output VO and add start event
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(start_lc)
 
-            # 4) 处理完成
+            # 4) Processing completed
             end_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -62,14 +62,14 @@ class EpubParser(BaseLife):
 
         except Exception as e:
             loguru.logger.error(f"Failed to parse epub file {file_path}: {e}")
-            # 失败时记录一次失败生命周期（可选）
+            # Record a failure lifecycle when failed (optional)
             fail_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            # 若需返回 VO：
+            # If need to return VO:
             # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")
             # output_vo.add_lifecycle(fail_lc)
             raise

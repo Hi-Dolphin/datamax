@@ -29,7 +29,7 @@ def get_instruction_prompt(question_number: int) -> str:
         1.  **强视觉关联**：问题必须与图片内容紧密相关，需要用户仔细观察图片才能回答。
         2.  **对话形式**：每个问答对需以多轮对话格式呈现，至少包含一个用户问题和一个助手回答。
         3.  **多样性**：
-            -   **问题类型**：涵盖细节识别（“图片右下角是什么？”）、比较分析（“两张图片有何不同？”）、概念推理（“这张图片中的事物具有什么功能？”）、逻辑分析（“使用图片和公式可以解决什么问题？”）等。
+            -   **问题类型**：涵盖细节识别（"图片右下角是什么？"）、比较分析（"两张图片有何不同？"）、概念推理（"这张图片中的事物具有什么功能？"）、逻辑分析（"使用图片和公式可以解决什么问题？"）等。
             -   **创意性**：提出一些非常规、需要深度思考或想象力才能回答的问题。
         4.  **忠于原文**：回答应基于上下文文本和合理的图片内容推断，避免捏造信息。
         5. 问题应具有明确答案指向性，覆盖内容的不同方面。
@@ -71,7 +71,7 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
     """
     Parse Markdown files, extract images, and associate them with text blocks.
     """
-    logger.info(f"开始解析Markdown文件: {md_path}")
+    logger.info(f"Starting to parse Markdown file: {md_path}")
     try:
         with open(md_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -80,10 +80,10 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
         image_paths_original = re.findall(image_pattern, content)
         
         if not image_paths_original:
-            logger.warning(f"在文件 {md_path} 中未找到任何Markdown格式的图片链接。")
+            logger.warning(f"No Markdown format image links found in file {md_path}.")
             return []
         
-        logger.info(f"在文件中找到 {len(image_paths_original)} 个图片链接。")
+        logger.info(f"Found {len(image_paths_original)} image links in the file.")
 
         placeholder_template = "||image_placeholder_{}||"
         path_iter = iter(range(len(image_paths_original)))
@@ -123,10 +123,10 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
                 "images": chunk_image_paths
             })
         
-        logger.info(f"成功解析并关联了 {len(processed_chunks)} 个包含图片的文本块。")
+        logger.info(f"Successfully parsed and associated {len(processed_chunks)} text blocks containing images.")
         return processed_chunks
     except Exception as e:
-        logger.error(f"处理Markdown文件 {md_path} 失败: {e}")
+        logger.error(f"Failed to process Markdown file {md_path}: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -168,21 +168,21 @@ def generate_multimodal_qa_with_dashscope(
         if response.status_code == 200:
             output_content = response.output.choices[0].get('message', {}).get('content')
 
-            # --- BUG修复点 ---
-            # 检查返回的 content 是列表还是字符串
+            # --- BUG FIX POINT ---
+            # Check if returned content is a list or string
             if isinstance(output_content, list) and output_content:
-                # 如果是列表，提取第一个元素的'text'内容
+                # If it's a list, extract the 'text' content from the first element
                 text_content = output_content[0].get('text')
             elif isinstance(output_content, str):
-                # 如果是字符串，直接使用
+                # If it's a string, use directly
                 text_content = output_content
             else:
-                # 其他意外情况，记录错误并返回空
-                logger.error(f"API返回的content格式无法识别: {type(output_content)}: {output_content}")
+                # Other unexpected cases, log error and return empty
+                logger.error(f"Unrecognized API return content format: {type(output_content)}: {output_content}")
                 return []
 
             if not text_content:
-                logger.error("从API返回内容中未能提取到有效文本。")
+                logger.error("Failed to extract valid text from API return content.")
                 return []
 
             json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
@@ -194,14 +194,14 @@ def generate_multimodal_qa_with_dashscope(
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {e}\n原始输出: {json_str}")
+                logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
                 return []
         else:
-            logger.error(f"DashScope API调用失败: Code: {response.status_code}, Message: {response.message}")
+            logger.error(f"DashScope API call failed: Code: {response.status_code}, Message: {response.message}")
             return []
 
     except Exception as e:
-        logger.error(f"LLM API调用过程中发生异常: {e}")
+        logger.error(f"Exception occurred during LLM API call: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -224,7 +224,7 @@ def generatr_qa_pairs(
     )
 
     if not chunks_with_images:
-        logger.warning("未能从文件中解析出任何包含图片的文本块。")
+        logger.warning("Failed to parse any text blocks containing images from the file.")
         return []
 
     final_qa_list = []
@@ -263,17 +263,17 @@ def generatr_qa_pairs(
                     chunk_qas.append(formatted_qa)
         return chunk_qas
 
-    logger.info(f"开始为 {len(chunks_with_images)} 个文本块生成问答对 (线程数: {max_workers})...")
+    logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
 
-        with tqdm(as_completed(futures), total=len(futures), desc="生成多模态QA") as pbar:
+        with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
             for future in pbar:
                 result = future.result()
                 if result:
                     with lock:
                         final_qa_list.extend(result)
-                    pbar.set_postfix({"已生成QA": len(final_qa_list)})
+                    pbar.set_postfix({"Generated QA": len(final_qa_list)})
 
-    logger.success(f"处理完成! 共生成 {len(final_qa_list)} 个多模态问答对。")
+    logger.success(f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs.")
     return final_qa_list

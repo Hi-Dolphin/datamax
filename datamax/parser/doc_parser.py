@@ -12,34 +12,33 @@ from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
-
-# 尝试导入OLE相关库（用于读取DOC内部结构）
+# Try to import OLE-related libraries (for reading DOC internal structure)
 try:
     import olefile
 
     HAS_OLEFILE = True
 except ImportError:
     HAS_OLEFILE = False
-    logger.warning("⚠️ olefile库未安装，无法进行高级DOC解析")
+    logger.warning("⚠️ olefile library not installed, advanced DOC parsing unavailable")
 
-# 尝试导入UNO处理器
+# Try to import UNO processor
 try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno
 except ImportError:
     HAS_UNO = False
     logger.error(
-        "❌ UNO处理器导入失败！\n"
-        "🔧 解决方案：\n"
-        "1. 安装LibreOffice和python-uno：\n"
+        "❌ UNO processor import failed!\n"
+        "🔧 Solution:\n"
+        "1. Install LibreOffice and python-uno:\n"
         "   - Ubuntu/Debian: sudo apt-get install libreoffice python3-uno\n"
         "   - CentOS/RHEL: sudo yum install libreoffice python3-uno\n"
         "   - macOS: brew install libreoffice\n"
-        "   - Windows: 下载并安装LibreOffice\n"
-        "2. 确保Python可以访问uno模块：\n"
+        "   - Windows: Download and install LibreOffice\n"
+        "2. Ensure Python can access uno module:\n"
         "   - Linux: export PYTHONPATH=/usr/lib/libreoffice/program:$PYTHONPATH\n"
-        "   - Windows: 添加LibreOffice\\program到系统PATH\n"
-        "3. 验证安装：python -c 'import uno'\n"
-        "4. 如果仍有问题，请查看完整文档：\n"
+        "   - Windows: Add LibreOffice\\program to system PATH\n"
+        "3. Verify installation: python -c 'import uno'\n"
+        "4. If issues persist, see full documentation:\n"
         "   https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
     )
 
@@ -56,102 +55,102 @@ class DocParser(BaseLife):
         self.file_path = file_path
         self.to_markdown = to_markdown
 
-        # 优先使用UNO（除非明确禁用）
+        # Prioritize UNO (unless explicitly disabled)
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info("🚀 DocParser初始化完成 - 使用UNO API进行单线程高效处理")
+            logger.info(f"🚀 DocParser initialized - using UNO API for single-threaded efficient processing")
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
                 logger.warning(
-                    "⚠️ UNO不可用，回退到传统命令行方式\n"
-                    "💡 提示：UNO转换更快更稳定，强烈建议安装和配置UNO\n"
-                    "📖 请参考上述错误信息中的安装指南"
+                    f"⚠️ UNO unavailable, falling back to traditional command line approach\n"
+                    f"💡 Tip: UNO conversion is faster and more stable, strongly recommend installing and configuring UNO\n"
+                    f"📖 Please refer to installation guide in error message above"
                 )
             else:
-                logger.info("🚀 DocParser初始化完成 - 使用传统命令行方式")
+                logger.info(f"🚀 DocParser initialized - using traditional command line approach")
 
-        logger.info(f"📄 文件路径: {file_path}, 转换为markdown: {to_markdown}")
+        logger.info(f"📄 File path: {file_path}, convert to markdown: {to_markdown}")
 
     def extract_all_content(self, doc_path: str) -> str:
         """
-        综合提取DOC文件的所有内容
-        支持多种DOC内部格式和存储方式
+        Comprehensively extract all content from DOC files
+        Supports multiple DOC internal formats and storage methods
         """
-        logger.info(f"🔍 开始综合内容提取: {doc_path}")
+        logger.info(f"🔍 Starting comprehensive content extraction: {doc_path}")
 
         all_content = []
 
         try:
-            # 1. 尝试使用OLE解析提取内容（如果可用）
+            # 1. Try to extract content using OLE parsing (if available)
             if HAS_OLEFILE:
                 ole_content = self._extract_ole_content(doc_path)
                 if ole_content:
                     all_content.append(("ole", ole_content))
 
-            # 2. 尝试提取嵌入对象
+            # 2. Try to extract embedded objects
             embedded_content = self._extract_embedded_objects(doc_path)
             if embedded_content:
                 all_content.append(("embedded", embedded_content))
 
-            # 3. 如果上述方法都没有提取到内容，使用传统转换
+            # 3. If none of the above methods extracted content, use traditional conversion
             if not all_content:
-                logger.info("🔄 使用传统转换方式提取内容")
-                return ""  # 返回空，让调用者使用传统方式
+                logger.info("🔄 Using traditional conversion method to extract content")
+                return ""  # Return empty, let caller use traditional method
 
-            # 检查内容质量，特别是对于WPS文件
+            # Check content quality, especially for WPS files
             for content_type, content in all_content:
                 if content and self._check_content_quality(content):
-                    logger.info(f"✅ 使用 {content_type} 内容提取成功")
+                    logger.info(f"✅ Successfully extracted content using {content_type}")
                     return content
 
-            # 如果所有内容质量都不佳，返回空
-            logger.warning("⚠️ 所有提取方式的内容质量都不佳")
+            # If all content quality is poor, return empty
+            logger.warning("⚠️ All extraction methods produced poor quality content")
             return ""
 
         except Exception as e:
-            logger.error(f"💥 综合内容提取失败: {e!s}")
+            logger.error(f"💥 Comprehensive content extraction failed: {str(e)}")
             return ""
 
     def _extract_ole_content(self, doc_path: str) -> str:
-        """使用OLE解析提取DOC内容"""
+        """Extract DOC content using OLE parsing"""
         try:
             ole = olefile.OleFileIO(doc_path)
-            logger.info(f"📂 成功打开OLE文件: {doc_path}")
+            logger.info(f"📂 Successfully opened OLE file: {doc_path}")
 
-            # 列出所有流
+            # List all streams
             streams = ole.listdir()
-            logger.debug(f"📋 可用的OLE流: {streams}")
+            logger.debug(f"📋 Available OLE streams: {streams}")
 
-            # 检查是否是WPS生成的文件
+            # Check if it's a WPS-generated file
             is_wps = any("WpsCustomData" in str(stream) for stream in streams)
             if is_wps:
-                logger.info("📝 检测到WPS DOC文件，建议使用传统转换方式")
-                # 对于WPS文件，OLE解析可能不可靠，返回空让其使用传统方式
+                logger.info("📝 Detected WPS DOC file, traditional conversion method recommended")
+                # For WPS files, OLE parsing may be unreliable, return empty to use traditional method
                 ole.close()
                 return ""
 
             all_texts = []
 
-            # 尝试提取WordDocument流
+            # Try to extract WordDocument stream
             if ole.exists("WordDocument"):
                 try:
                     word_stream = ole.openstream("WordDocument").read()
-                    logger.info(f"📄 WordDocument流大小: {len(word_stream)} 字节")
+                    logger.info(f"📄 WordDocument stream size: {len(word_stream)} bytes")
                     text = self._parse_word_stream(word_stream)
                     if text:
                         all_texts.append(text)
                 except Exception as e:
-                    logger.error(f"💥 解析WordDocument流失败: {e!s}")
+                    logger.error(f"💥 Failed to parse WordDocument stream: {str(e)}")
 
-            # 尝试读取其他可能包含文本的流
+            # Try to read other streams that might contain text
             text_content = []
             for entry in ole.listdir():
                 if any(name in str(entry) for name in ["Text", "Content", "Body"]):
                     try:
                         stream = ole.openstream(entry)
                         data = stream.read()
-                        # 尝试解码
+                        # Try to decode
                         decoded = self._try_decode_bytes(data)
                         if decoded and len(decoded.strip()) > 10:
                             text_content.append(decoded)
@@ -160,7 +159,7 @@ class DocParser(BaseLife):
 
             if text_content:
                 combined = "\n".join(text_content)
-                logger.info(f"📄 从OLE流中提取文本: {len(combined)} 字符")
+                logger.info(f"📄 Extracted text from OLE streams: {len(combined)} characters")
                 return self._clean_extracted_text(combined)
 
             ole.close()
@@ -168,18 +167,18 @@ class DocParser(BaseLife):
             return ""
 
         except Exception as e:
-            logger.warning(f"⚠️ OLE解析失败: {e!s}")
+            logger.warning(f"⚠️ OLE parsing failed: {str(e)}")
 
         return ""
 
     def _parse_word_stream(self, data: bytes) -> str:
-        """解析WordDocument流中的文本"""
+        """Parse text from WordDocument stream"""
         try:
-            # DOC文件格式复杂，这里提供基础的文本提取
-            # 查找文本片段
+            # DOC file format is complex, this provides basic text extraction
+            # Look for text fragments
             text_parts = []
 
-            # 尝试多种编码，特别注意中文编码
+            # Try multiple encodings, especially for Chinese text
             for encoding in [
                 "utf-16-le",
                 "utf-8",
@@ -192,17 +191,17 @@ class DocParser(BaseLife):
             ]:
                 try:
                     decoded = data.decode(encoding, errors="ignore")
-                    # 检查是否包含合理的中文字符
+                    # Check if contains reasonable Chinese characters
                     chinese_chars = len(
                         [c for c in decoded if "\u4e00" <= c <= "\u9fff"]
                     )
                     if chinese_chars > 10 or (decoded and len(decoded.strip()) > 50):
-                        # 过滤出可打印字符，但保留中文
+                        # Filter printable characters, but keep Chinese
                         cleaned = self._filter_printable_text(decoded)
                         if cleaned and len(cleaned.strip()) > 20:
                             text_parts.append(cleaned)
                             logger.debug(
-                                f"📝 使用编码 {encoding} 成功解码，包含 {chinese_chars} 个中文字符"
+                                f"📝 Successfully decoded using {encoding}, contains {chinese_chars} Chinese characters"
                             )
                             break
                 except:
@@ -211,34 +210,34 @@ class DocParser(BaseLife):
             return "\n".join(text_parts) if text_parts else ""
 
         except Exception as e:
-            logger.error(f"💥 解析Word流失败: {e!s}")
+            logger.error(f"💥 Failed to parse Word stream: {str(e)}")
             return ""
 
     def _filter_printable_text(self, text: str) -> str:
-        """过滤文本，保留可打印字符和中文"""
+        """Filter text, keeping printable characters and Chinese"""
         result = []
         for char in text:
-            # 保留中文字符
+            # Keep Chinese characters
             if "\u4e00" <= char <= "\u9fff":
                 result.append(char)
-            # 保留日文字符
+            # Keep Japanese characters
             elif "\u3040" <= char <= "\u30ff":
                 result.append(char)
-            # 保留韩文字符
+            # Keep Korean characters
             elif "\uac00" <= char <= "\ud7af":
                 result.append(char)
-            # 保留ASCII可打印字符和空白字符
+            # Keep ASCII printable characters and whitespace
             elif char.isprintable() or char.isspace():
                 result.append(char)
-            # 保留常用标点符号
-            elif char in '，。！？；：""（）【】《》、·…—':
+            # Keep common punctuation marks
+            elif char in '，。！？；：""' "（）【】《》、·…—":
                 result.append(char)
 
         return "".join(result)
 
     def _try_decode_bytes(self, data: bytes) -> str:
-        """尝试使用多种编码解码字节数据"""
-        # 优先尝试中文编码
+        """Try to decode byte data using multiple encodings"""
+        # Prioritize Chinese encodings
         encodings = [
             "utf-8",
             "gbk",
@@ -252,7 +251,7 @@ class DocParser(BaseLife):
             "latin-1",
         ]
 
-        # 首先尝试使用chardet检测编码
+        # First try to detect encoding using chardet
         try:
             import chardet
 
@@ -260,7 +259,7 @@ class DocParser(BaseLife):
             if detected["encoding"] and detected["confidence"] > 0.7:
                 encodings.insert(0, detected["encoding"])
                 logger.debug(
-                    f"🔍 检测到编码: {detected['encoding']} (置信度: {detected['confidence']})"
+                    f"🔍 Detected encoding: {detected['encoding']} (confidence: {detected['confidence']})"
                 )
         except:
             pass
@@ -268,12 +267,12 @@ class DocParser(BaseLife):
         for encoding in encodings:
             try:
                 decoded = data.decode(encoding, errors="ignore")
-                # 检查是否包含有意义的文本（包括中文）
+                # Check if contains meaningful text (including Chinese)
                 if decoded and (
                     any(c.isalnum() for c in decoded)
                     or any("\u4e00" <= c <= "\u9fff" for c in decoded)
                 ):
-                    # 进一步清理文本
+                    # Further clean the text
                     cleaned = self._filter_printable_text(decoded)
                     if cleaned and len(cleaned.strip()) > 10:
                         return cleaned
@@ -283,7 +282,7 @@ class DocParser(BaseLife):
         return ""
 
     def _extract_embedded_objects(self, doc_path: str) -> str:
-        """提取DOC文件中的嵌入对象"""
+        """Extract embedded objects from DOC file"""
         try:
             if not HAS_OLEFILE:
                 return ""
@@ -291,21 +290,21 @@ class DocParser(BaseLife):
             embedded_content = []
 
             with olefile.OleFileIO(doc_path) as ole:
-                # 查找嵌入的对象
+                # Look for embedded objects
                 for entry in ole.listdir():
                     entry_name = "/".join(entry)
 
-                    # 检查是否是嵌入对象
+                    # Check if it's an embedded object
                     if any(
                         pattern in entry_name.lower()
                         for pattern in ["object", "embed", "package"]
                     ):
-                        logger.info(f"📎 找到嵌入对象: {entry_name}")
+                        logger.info(f"📎 Found embedded object: {entry_name}")
                         try:
                             stream = ole.openstream(entry)
                             data = stream.read()
 
-                            # 尝试提取文本内容
+                            # Try to extract text content
                             text = self._try_decode_bytes(data)
                             if text and len(text.strip()) > 20:
                                 embedded_content.append(text.strip())
@@ -315,104 +314,104 @@ class DocParser(BaseLife):
             return "\n\n".join(embedded_content) if embedded_content else ""
 
         except Exception as e:
-            logger.warning(f"⚠️ 提取嵌入对象失败: {e!s}")
+            logger.warning(f"⚠️ Failed to extract embedded objects: {str(e)}")
             return ""
 
     def _clean_extracted_text(self, text: str) -> str:
-        """清理提取的文本，彻底移除所有XML标签和控制字符，只保留纯文本"""
+        """Clean extracted text, thoroughly remove all XML tags and control characters, keep only plain text"""
         try:
-            # 1. 解码HTML/XML实体
+            # 1. Decode HTML/XML entities
             text = html.unescape(text)
 
-            # 2. 移除所有XML/HTML标签
+            # 2. Remove all XML/HTML tags
             text = re.sub(r"<[^>]+>", "", text)
 
-            # 3. 移除XML命名空间前缀
+            # 3. Remove XML namespace prefixes
             text = re.sub(r"\b\w+:", "", text)
 
-            # 4. 移除NULL字符和其他控制字符
+            # 4. Remove NULL characters and other control characters
             text = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]", "", text)
 
-            # 5. 移除特殊的XML字符序列
+            # 5. Remove special XML character sequences
             text = re.sub(r"&[a-zA-Z]+;", "", text)
             text = re.sub(r"&#\d+;", "", text)
             text = re.sub(r"&#x[0-9a-fA-F]+;", "", text)
 
-            # 6. 保留有意义的字符，移除其他特殊字符
-            # 保留：中文、日文、韩文、英文、数字、常用标点和空白
+            # 6. Keep meaningful characters, remove other special characters
+            # Keep: Chinese, Japanese, Korean, English, numbers, common punctuation and whitespace
             allowed_chars = (
-                r"\w\s"  # 字母数字和空白
-                r"\u4e00-\u9fff"  # 中文
-                r"\u3040-\u30ff"  # 日文
-                r"\uac00-\ud7af"  # 韩文
+                r"\w\s"  # Letters, numbers and whitespace
+                r"\u4e00-\u9fff"  # Chinese
+                r"\u3040-\u30ff"  # Japanese
+                r"\uac00-\ud7af"  # Korean
                 r'，。！？；：""'
-                "（）【】《》、·…—"  # 中文标点
-                r'.,!?;:()[\]{}"\'`~@#$%^&*+=\-_/\\'  # 英文标点和常用符号
+                "（）【】《》、·…—"  # Chinese punctuation
+                r'.,!?;:()[\]{}"\'`~@#$%^&*+=\-_/\\'  # English punctuation and common symbols
             )
 
-            # 使用更严格的过滤，但保留所有有意义的字符
+            # Use stricter filtering, but keep all meaningful characters
             cleaned_text = "".join(
                 char for char in text if re.match(f"[{allowed_chars}]", char)
             )
 
-            # 7. 移除过长的无意义字符序列（通常是二进制垃圾）
+            # 7. Remove excessively long meaningless character sequences (usually binary garbage)
             cleaned_text = re.sub(r"([^\s\u4e00-\u9fff])\1{5,}", r"\1", cleaned_text)
 
-            # 8. 清理多余的空白，但保留段落结构
+            # 8. Clean excessive whitespace, but preserve paragraph structure
             cleaned_text = re.sub(
                 r"[ \t]+", " ", cleaned_text
-            )  # 多个空格/制表符变为单个空格
+            )  # Multiple spaces/tabs become single space
             cleaned_text = re.sub(
                 r"\n\s*\n\s*\n+", "\n\n", cleaned_text
-            )  # 多个空行变为双空行
+            )  # Multiple empty lines become double empty lines
             cleaned_text = re.sub(
                 r"^\s+|\s+$", "", cleaned_text, flags=re.MULTILINE
-            )  # 移除行首行尾空白
+            )  # Remove leading/trailing whitespace
 
-            # 9. 进一步清理：移除独立的标点符号行
+            # 9. Further cleaning: remove standalone punctuation lines
             lines = cleaned_text.split("\n")
             cleaned_lines = []
 
             for line in lines:
                 line = line.strip()
                 if line:
-                    # 检查行是否主要是有意义的内容
-                    # 计算中文、英文字母和数字的比例
+                    # Check if line is mainly meaningful content
+                    # Calculate ratio of Chinese, English letters and numbers
                     meaningful_chars = sum(
                         1 for c in line if (c.isalnum() or "\u4e00" <= c <= "\u9fff")
                     )
 
-                    # 如果有意义字符占比超过30%，或者行长度小于5（可能是标题），则保留
+                    # Keep if meaningful chars ratio > 30%, or line length < 5 (might be title)
                     if len(line) < 5 or (
                         meaningful_chars > 0 and meaningful_chars / len(line) > 0.3
                     ):
                         cleaned_lines.append(line)
-                elif cleaned_lines and cleaned_lines[-1]:  # 保留段落分隔
+                elif cleaned_lines and cleaned_lines[-1]:  # Keep paragraph separators
                     cleaned_lines.append("")
 
             result = "\n".join(cleaned_lines).strip()
 
-            # 10. 最终检查
+            # 10. Final check
             if len(result) < 10:
-                logger.warning("⚠️ 清理后的文本过短，可能存在问题")
+                logger.warning("⚠️ Cleaned text too short, may have issues")
                 return ""
 
-            # 检查是否还包含XML标签
+            # Check if still contains XML tags
             if re.search(r"<[^>]+>", result):
-                logger.warning("⚠️ 清理后仍包含XML标签，进行二次清理")
+                logger.warning("⚠️ Cleaned text still contains XML tags, performing second cleanup")
                 result = re.sub(r"<[^>]+>", "", result)
 
             return result
 
         except Exception as e:
-            logger.error(f"💥 清理文本失败: {e!s}")
+            logger.error(f"💥 Failed to clean text: {str(e)}")
             return text
 
     def _combine_extracted_content(self, content_list: list) -> str:
-        """合并提取到的各种内容"""
+        """Combine various extracted content"""
         combined = []
 
-        # 按优先级排序内容
+        # Sort content by priority
         priority_order = ["ole", "embedded", "converted", "fallback"]
 
         for content_type in priority_order:
@@ -420,7 +419,7 @@ class DocParser(BaseLife):
                 if item_type == content_type and content.strip():
                     combined.append(content.strip())
 
-        # 添加其他未分类的内容
+        # Add other uncategorized content
         for item_type, content in content_list:
             if item_type not in priority_order and content.strip():
                 combined.append(content.strip())
@@ -428,50 +427,50 @@ class DocParser(BaseLife):
         return "\n\n".join(combined) if combined else ""
 
     def doc_to_txt(self, doc_path: str, dir_path: str) -> str:
-        """将.doc文件转换为.txt文件"""
+        """Convert .doc file to .txt file"""
         logger.info(
-            f"🔄 开始转换DOC文件为TXT - 源文件: {doc_path}, 输出目录: {dir_path}"
+            f"🔄 Starting DOC to TXT conversion - source file: {doc_path}, output directory: {dir_path}"
         )
 
         if self.use_uno:
-            # 使用UNO API进行转换
+            # Use UNO API for conversion
             try:
-                logger.info("🎯 使用UNO API进行文档转换...")
+                logger.info("🎯 Using UNO API for document conversion...")
                 txt_path = convert_with_uno(doc_path, "txt", dir_path)
 
                 if not os.path.exists(txt_path):
-                    logger.error(f"❌ 转换后的TXT文件不存在: {txt_path}")
-                    raise Exception(f"文件转换失败 {doc_path} ==> {txt_path}")
+                    logger.error(f"❌ Converted TXT file does not exist: {txt_path}")
+                    raise Exception(f"File conversion failed {doc_path} ==> {txt_path}")
                 else:
-                    logger.info(f"🎉 TXT文件转换成功，文件路径: {txt_path}")
+                    logger.info(f"🎉 TXT file conversion successful, file path: {txt_path}")
                     return txt_path
 
             except Exception as e:
                 logger.error(
-                    f"💥 UNO转换失败: {e!s}\n"
-                    f"🔍 诊断信息：\n"
-                    f"   - 错误类型: {type(e).__name__}\n"
-                    f"   - LibreOffice是否已安装？尝试运行: soffice --version\n"
-                    f"   - Python UNO模块是否可用？尝试: python -c 'import uno'\n"
-                    f"   - 是否有其他LibreOffice实例在运行？\n"
-                    f"   - 文件权限是否正确？\n"
-                    f"🔧 可能的解决方案：\n"
-                    f"   1. 确保LibreOffice正确安装\n"
-                    f"   2. 关闭所有LibreOffice进程\n"
-                    f"   3. 检查文件权限和路径\n"
-                    f'   4. 尝试手动运行: soffice --headless --convert-to txt "{doc_path}"'
+                    f"💥 UNO conversion failed: {str(e)}\n"
+                    f"🔍 Diagnostic information:\n"
+                    f"   - Error type: {type(e).__name__}\n"
+                    f"   - Is LibreOffice installed? Try running: soffice --version\n"
+                    f"   - Is Python UNO module available? Try: python -c 'import uno'\n"
+                    f"   - Are there other LibreOffice instances running?\n"
+                    f"   - Are file permissions correct?\n"
+                    f"🔧 Possible solutions:\n"
+                    f"   1. Ensure LibreOffice is properly installed\n"
+                    f"   2. Close all LibreOffice processes\n"
+                    f"   3. Check file permissions and paths\n"
+                    f'   4. Try manual run: soffice --headless --convert-to txt "{doc_path}"'
                 )
-                logger.warning("⚠️ 自动回退到传统命令行方式...")
+                logger.warning("⚠️ Automatically falling back to traditional command line method...")
                 return self._doc_to_txt_subprocess(doc_path, dir_path)
         else:
-            # 使用传统的subprocess方式
+            # Use traditional subprocess method
             return self._doc_to_txt_subprocess(doc_path, dir_path)
 
     def _doc_to_txt_subprocess(self, doc_path: str, dir_path: str) -> str:
-        """使用subprocess将.doc文件转换为.txt文件（传统方式）"""
+        """Convert .doc file to .txt file using subprocess (traditional method)"""
         try:
             cmd = f'soffice --headless --convert-to txt "{doc_path}" --outdir "{dir_path}"'
-            logger.debug(f"⚡ 执行转换命令: {cmd}")
+            logger.debug(f"⚡ Executing conversion command: {cmd}")
 
             process = subprocess.Popen(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -480,10 +479,10 @@ class DocParser(BaseLife):
             exit_code = process.returncode
 
             if exit_code == 0:
-                logger.info(f"✅ DOC到TXT转换成功 - 退出码: {exit_code}")
+                logger.info(f"✅ DOC to TXT conversion successful - exit code: {exit_code}")
                 if stdout:
                     logger.debug(
-                        f"📄 转换输出: {stdout.decode('utf-8', errors='replace')}"
+                        f"📄 Conversion output: {stdout.decode('utf-8', errors='replace')}"
                     )
             else:
                 encoding = chardet.detect(stderr)["encoding"]
@@ -491,7 +490,7 @@ class DocParser(BaseLife):
                     encoding = "utf-8"
                 error_msg = stderr.decode(encoding, errors="replace")
                 logger.error(
-                    f"❌ DOC到TXT转换失败 - 退出码: {exit_code}, 错误信息: {error_msg}"
+                    f"❌ DOC to TXT conversion failed - exit code: {exit_code}, error message: {error_msg}"
                 )
                 raise Exception(
                     f"Error Output (detected encoding: {encoding}): {error_msg}"
@@ -501,148 +500,148 @@ class DocParser(BaseLife):
             txt_path = os.path.join(dir_path, f"{fname}.txt")
 
             if not os.path.exists(txt_path):
-                logger.error(f"❌ 转换后的TXT文件不存在: {txt_path}")
-                raise Exception(f"文件转换失败 {doc_path} ==> {txt_path}")
+                logger.error(f"❌ Converted TXT file does not exist: {txt_path}")
+                raise Exception(f"File conversion failed {doc_path} ==> {txt_path}")
             else:
-                logger.info(f"🎉 TXT文件转换成功，文件路径: {txt_path}")
+                logger.info(f"🎉 TXT file conversion successful, file path: {txt_path}")
                 return txt_path
 
         except subprocess.SubprocessError as e:
-            logger.error(f"💥 subprocess执行失败: {e!s}")
-            raise Exception(f"执行转换命令时发生错误: {e!s}")
+            logger.error(f"💥 subprocess execution failed: {str(e)}")
+            raise Exception(f"Error occurred while executing conversion command: {str(e)}")
         except Exception as e:
-            logger.error(f"💥 DOC到TXT转换过程中发生未知错误: {e!s}")
+            logger.error(f"💥 Unknown error occurred during DOC to TXT conversion: {str(e)}")
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
-        """读取txt文件内容"""
-        logger.info(f"📖 开始读取TXT文件: {txt_path}")
+        """Read txt file content"""
+        logger.info(f"📖 Starting to read TXT file: {txt_path}")
 
         try:
-            # 检测文件编码
+            # Detect file encoding
             with open(txt_path, "rb") as f:
                 raw_data = f.read()
                 encoding = chardet.detect(raw_data)["encoding"]
                 if encoding is None:
                     encoding = "utf-8"
-                logger.debug(f"🔍 检测到文件编码: {encoding}")
+                logger.debug(f"🔍 Detected file encoding: {encoding}")
 
-            # 读取文件内容
-            with open(txt_path, encoding=encoding, errors="replace") as f:
+            # Read file content
+            with open(txt_path, "r", encoding=encoding, errors="replace") as f:
                 content = f.read()
 
-            logger.info(f"📄 TXT文件读取完成 - 内容长度: {len(content)} 字符")
-            logger.debug(f"👀 前100字符预览: {content[:100]}...")
+            logger.info(f"📄 TXT file reading complete - content length: {len(content)} characters")
+            logger.debug(f"👀 First 100 characters preview: {content[:100]}...")
 
             return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 TXT文件未找到: {e!s}")
-            raise Exception(f"文件未找到: {txt_path}")
+            logger.error(f"🚫 TXT file not found: {str(e)}")
+            raise Exception(f"File not found: {txt_path}")
         except Exception as e:
-            logger.error(f"💥 读取TXT文件时发生错误: {e!s}")
+            logger.error(f"💥 Error occurred while reading TXT file: {str(e)}")
             raise
 
     def read_doc_file(self, doc_path: str) -> str:
-        """读取doc文件并转换为文本"""
-        logger.info(f"📖 开始读取DOC文件 - 文件: {doc_path}")
+        """Read doc file and convert to text"""
+        logger.info(f"📖 Starting to read DOC file - file: {doc_path}")
 
         try:
-            # 首先尝试综合提取（如果有高级解析功能）
+            # First try comprehensive extraction (if advanced parsing features available)
             if HAS_OLEFILE:
                 comprehensive_content = self.extract_all_content(doc_path)
                 if comprehensive_content and comprehensive_content.strip():
-                    # 检查内容质量
+                    # Check content quality
                     if self._check_content_quality(comprehensive_content):
                         logger.info(
-                            f"✨ 使用综合提取方式成功，内容长度: {len(comprehensive_content)} 字符"
+                            f"✨ Comprehensive extraction successful, content length: {len(comprehensive_content)} characters"
                         )
                         return comprehensive_content
                     else:
-                        logger.warning("⚠️ 综合提取的内容质量不佳，尝试其他方式")
+                        logger.warning("⚠️ Comprehensive extraction content quality poor, trying other methods")
 
-            # 降级到传统转换方式
-            logger.info("🔄 使用传统转换方式")
+            # Fallback to traditional conversion method
+            logger.info("🔄 Using traditional conversion method")
 
             with tempfile.TemporaryDirectory() as temp_path:
-                logger.debug(f"📁 创建临时目录: {temp_path}")
+                logger.debug(f"📁 Created temporary directory: {temp_path}")
 
                 temp_dir = Path(temp_path)
 
                 file_path = temp_dir / "tmp.doc"
                 shutil.copy(doc_path, file_path)
-                logger.debug(f"📋 复制文件到临时目录: {doc_path} -> {file_path}")
+                logger.debug(f"📋 Copied file to temporary directory: {doc_path} -> {file_path}")
 
-                # 转换DOC为TXT
+                # Convert DOC to TXT
                 txt_file_path = self.doc_to_txt(str(file_path), str(temp_path))
-                logger.info(f"🎯 DOC转TXT完成: {txt_file_path}")
+                logger.info(f"🎯 DOC to TXT conversion complete: {txt_file_path}")
 
-                # 读取TXT文件内容
+                # Read TXT file content
                 content = self.read_txt_file(txt_file_path)
-                logger.info(f"✨ TXT文件内容读取完成，内容长度: {len(content)} 字符")
+                logger.info(f"✨ TXT file content reading complete, content length: {len(content)} characters")
 
                 return content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件未找到: {e!s}")
-            raise Exception(f"文件未找到: {doc_path}")
+            logger.error(f"🚫 File not found: {str(e)}")
+            raise Exception(f"File not found: {doc_path}")
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {e!s}")
-            raise Exception(f"无权限访问文件: {doc_path}")
+            logger.error(f"🔒 File permission error: {str(e)}")
+            raise Exception(f"No permission to access file: {doc_path}")
         except Exception as e:
-            logger.error(f"💥 读取DOC文件时发生错误: {e!s}")
+            logger.error(f"💥 Error occurred while reading DOC file: {str(e)}")
             raise
 
     def _check_content_quality(self, content: str) -> bool:
-        """检查提取内容的质量"""
+        """Check quality of extracted content"""
         if not content or len(content) < 50:
             return False
 
-        # 计算乱码字符比例
+        # Calculate ratio of garbled characters
         total_chars = len(content)
-        # 可识别字符：ASCII、中文、日文、韩文、常用标点
+        # Recognizable characters: ASCII, Chinese, Japanese, Korean, common punctuation
         recognizable = sum(
             1
             for c in content
             if (
                 c.isascii()
-                or "\u4e00" <= c <= "\u9fff"  # 中文
-                or "\u3040" <= c <= "\u30ff"  # 日文
-                or "\uac00" <= c <= "\ud7af"  # 韩文
-                or c in '，。！？；：""（）【】《》、·…—\n\r\t '
+                or "\u4e00" <= c <= "\u9fff"  # Chinese
+                or "\u3040" <= c <= "\u30ff"  # Japanese
+                or "\uac00" <= c <= "\ud7af"  # Korean
+                or c in '，。！？；：""' "（）【】《》、·…—\n\r\t "
             )
         )
 
-        # 如果可识别字符占比低于70%，认为质量不佳
+        # If recognizable character ratio < 70%, consider quality poor
         if recognizable / total_chars < 0.7:
             logger.warning(
-                f"⚠️ 内容质量检查失败：可识别字符比例 {recognizable}/{total_chars} = {recognizable / total_chars:.2%}"
+                f"⚠️ Content quality check failed: recognizable character ratio {recognizable}/{total_chars} = {recognizable/total_chars:.2%}"
             )
             return False
 
         return True
 
     def parse(self, file_path: str):
-        """解析DOC文件"""
-        logger.info(f"🎬 开始解析DOC文件: {file_path}")
+        """Parse DOC file"""
+        logger.info(f"🎬 Starting to parse DOC file: {file_path}")
 
         try:
-            # 验证文件存在
+            # Verify file exists
             if not os.path.exists(file_path):
-                logger.error(f"🚫 文件不存在: {file_path}")
-                raise FileNotFoundError(f"文件不存在: {file_path}")
+                logger.error(f"🚫 File does not exist: {file_path}")
+                raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            # 验证文件扩展名
+            # Verify file extension
             if not file_path.lower().endswith(".doc"):
-                logger.warning(f"⚠️ 文件扩展名不是.doc: {file_path}")
+                logger.warning(f"⚠️ File extension is not .doc: {file_path}")
 
-            # 验证文件大小
+            # Verify file size
             file_size = os.path.getsize(file_path)
-            logger.info(f"📏 文件大小: {file_size} 字节")
+            logger.info(f"📏 File size: {file_size} bytes")
 
             if file_size == 0:
-                logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
-            # 生命周期：Data Processing 开始
+                logger.warning(f"⚠️ File size is 0 bytes: {file_path}")
+            # Lifecycle: Data Processing start
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -650,23 +649,23 @@ class DocParser(BaseLife):
                 usage_purpose="Documentation",
             )
 
-            # 🏷️ 提取文件扩展名
+            # 🏷️ Extract file extension
             extension = self.get_file_extension(file_path)
-            logger.debug(f"🏷️ 提取文件扩展名: {extension}")
+            logger.debug(f"🏷️ Extracted file extension: {extension}")
 
-            # 读取文件内容
-            logger.info("📝 读取DOC文件内容")
+            # Read file content
+            logger.info("📝 Reading DOC file content")
             content = self.read_doc_file(doc_path=file_path)
 
-            # 根据to_markdown参数决定是否保持原格式还是处理为markdown格式
+            # Decide whether to keep original format or process as markdown based on to_markdown parameter
             if self.to_markdown:
-                # 简单的文本到markdown转换（保持段落结构）
+                # Simple text to markdown conversion (preserve paragraph structure)
                 mk_content = self.format_as_markdown(content)
-                logger.info("🎨 内容已格式化为markdown格式")
+                logger.info("🎨 Content formatted as markdown")
             else:
                 mk_content = content
-                logger.info("📝 保持原始文本格式")
-            # 3) 生命周期：Data Processed or Failed
+                logger.info("📝 Keeping original text format")
+            # 3) Lifecycle: Data Processed or Failed
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -678,11 +677,11 @@ class DocParser(BaseLife):
                 usage_purpose="Documentation",
             )
 
-            logger.info(f"🎊 文件内容解析完成，最终内容长度: {len(mk_content)} 字符")
+            logger.info(f"🎊 File content parsing complete, final content length: {len(mk_content)} characters")
 
-            # 检查内容是否为空
+            # Check if content is empty
             if not mk_content.strip():
-                logger.warning(f"⚠️ 解析出的内容为空: {file_path}")
+                logger.warning(f"⚠️ Parsed content is empty: {file_path}")
 
             lifecycle = self.generate_lifecycle(
                 source_file=file_path,
@@ -690,7 +689,7 @@ class DocParser(BaseLife):
                 usage_purpose="Documentation",
                 life_type="LLM_ORIGIN",
             )
-            logger.debug("⚙️ 生成lifecycle信息完成")
+            logger.debug("⚙️ Lifecycle information generation complete")
 
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
@@ -698,25 +697,25 @@ class DocParser(BaseLife):
             # output_vo.add_lifecycle(lc_origin)
 
             result = output_vo.to_dict()
-            logger.info(f"🏆 DOC文件解析完成: {file_path}")
-            logger.debug(f"🔑 返回结果键: {list(result.keys())}")
+            logger.info(f"🏆 DOC file parsing complete: {file_path}")
+            logger.debug(f"🔑 Return result keys: {list(result.keys())}")
 
             return result
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件不存在错误: {e!s}")
+            logger.error(f"🚫 File not found error: {str(e)}")
             raise
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {e!s}")
-            raise Exception(f"无权限访问文件: {file_path}")
+            logger.error(f"🔒 File permission error: {str(e)}")
+            raise Exception(f"No permission to access file: {file_path}")
         except Exception as e:
             logger.error(
-                f"💀 解析DOC文件失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {e!s}"
+                f"💀 Failed to parse DOC file: {file_path}, error type: {type(e).__name__}, error message: {str(e)}"
             )
             raise
 
     def format_as_markdown(self, content: str) -> str:
-        """将纯文本格式化为简单的markdown格式"""
+        """Format plain text as simple markdown"""
         if not content.strip():
             return content
 
@@ -729,29 +728,29 @@ class DocParser(BaseLife):
                 formatted_lines.append("")
                 continue
 
-            # 简单的markdown格式化规则
-            # 可以根据需要扩展更多规则
+            # Simple markdown formatting rules
+            # Can extend with more rules as needed
             formatted_lines.append(line)
 
         return "\n".join(formatted_lines)
 
     def _extract_text_from_wps_stream(self, data: bytes) -> str:
-        """从WPS的WordDocument流中提取文本（使用更宽松的策略）"""
+        """Extract text from WPS WordDocument stream (using more lenient strategy)"""
         try:
             text_parts = []
 
-            # WPS文件可能使用不同的编码和结构
-            # 尝试多种策略提取文本
+            # WPS files may use different encodings and structures
+            # Try multiple strategies to extract text
 
-            # 策略1：尝试找到连续的文本块
-            # 查找看起来像文本的字节序列
+            # Strategy 1: Try to find continuous text blocks
+            # Look for byte sequences that look like text
             i = 0
             while i < len(data):
-                # 查找可能的文本开始位置
+                # Look for possible text start positions
                 if i + 2 < len(data):
-                    # 检查是否是Unicode文本（小端序）
+                    # Check if it's Unicode text (little endian)
                     if data[i + 1] == 0 and 32 <= data[i] <= 126:
-                        # 可能是ASCII字符的Unicode编码
+                        # Might be ASCII character Unicode encoding
                         text_block = bytearray()
                         j = i
                         while (
@@ -766,9 +765,9 @@ class DocParser(BaseLife):
                                 text_block.decode("ascii", errors="ignore")
                             )
                         i = j
-                    # 检查是否是UTF-8或GBK中文
+                    # Check if it's UTF-8 or GBK Chinese
                     elif 0xE0 <= data[i] <= 0xEF or 0x81 <= data[i] <= 0xFE:
-                        # 可能是多字节字符
+                        # Might be multi-byte character
                         text_block = bytearray()
                         j = i
                         while j < len(data):
@@ -777,7 +776,7 @@ class DocParser(BaseLife):
                             text_block.append(data[j])
                             j += 1
                         if len(text_block) > 20:
-                            # 尝试解码
+                            # Try to decode
                             for encoding in ["utf-8", "gbk", "gb18030", "gb2312"]:
                                 try:
                                     decoded = text_block.decode(
@@ -794,14 +793,14 @@ class DocParser(BaseLife):
                 else:
                     i += 1
 
-            # 合并文本部分
+            # Combine text parts
             if text_parts:
                 combined = "\n".join(text_parts)
                 return self._clean_extracted_text(combined)
 
-            # 如果上述方法失败，回退到原始方法
+            # If above method fails, fallback to original method
             return self._parse_word_stream(data)
 
         except Exception as e:
-            logger.error(f"💥 解析WPS流失败: {e!s}")
+            logger.error(f"💥 Failed to parse WPS stream: {str(e)}")
             return ""

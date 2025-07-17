@@ -37,7 +37,7 @@ class TxtParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            # 1) 开始处理
+            # 1) Start processing
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -45,15 +45,15 @@ class TxtParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSING,
             )
 
-            # 2) 读取文件内容
+            # 2) Read file content
             content = self.read_txt_file(file_path=file_path)
             mk_content = content
 
-            # 3) 构造输出对象并加上开始生命周期
+            # 3) Construct output object and add start lifecycle
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
 
-            # 4) 处理完成
+            # 4) Processing completed
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -64,13 +64,13 @@ class TxtParser(BaseLife):
 
             return output_vo.to_dict()
 
-        except Exception:
-            # 5) 处理失败
+        except Exception as e:
+            # 5) Processing failed
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            # （可选）如果希望在失败时也返回 VO，可在这里构造空 content 的 VO 并加入 lc_fail
+            # (Optional) If you want to return VO even on failure, you can construct VO with empty content here and add lc_fail
             raise

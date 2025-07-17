@@ -56,8 +56,7 @@ class MarkdownOutputVo:
         }
         return data_dict
 
-
-# ========== 新增：预置领域列表 ==========
+# ========== New: Predefined domain list ==========
 PREDEFINED_DOMAINS = [
     "Technology",
     "Finance",
@@ -68,7 +67,7 @@ PREDEFINED_DOMAINS = [
     "Sales",
     "Entertainment",
     "Science",
-    # … 如有需要可以继续扩展
+    # … Can be extended as needed
 ]
 
 
@@ -77,17 +76,17 @@ class BaseLife:
 
     def __init__(self, *, domain: str = "Technology", **kwargs):
         """
-        BaseLife 初始化：接收 domain 并做校验／警告，
-        其余参数向上层传递（如果有父类的话）。
+        BaseLife initialization: receives domain and performs validation/warning,
+        other parameters are passed to the parent class (if any).
         """
-        # 1) 预置列表校验
+        # 1) Predefined list validation
         if domain not in PREDEFINED_DOMAINS:
-            # 你也可以换成 logger.warning
-            print(f"⚠️ 域 “{domain}” 不在预置列表，将按自定义处理。")
-        # 2) 保存域
+            # You can also change to logger.warning
+            print(f"⚠️ Domain '{domain}' is not in the predefined list, will be handled as custom.")
+        # 2) Save domain
         self.domain = domain
 
-        # 3) 如果有父类 __init__，就把其余参数透传
+        # 3) If there's a parent class __init__, pass through other parameters
         super_init = getattr(super(), "__init__", None)
         if callable(super_init):
             super_init(**kwargs)
@@ -100,16 +99,16 @@ class BaseLife:
         usage_purpose: str,
     ) -> LifeCycle:
         """
-        构造一个 LifeCycle 记录，可以传入单个枚举/字符串或列表混合
+        Construct a LifeCycle record, can pass in a single enum/string or a mixed list
         """
-        # 1) 先统一成 list
+        # 1) First unify to list
         if isinstance(life_type, (list, tuple)):
             raw = list(life_type)
         else:
             raw = [life_type]
 
-        # 2) 如果是枚举，就取它的 value
-        life_list: list[str] = [
+        # 2) If it's an enum, take its value
+        life_list: List[str] = [
             lt.value if isinstance(lt, LifeType) else lt for lt in raw
         ]
 

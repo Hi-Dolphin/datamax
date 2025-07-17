@@ -47,7 +47,7 @@ class MarkdownParser(BaseLife):
         try:
             extension = self.get_file_extension(file_path)
 
-            # 1) 生成“开始处理”生命周期
+            # 1) Generate "start processing" lifecycle
             start_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -55,14 +55,14 @@ class MarkdownParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSING,
             )
 
-            # 2) 读取 Markdown 内容
+            # 2) Read Markdown content
             md_content = self.read_markdown_file(file_path)
 
-            # 3) 创建输出 VO，并添加开始事件
+            # 3) Create output VO and add start event
             output_vo = MarkdownOutputVo(extension, md_content)
             output_vo.add_lifecycle(start_lc)
 
-            # 4) 生成“处理完成”生命周期
+            # 4) Generate "processing completed" lifecycle
             end_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -75,14 +75,14 @@ class MarkdownParser(BaseLife):
 
         except Exception as e:
             loguru.logger.error(f"Failed to parse markdown file {file_path}: {e}")
-            # （可选）记录一次失败生命周期
+            # (Optional) Record a failure lifecycle
             fail_lc = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            # 如果想在失败时也返回 VO，可以这样做：
+            # If you want to return VO even on failure, you can do this:
             # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")
             # output_vo.add_lifecycle(fail_lc)
             raise

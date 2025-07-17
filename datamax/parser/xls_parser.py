@@ -18,7 +18,7 @@ class XlsParser(BaseLife):
 
     def parse(self, file_path: str) -> MarkdownOutputVo:
         try:
-            # 🏷️ 解析开始
+            # 🏷️ Parsing started
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -26,11 +26,11 @@ class XlsParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSING,
             )
 
-            # 📊 读取Excel并生成Markdown
+            # 📊 Read Excel and generate Markdown
             df = pd.read_excel(file_path)
             mk_content = df.to_markdown(index=False)
 
-            # 🏷️ 解析完成
+            # 🏷️ Parsing completed
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
@@ -44,12 +44,12 @@ class XlsParser(BaseLife):
             return output_vo.to_dict()
 
         except Exception as e:
-            # ❌ 解析失败
+            # ❌ Parsing failed
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            # 此处不返回空VO，直接抛出，框架可捕获并上报
+            # Don't return empty VO here, throw directly, framework can catch and report
             raise e
