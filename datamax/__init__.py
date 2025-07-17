@@ -1,66 +1,26 @@
-"""DataMax - A powerful multi-format file parsing, data cleaning and AI annotation toolkit."""
+"""
+DataMax: A comprehensive data parsing and processing library.
 
-__version__ = "0.1.18"
-__author__ = "ccy"
-__email__ = "cy.kron@foxmail.com"
+This package provides tools for parsing various document formats and processing data
+with support for multiple file types including PDF, DOCX, HTML, CSV, and more.
+"""
 
-# Main client interface (recommended)
-from datamax.client import DataMaxClient
-
-# Core components
-from datamax.parser.core import DataMax
-from datamax.loader.core import DataLoader
-from datamax.config import configure, get_settings, DataMaxSettings
-
-# Exceptions
-from datamax.exceptions import (
-    DataMaxError,
-    ParseError,
-    UnsupportedFormatError,
-    ConfigurationError,
-    AuthenticationError,
-    NetworkError,
-    DataCleaningError,
-    AIAnnotationError,
-    CacheError,
+from .parser import DataMax
+from .utils import (
+    clean_original_text,
+    clean_original_privacy_text,
+    setup_environment,
 )
 
-# Convenience imports
-parse_file = DataMaxClient().parse_file
-parse_files = DataMaxClient().parse_files
-parse_directory = DataMaxClient().parse_directory
-
+# Re-export commonly used utilities
 __all__ = [
-    # Main interface
-    "DataMaxClient",
-    
-    # Core classes
     "DataMax",
-    "DataLoader", 
-    "DataMaxSettings",
-    
-    # Configuration
-    "configure",
-    "get_settings",
-    
-    # Exceptions
-    "DataMaxError",
-    "ParseError", 
-    "UnsupportedFormatError",
-    "ConfigurationError",
-    "AuthenticationError",
-    "NetworkError",
-    "DataCleaningError",
-    "AIAnnotationError", 
-    "CacheError",
-    
-    # Convenience functions
-    "parse_file",
-    "parse_files", 
-    "parse_directory",
-    
-    # Metadata
-    "__version__",
-    "__author__",
-    "__email__",
+    "clean_original_text",
+    "clean_original_privacy_text",
+    "setup_environment",
 ]
+
+# Package metadata
+__version__ = "0.1.18rc1"
+__author__ = "DataMax Team"
+__description__ = "A comprehensive data parsing and processing library"

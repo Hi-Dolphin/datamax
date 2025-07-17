@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydatamax"
-version = "0.1.18"
+version = "0.1.18rc1"
 description = "A powerful multi-format file parsing, data cleaning and AI annotation toolkit"
 readme = "README.md"
 license = {text = "MIT"}
