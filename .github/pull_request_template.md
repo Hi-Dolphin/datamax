@@ -1,28 +1,28 @@
-## 更改描述
-简要描述此PR的更改内容。
+## Change Description
+Briefly describe the changes in this PR.
 
-## 更改类型
-- [ ] Bug修复
-- [ ] 新功能
-- [ ] 重大更改（会破坏现有功能）
-- [ ] 文档更新
-- [ ] 代码重构
-- [ ] 性能优化
-- [ ] 测试添加/修改
+## Change Type
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change (will break existing functionality)
+- [ ] Documentation update
+- [ ] Code refactoring
+- [ ] Performance optimization
+- [ ] Test addition/modification
 
-## 测试
-- [ ] 已添加相应的测试
-- [ ] 所有测试通过
-- [ ] 已手动测试相关功能
+## Testing
+- [ ] Added corresponding tests
+- [ ] All tests pass
+- [ ] Manually tested related features
 
-## 检查清单
-- [ ] 代码遵循项目的代码规范
-- [ ] 已进行自我代码审查
-- [ ] 代码已添加适当的注释
-- [ ] 已更新相关文档
-- [ ] 更改不会产生新的警告
-- [ ] 已添加相应的测试且测试通过
-- [ ] 新依赖项（如有）已记录在requirements.txt中
+## Checklist
+- [ ] Code follows the project's code style
+- [ ] Self code review performed
+- [ ] Code has appropriate comments
+- [ ] Related documentation updated
+- [ ] Changes do not produce new warnings
+- [ ] Added corresponding tests and they pass
+- [ ] New dependencies (if any) recorded in requirements.txt
 
-## 相关Issue
-关闭 #(issue编号)
+## Related Issue
+Closes #(issue number)
