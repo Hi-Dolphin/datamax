@@ -72,6 +72,7 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
     Parse Markdown files, extract images, and associate them with text blocks.
     """
     logger.info(f"Starting to parse Markdown file: {md_path}")
+
     try:
         with open(md_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -127,6 +128,7 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
         return processed_chunks
     except Exception as e:
         logger.error(f"Failed to process Markdown file {md_path}: {e}")
+
         import traceback
         traceback.print_exc()
         return []
@@ -168,7 +170,6 @@ def generate_multimodal_qa_with_dashscope(
         if response.status_code == 200:
             output_content = response.output.choices[0].get('message', {}).get('content')
 
-            # --- BUG FIX POINT ---
             # Check if returned content is a list or string
             if isinstance(output_content, list) and output_content:
                 # If it's a list, extract the 'text' content from the first element
@@ -183,6 +184,7 @@ def generate_multimodal_qa_with_dashscope(
 
             if not text_content:
                 logger.error("Failed to extract valid text from API return content.")
+
                 return []
 
             json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
@@ -194,6 +196,7 @@ def generate_multimodal_qa_with_dashscope(
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError as e:
+
                 logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
                 return []
         else:
@@ -202,6 +205,7 @@ def generate_multimodal_qa_with_dashscope(
 
     except Exception as e:
         logger.error(f"Exception occurred during LLM API call: {e}")
+
         import traceback
         traceback.print_exc()
         return []
@@ -262,7 +266,6 @@ def generatr_qa_pairs(
                     }
                     chunk_qas.append(formatted_qa)
         return chunk_qas
-
     logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
@@ -274,6 +277,5 @@ def generatr_qa_pairs(
                     with lock:
                         final_qa_list.extend(result)
                     pbar.set_postfix({"Generated QA": len(final_qa_list)})
-
     logger.success(f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs.")
     return final_qa_list

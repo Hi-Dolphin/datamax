@@ -324,7 +324,6 @@ def main():
         parser.save_label_data(qa_list, save_file_name)
         print(f"\n✅ The qa pairs have been saved to {save_file_name}.jsonl")
 
-
 if __name__ == "__main__":
     main()
 ```

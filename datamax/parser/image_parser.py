@@ -126,7 +126,6 @@ class ImageParser(BaseLife):
             print(f"Error message: {response.message}")
 
     def parse(self, file_path: str, query: Optional[str] = None) -> str:
-    def parse(self, file_path: str, query: Optional[str] = None) -> str:
         """
         Parse the image file using either Qwen model or traditional PDF conversion method.
         
