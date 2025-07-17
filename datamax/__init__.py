@@ -21,6 +21,6 @@ __all__ = [
 ]
 
 # Package metadata
-__version__ = "0.1.18rc1"
+__version__ = "0.1.18.post2"
 __author__ = "DataMax Team"
 __description__ = "A comprehensive data parsing and processing library"
