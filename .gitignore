@@ -6,6 +6,11 @@ target/
 /logs
 .claude
 .claude/*
+__temp__
+__temp__/*
+_temp_
+_temp_/*
+
 serp*.json
 # Byte-compiled / optimized / DLL files
 __pycache__/

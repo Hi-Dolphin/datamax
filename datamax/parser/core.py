@@ -76,6 +76,7 @@ class ParserFactory:
             ".webp": "ImageParser",
             ".xlsx": "XlsxParser",
             ".xls": "XlsParser",
+            ".csv": "CsvParser",
         }.get(file_extension)
 
         if not parser_class_name:
@@ -284,14 +285,14 @@ class DataMax(BaseLife):
 
         :return: Cleaned data
         """
-        # 1) 准备原始内容
+        # 1) Prepare original content
         if text:
             cleaned_text = text
         elif self.parsed_data:
             cleaned_text = self.parsed_data.get("content")
         else:
             raise ValueError("No data to clean.")
-        # 2) 触发“清洗开始”
+        # 2) Trigger "cleaning start"
         lc_start = self.generate_lifecycle(
             source_file=self.file_path,
             domain=self.domain,
@@ -300,7 +301,7 @@ class DataMax(BaseLife):
         ).to_dict()
 
         try:
-            # 3) 执行清洗步骤
+            # 3) Execute cleaning steps
             for method in method_list:
                 if method == "abnormal":
                     cleaned_text = (
@@ -321,7 +322,7 @@ class DataMax(BaseLife):
                         .get("text")
                     )
 
-            # 4) 清洗成功，触发“清洗完成”
+            # 4) Cleaning successful, trigger "cleaning completed"
             lc_end = self.generate_lifecycle(
                 source_file=self.file_path,
                 domain=self.domain,
@@ -329,30 +330,30 @@ class DataMax(BaseLife):
                 usage_purpose="Data Cleaning",
             ).to_dict()
 
-        except Exception:
-            # 5) 清洗失败，触发“清洗失败”
+        except Exception as e:
+            # 5) Cleaning failed, trigger "cleaning failed"
             lc_fail = self.generate_lifecycle(
                 source_file=self.file_path,
                 domain=self.domain,
                 life_type=LifeType.DATA_CLEAN_FAILED,
                 usage_purpose="Data Cleaning",
             ).to_dict()
-            # 把失败事件也加入到 parsed_data 中再抛出
+            # Add failure event to parsed_data before raising
             if self.parsed_data and isinstance(self.parsed_data, dict):
                 self.parsed_data.setdefault("lifecycle", []).append(lc_start)
                 self.parsed_data["lifecycle"].append(lc_fail)
             raise
 
-        # 6) 更新 content 并合并生命周期
+        # 6) Update content and merge lifecycles
         if self.parsed_data and isinstance(self.parsed_data, dict):
             origin = self.parsed_data
             origin["content"] = cleaned_text
             origin.setdefault("lifecycle", []).extend([lc_start, lc_end])
-            # 重置 parsed_data 以避免二次污染
+            # Reset parsed_data to avoid secondary contamination
             self.parsed_data = None
             return origin
         else:
-            # 仅返回纯文本时，也可以返回 lifecycle 信息
+            # When returning plain text, also return lifecycle information
             return cleaned_text
 
     def complete_api_url(self, base_url):
@@ -456,14 +457,13 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.utils.qa_generator as qa_gen
-
-        # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
+        # If content is passed externally, use it directly; otherwise go through parse/clean process
         data = []
         if content is not None:
             text = content
         else:
             processed = self.get_data()
-            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
+            # Consistent with original logic, convert multiple files or dict/str to a single string
             if isinstance(processed, list):
                 parts = [d["content"] if isinstance(d, dict) else d for d in processed]
                 text = "\n\n".join(parts)
@@ -474,7 +474,7 @@ class DataMax(BaseLife):
             print(text)
             file_path = self.file_path
 
-        # 打点：开始 DATA_LABELLING
+        # Mark: start DATA_LABELLING
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
             self.parsed_data.setdefault("lifecycle", []).append(
                 self.generate_lifecycle(
@@ -487,7 +487,16 @@ class DataMax(BaseLife):
         try:
             base_url = qa_gen.complete_api_url(base_url)
             if use_mllm and self.use_mineru:
-                logger.info("使用多模态QA生成器...")
+                logger.info("Using multimodal QA generator...")
+                if isinstance(self.file_path, list):
+                    file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
+                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                    file_names = [os.path.basename(self.file_path).replace('.pdf', '.md')]
+                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                    file_names = [
+                        os.path.basename(file).replace('.pdf', '.md') for file in list(Path(self.file_path).rglob("*.*"))
+                    ]
+                file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
                 from datamax.utils import multimodal_qa_generator as generator_module
                 data = generator_module.generatr_qa_pairs(
                 file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
@@ -498,38 +507,51 @@ class DataMax(BaseLife):
                 max_workers=max_workers,
             )
             else:
-                logger.info("使用标准QA生成器...")
-                data = qa_gen.generate_qa_from_content(
-                content=text,
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                question_number=question_number,
-                language=language,
-                max_workers=max_workers,
-                message=messages,
+                logger.info("Using standard QA generator...")
+                data = qa_gen.full_qa_labeling_process(
+                    content=text,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                    question_number=question_number,
+                    max_workers=max_workers,
+                    use_tree_label=use_tree_label,
+                    messages=messages,
+                    interactive_tree=interactive_tree,
+                    custom_domain_tree=custom_domain_tree,
+                    use_mineru=self.use_mineru,  # Pass use_mineru parameter
             )
-            # 打点：成功 DATA_LABELLED
-            self.parsed_data["lifecycle"].append(
-                self.generate_lifecycle(
-                    source_file=self.file_path,
-                    domain=self.domain,
-                    life_type=LifeType.DATA_LABELLED,
-                    usage_purpose="Labeling",
-                ).to_dict()
-            )
+            if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+                # Mark: success DATA_LABELLED
+                self.parsed_data["lifecycle"].append(
+                    self.generate_lifecycle(
+                        source_file=self.file_path,
+                        domain=self.domain,
+                        life_type=LifeType.DATA_LABELLED,
+                        usage_purpose="Labeling",
+                    ).to_dict()
+                )
+            # show preview of the first 10 qa pairs
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                print("\n===== Preview of first 10 QA pairs =====")
+                for i, qa in enumerate(data[:10]):
+                    print(f"\n--- QA pair {i+1} ---")
+                    print(f"Question: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(f"Answer: {qa.get('output', 'N/A')}")
+                    print(f"Label: {qa.get('label', 'N/A')}")
+                print("========================\n")
             return data
         except ImportError as e:
-            logger.error(f"无法导入生成器模块: {e}")
+            logger.error(f"Cannot import generator module: {e}")
 
         except Exception as e:
-            logger.error(f"生成预标注数据时发生错误: {e}")
+            logger.error(f"Error occurred while generating pre-labeled data: {e}")
             import traceback
             traceback.print_exc()
-
-            # 打点：失败 DATA_LABEL_FAILED
+        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+            # Mark: failure DATA_LABEL_FAILED
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,

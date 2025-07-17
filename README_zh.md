@@ -390,7 +390,7 @@ apt update && apt install -y libreoffice libreoffice-dev python3-uno
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
 
 # 2.安装模型
-python datamax/scripts/download_models.py
+python scripts/download_models.py
 ```
 
 详细配置请参考 [MinerU文档](https://github.com/opendatalab/MinerU)

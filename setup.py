@@ -40,6 +40,7 @@ setup(
         "markdown>=3.8,<4.0.0",
         "langchain>=0.3.0,<1.0.0",
         "langchain-community>=0.3.0,<1.0.0",
+        "langchain-text-splitters>=0.3.0,<1.0.0",
         "ebooklib==0.19",
         "setuptools"
     ],

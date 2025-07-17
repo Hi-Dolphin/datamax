@@ -15,132 +15,132 @@ warnings.filterwarnings("ignore")
 
 
 class XlsxParser(BaseLife):
-    """XLSX解析器 - 使用pandas读取并转换为markdown，支持多进程处理"""
+    """XLSX Parser - Uses pandas to read and convert to markdown, supports multi-process handling"""
 
     def __init__(self, file_path, domain: str = "Technology"):
         super().__init__(domain=domain)
         self.file_path = file_path
-        logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}")
+        logger.info(f"🚀 XlsxParser initialization complete - File path: {file_path}")
 
     def _parse_with_pandas(self, file_path: str) -> str:
-        """使用pandas读取Excel并转换为markdown"""
-        logger.info(f"🐼 开始使用pandas读取Excel文件: {file_path}")
+        """Use pandas to read Excel and convert to markdown"""
+        logger.info(f"🐼 Start reading Excel file with pandas: {file_path}")
 
         try:
-            # 验证文件存在
+            # Verify file exists
             if not os.path.exists(file_path):
-                logger.error(f"🚫 Excel文件不存在: {file_path}")
-                raise FileNotFoundError(f"文件不存在: {file_path}")
+                logger.error(f"🚫 Excel file does not exist: {file_path}")
+                raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            # 验证文件大小
+            # Verify file size
             file_size = os.path.getsize(file_path)
-            logger.info(f"📏 文件大小: {file_size} 字节")
+            logger.info(f"📏 File size: {file_size} bytes")
 
             if file_size == 0:
-                logger.warning(f"⚠️ 文件大小为0字节: {file_path}")
-                return "*文件为空*"
+                logger.warning(f"⚠️ File size is 0 bytes: {file_path}")
+                return "*File is empty*"
 
-            # 使用pandas读取Excel文件
-            logger.debug("📊 正在读取Excel数据...")
-            df = pd.read_excel(file_path, sheet_name=None)  # 读取所有工作表
+            # Use pandas to read Excel file
+            logger.debug("📊 Reading Excel data...")
+            df = pd.read_excel(file_path, sheet_name=None)  # Read all worksheets
 
             markdown_content = ""
 
             if isinstance(df, dict):
-                # 多个工作表
-                logger.info(f"📑 检测到多个工作表，共 {len(df)} 个")
+                # Multiple worksheets
+                logger.info(f"📑 Detected multiple worksheets, total: {len(df)}")
                 for sheet_name, sheet_df in df.items():
-                    logger.debug(f"📋 处理工作表: {sheet_name}, 形状: {sheet_df.shape}")
-                    markdown_content += f"## 工作表: {sheet_name}\n\n"
+                    logger.debug(f"📋 Processing worksheet: {sheet_name}, shape: {sheet_df.shape}")
+                    markdown_content += f"## Worksheet: {sheet_name}\n\n"
 
                     if not sheet_df.empty:
-                        # 清理数据：移除完全为空的行和列
+                        # Clean data: remove completely empty rows and columns
                         sheet_df = sheet_df.dropna(how="all").dropna(axis=1, how="all")
 
                         if not sheet_df.empty:
                             sheet_markdown = sheet_df.to_markdown(index=False)
                             markdown_content += sheet_markdown + "\n\n"
                             logger.debug(
-                                f"✅ 工作表 {sheet_name} 转换完成，有效数据形状: {sheet_df.shape}"
+                                f"✅ Worksheet {sheet_name} conversion complete, valid data shape: {sheet_df.shape}"
                             )
                         else:
-                            markdown_content += "*该工作表无有效数据*\n\n"
-                            logger.warning(f"⚠️ 工作表 {sheet_name} 清理后无有效数据")
+                            markdown_content += "*This worksheet has no valid data*\n\n"
+                            logger.warning(f"⚠️ Worksheet {sheet_name} has no valid data after cleaning")
                     else:
-                        markdown_content += "*该工作表为空*\n\n"
-                        logger.warning(f"⚠️ 工作表 {sheet_name} 为空")
+                        markdown_content += "*This worksheet is empty*\n\n"
+                        logger.warning(f"⚠️ Worksheet {sheet_name} is empty")
             else:
-                # 单个工作表
-                logger.info(f"📄 单个工作表，形状: {df.shape}")
+                # Single worksheet
+                logger.info(f"📄 Single worksheet, shape: {df.shape}")
                 if not df.empty:
-                    # 清理数据：移除完全为空的行和列
+                    # Clean data: remove completely empty rows and columns
                     df = df.dropna(how="all").dropna(axis=1, how="all")
 
                     if not df.empty:
                         markdown_content = df.to_markdown(index=False)
-                        logger.info(f"✅ 工作表转换完成，有效数据形状: {df.shape}")
+                        logger.info(f"✅ Worksheet conversion complete, valid data shape: {df.shape}")
                     else:
-                        markdown_content = "*工作表无有效数据*"
-                        logger.warning("⚠️ 工作表清理后无有效数据")
+                        markdown_content = "*Worksheet has no valid data*"
+                        logger.warning("⚠️ Worksheet has no valid data after cleaning")
                 else:
-                    markdown_content = "*工作表为空*"
-                    logger.warning("⚠️ 工作表为空")
+                    markdown_content = "*Worksheet is empty*"
+                    logger.warning("⚠️ Worksheet is empty")
 
             logger.info(
-                f"🎊 pandas转换完成，markdown内容长度: {len(markdown_content)} 字符"
+                f"🎊 Pandas conversion complete, markdown content length: {len(markdown_content)} characters"
             )
-            logger.debug(f"👀 前200字符预览: {markdown_content[:200]}...")
+            logger.debug(f"👀 First 200 characters preview: {markdown_content[:200]}...")
 
             return markdown_content
 
         except FileNotFoundError as e:
-            logger.error(f"🚫 文件未找到: {e!s}")
+            logger.error(f"🚫 File not found: {str(e)}")
             raise
         except PermissionError as e:
-            logger.error(f"🔒 文件权限错误: {e!s}")
-            raise Exception(f"无权限访问文件: {file_path}")
+            logger.error(f"🔒 File permission error: {str(e)}")
+            raise Exception(f"No permission to access file: {file_path}")
         except pd.errors.EmptyDataError as e:
-            logger.error(f"📭 Excel文件为空: {e!s}")
-            raise Exception(f"Excel文件为空或无法读取: {file_path}")
+            logger.error(f"📭 Excel file is empty: {str(e)}")
+            raise Exception(f"Excel file is empty or cannot be read: {file_path}")
         except Exception as e:
-            logger.error(f"💥 pandas读取Excel失败: {e!s}")
+            logger.error(f"💥 Pandas Excel reading failed: {str(e)}")
             raise
 
     def _parse(self, file_path: str, result_queue: Queue) -> dict:
-        """解析Excel文件的核心方法"""
-        logger.info(f"🎬 开始解析Excel文件: {file_path}")
+        """Core method for parsing Excel files"""
+        logger.info(f"🎬 Start parsing Excel file: {file_path}")
 
-        # —— 生命周期：开始处理 —— #
+        # —— Lifecycle: Start processing —— #
         lc_start = self.generate_lifecycle(
             source_file=file_path,
             domain=self.domain,
             usage_purpose="Documentation",
             life_type=LifeType.DATA_PROCESSING,
         )
-        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+        logger.debug("⚙️ DATA_PROCESSING lifecycle generated")
 
         try:
-            # 使用pandas解析Excel
-            logger.info("🐼 使用pandas模式解析Excel")
+            # Parse Excel using pandas
+            logger.info("🐼 Parsing Excel using pandas mode")
             mk_content = self._parse_with_pandas(file_path)
 
-            # 检查内容是否为空
+            # Check if content is empty
             if not mk_content.strip():
-                logger.warning(f"⚠️ 解析出的内容为空: {file_path}")
-                mk_content = "*无法解析文件内容*"
+                logger.warning(f"⚠️ Parsed content is empty: {file_path}")
+                mk_content = "*Unable to parse file content*"
 
-            logger.info(f"🎊 文件内容解析完成，最终内容长度: {len(mk_content)} 字符")
+            logger.info(f"🎊 File content parsing complete, final content length: {len(mk_content)} characters")
 
-            # —— 生命周期：处理完成 —— #
+            # —— Lifecycle: Processing complete —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
-            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
+            logger.debug("⚙️ DATA_PROCESSED lifecycle generated")
 
-            # 创建输出对象并添加两个生命周期
+            # Create output object and add both lifecycles
             extension = self.get_file_extension(file_path)
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
@@ -148,14 +148,14 @@ class XlsxParser(BaseLife):
 
             result = output_vo.to_dict()
             result_queue.put(result)
-            logger.info(f"🏆 Excel文件解析完成: {file_path}")
-            logger.debug(f"🔑 返回结果键: {list(result.keys())}")
+            logger.info(f"🏆 Excel file parsing complete: {file_path}")
+            logger.debug(f"🔑 Return result keys: {list(result.keys())}")
 
-            time.sleep(0.5)  # 给队列一点时间
+            time.sleep(0.5)  # Give queue some time
             return result
 
         except Exception as e:
-            # —— 生命周期：处理失败 —— #
+            # —— Lifecycle: Processing failed —— #
             try:
                 lc_fail = self.generate_lifecycle(
                     source_file=file_path,
@@ -163,13 +163,13 @@ class XlsxParser(BaseLife):
                     usage_purpose="Documentation",
                     life_type=LifeType.DATA_PROCESS_FAILED,
                 )
-                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
-                # 如果需要，也可以把它加到 error_result 里：
+                logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
+                # If needed, this can also be added to error_result:
                 # error_result = {"error": str(e), "file_path": file_path, "lifecycle":[lc_fail.to_dict()]}
             except Exception:
                 pass
 
-            # —— 生命周期：处理失败 —— #
+            # —— Lifecycle: Processing failed —— #
             try:
                 lc_fail = self.generate_lifecycle(
                     source_file=file_path,
@@ -177,44 +177,44 @@ class XlsxParser(BaseLife):
                     usage_purpose="Documentation",
                     life_type=LifeType.DATA_PROCESS_FAILED,
                 )
-                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+                logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
             except Exception:
                 pass
 
-            logger.error(f"💀 解析Excel文件失败: {file_path}, 错误: {e!s}")
-            # 将错误也放入队列
+            logger.error(f"💀 Excel file parsing failed: {file_path}, error: {str(e)}")
+            # Put error into queue as well
             error_result = {
                 "error": str(e),
                 "file_path": file_path,
-                # 额外把失败的 lifecycle 也一起返回，测试中可选校验
+                # Also return the failed lifecycle for optional verification in tests
                 "lifecycle": [lc_fail.to_dict()] if "lc_fail" in locals() else [],
             }
             result_queue.put(error_result)
             raise
 
     def parse(self, file_path: str) -> dict:
-        """解析Excel文件 - 支持多进程和超时控制"""
-        logger.info(f"🚀 启动Excel解析进程 - 文件: {file_path}")
+        """Parse Excel file - supports multi-process and timeout control"""
+        logger.info(f"🚀 Starting Excel parsing process - File: {file_path}")
 
         try:
-            # 验证文件存在
+            # Verify file exists
             if not os.path.exists(file_path):
-                logger.error(f"🚫 文件不存在: {file_path}")
-                raise FileNotFoundError(f"文件不存在: {file_path}")
+                logger.error(f"🚫 File does not exist: {file_path}")
+                raise FileNotFoundError(f"File does not exist: {file_path}")
 
-            # 验证文件扩展名
+            # Verify file extension
             if not file_path.lower().endswith((".xlsx", ".xls")):
-                logger.warning(f"⚠️ 文件扩展名不是Excel格式: {file_path}")
+                logger.warning(f"⚠️ File extension is not Excel format: {file_path}")
 
             result_queue = Queue()
             process = multiprocessing.Process(
                 target=self._parse, args=(file_path, result_queue)
             )
             process.start()
-            logger.debug(f"⚡ 启动子进程，PID: {process.pid}")
+            logger.debug(f"⚡ Started subprocess, PID: {process.pid}")
 
         except Exception as e:
             logger.error(
-                f"💀 Excel解析失败: {file_path}, 错误类型: {type(e).__name__}, 错误信息: {e!s}"
+                f"💀 Excel parsing failed: {file_path}, error type: {type(e).__name__}, error message: {str(e)}"
             )
             raise

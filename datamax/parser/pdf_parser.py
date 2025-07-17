@@ -196,15 +196,47 @@ class PdfParser(BaseLife):
 
         self.file_path = file_path
         self.use_mineru = use_mineru
-        self.use_qwen_vl_ocr = use_qwen_vl_ocr
-        self.ocr_api_key = ocr_api_key
-        self.ocr_base_url = ocr_base_url
-        self.ocr_model_name = ocr_model_name
-        
-        # 验证OCR参数
-        if self.use_qwen_vl_ocr:
-            if not all([self.ocr_api_key, self.ocr_base_url, self.ocr_model_name]):
-                raise ValueError("Qwen-VL OCR requires api_key, base_url, and model_name to be provided")
+
+    def mineru_process(self, input_pdf_filename, output_dir):
+        proc = None
+        try:
+            logger.info(
+                f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!"
+            )
+            command = ["magic-pdf", "-p", input_pdf_filename, "-o", output_dir]
+            proc = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+
+            # Wait for command execution to complete
+            stdout, stderr = proc.communicate()
+            # Check if command executed successfully
+            if proc.returncode != 0:
+                raise Exception(
+                    f"mineru failed with return code {proc.returncode}: {stderr.decode()}"
+                )
+
+            logger.info(
+                f"Markdown saved in {output_dir}, input file is {input_pdf_filename}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            if proc is not None:
+                proc.kill()
+                proc.wait()
+                logger.info("The process was terminated due to an error.")
+            raise  # Re-raise the exception to let the caller handle it
+
+        finally:
+            # Ensure subprocess has terminated
+            if proc is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+                    logger.info(
+                        "The process was terminated due to timeout or completion."
+                    )
 
     @staticmethod
     def read_pdf_file(file_path) -> str:
@@ -225,7 +257,7 @@ class PdfParser(BaseLife):
             usage_purpose="Documentation",
             life_type=LifeType.DATA_PROCESSING,
         )
-        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+        logger.debug("⚙️ DATA_PROCESSING lifecycle generated")
         try:
             extension = self.get_file_extension(file_path)
 
@@ -257,6 +289,14 @@ class PdfParser(BaseLife):
             elif self.use_mineru:
                 output_dir = "uploaded_files"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
+                # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
+                # if os.path.exists(output_mineru):
+                #     pass
+                # else:
+                # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
+                # mk_content = open(output_mineru, 'r', encoding='utf-8').read()
+
+                # TODO: Check if it's necessary to keep consistent with API's default save path
                 output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
 
                 if os.path.exists(output_mineru):
@@ -267,14 +307,14 @@ class PdfParser(BaseLife):
                 content = self.read_pdf_file(file_path=file_path)
                 mk_content = content
 
-            # —— 生命周期：处理完成 —— #
+            # —— Lifecycle: Processing completed —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
-            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
+            logger.debug("⚙️ DATA_PROCESSED lifecycle generated")
 
             output_vo = MarkdownOutputVo(extension, mk_content)
             output_vo.add_lifecycle(lc_start)
@@ -285,14 +325,14 @@ class PdfParser(BaseLife):
             return output_vo.to_dict()
 
         except Exception as e:
-            # —— 生命周期：处理失败 —— #
+            # —— Lifecycle: Processing failed —— #
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
-            logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+            logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
 
             raise Exception(
                 {

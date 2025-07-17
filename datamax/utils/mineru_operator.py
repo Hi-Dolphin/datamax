@@ -30,7 +30,7 @@ class PdfProcessor:
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(pdf_file_name)
 
-        # 处理流程
+        # Processing workflow
         ds = PymuDocDataset(pdf_bytes)
         markdown_path = os.path.join(
             local_md_dir, f"{name_without_suff}.md"
@@ -57,12 +57,3 @@ class PdfProcessor:
 
 
 pdf_processor = PdfProcessor()
-
-# usage example
-if __name__ == "__main__":
-    # pdf_processor = PdfProcessor()
-    print(
-        pdf_processor.process_pdf(
-            "/home/caocaiyu/datamax-service/backend/uploaded_files/fde1daee-e899-4e93-87ff-706234c399c3/20250227132500_5447d25cbf094a3295f9d52d3408a048.pdf"
-        )
-    )
