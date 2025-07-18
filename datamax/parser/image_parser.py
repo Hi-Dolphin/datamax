@@ -73,7 +73,7 @@ class ImageParser(BaseLife):
         self.model_name = model_name
         self.system_prompt = system_prompt
         self.use_mllm = use_mllm
-
+        
         if self.use_mllm:
             if not self.api_key:
                 raise ValueError("API key is required when use_mllm is True")
@@ -105,7 +105,7 @@ class ImageParser(BaseLife):
     def _parse_with_mllm(self, prompt: str) -> str:
         """
         Parse image using Qwen model.
-
+        
         Args:
             prompt: The question/prompt for the image.
 

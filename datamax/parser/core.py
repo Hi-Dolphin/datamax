@@ -39,9 +39,10 @@ class ParserFactory:
     def create_parser(
         file_path: str,
         use_mllm: bool = False,
-        api_key: str = None,
-        base_url: str = None,
-        model_name: str = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
@@ -172,15 +173,11 @@ class DataMax(BaseLife):
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param use_mllm: Flag to indicate whether mllm should be used for parse IMAGE file.
-        :param api_key: API key for the model (if using mllm).
-        :param base_url: Base URL for the model API (if using mllm).
-        :param model_name: Name of the model to use (if using mllm).
-        :param system_prompt: System prompt for the model (if using mllm).
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
+        :param api_key: API key for OCR service (required when use_mllm or use_qwen_vl_ocr=True).
+        :param base_url: Base URL for OCR service (required when use_mllm or use_qwen_vl_ocr=True).
+        :param model_name: Model name for OCR service (required when use_mllm or use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -196,9 +193,6 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model_name = model_name
 
     def set_data(self, file_name, parsed_data):
         """

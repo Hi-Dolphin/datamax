@@ -33,7 +33,7 @@ pip install pydatamax
 from datamax import DataMax
 
 # prepare info
-FILE_PATHS = ["/your/file/path/1.md", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
+FILE_PATHS = ["/your/file/path/1.pdf", "/your/file/path/2.doc", "/your/file/path/3.xlsx"]
 LABEL_LLM_API_KEY = "YOUR_API_KEY"
 LABEL_LLM_BASE_URL = "YOUR_BASE_URL"
 LABEL_LLM_MODEL_NAME = "YOUR_MODEL_NAME"
@@ -41,6 +41,18 @@ LLM_TRAIN_OUTPUT_FILE_NAME = "train"
 
 # init client
 client = DataMax(file_path=FILE_PATHS)
+
+# get pre label. return trainable qa list
+qa_list = client.get_pre_label(
+    api_key=LABEL_LLM_API_KEY,
+    base_url=LABEL_LLM_BASE_URL,
+    model_name=LABEL_LLM_MODEL_NAME,
+    question_number=10,
+    max_workers=5)
+
+# save label data
+client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
+```
 
 # Parse a single pdf file using pymupdf
 dm = DataMax(file_path="document.pdf")
