@@ -110,8 +110,7 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            if use_mineru == True:
-                if parser_class_name != "PdfParser" or parser_class_name != "ImageParser":
+            if use_mineru == True and not ((parser_class_name == "PdfParser") or (parser_class_name == "ImageParser")):
                     raise ValueError("MinerU is only supported for PDF or image files")
 
             if use_mllm == True:
@@ -122,6 +121,7 @@ class ParserFactory:
             common_kwargs = {"file_path": file_path, "domain": domain}
             if parser_class_name == "PdfParser":
                 return parser_class(
+                    file_path=file_path,
                     use_mineru=use_mineru,
                     domain=domain,
                 )
@@ -427,9 +427,9 @@ class DataMax(BaseLife):
         *,
         content: str = None,
         use_mllm: bool = False,
-        api_key: str,
-        base_url: str,
-        model_name: str,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         question_number: int = 5,
