@@ -705,7 +705,6 @@ def generatr_qa_pairs(
         message = []
     if domain_tree is None:
         from datamax.utils.domain_tree import DomainTree
-
         domain_tree = DomainTree([])
     qa_pairs = process_answers(
         question_items=question_info,
@@ -727,7 +726,6 @@ def generatr_qa_pairs(
             answer = qa_pairs[question]
             tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
             qid = question_item.get("qid", "")
-            method = "text with tree label" if domain_tree else "text"
             qa_entry = {
                 "qid": qid,
                 "instruction": question,
@@ -735,7 +733,7 @@ def generatr_qa_pairs(
                 "output": answer,
                 "label": label,
                 "tag-path": tag_path,
-                "method": method,
+                
             }
             res_list.append(qa_entry)
     return res_list
@@ -856,7 +854,7 @@ def full_qa_labeling_process(
 
     # Validate required parameters
     if not content:
-        logger.error("content parameter is required")
+        logger.error("content parameter is required. Check content is null or not. Check file_path is null or not.")
         return []
 
     if not api_key:
@@ -983,85 +981,3 @@ def full_qa_labeling_process(
         domain_tree=domain_tree if use_tree_label else None,
     )
     return qa_list
-
-
-if __name__ == "__main__":
-    # split text into chunks
-    page_content = load_and_split_markdown(
-        md_path="知识图谱.md",
-        chunk_size=500,
-        chunk_overlap=100,
-    )
-
-    # generate domain tree
-    domain_tree = process_domain_tree(
-        api_key=API_KEY,
-        base_url=BASE_URL,
-        model="qwen-plus",
-        text=page_content,
-        temperature=0.7,
-        top_p=0.9,
-    )
-
-    # generate question_info containing chunk and questions
-    # question_info is the largest question set, will be adjusted according to the modification of the domain tree
-    question_info = process_questions(
-        page_content=page_content,
-        question_number=5,
-        max_workers=10,
-        api_key=API_KEY,
-        base_url=BASE_URL,
-        model="qwen-plus",
-    )
-
-    # add unique id to each question
-    for question_item in question_info:
-        question_item["qid"] = str(uuid.uuid4())
-
-    if not question_info:
-        logger.error("Unable to generate any questions, please check input document and API settings")
-        
-    # check if domain_tree is empty
-    if not domain_tree or not domain_tree.to_json():
-        logger.info("Domain tree is empty, no labeling performed")
-    else:
-        # use DomainTree instance to match label
-        q_match_list = process_match_tags(
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            model="qwen-plus",
-            tags_json=domain_tree.to_json(),
-            questions=[question_item["question"] for question_item in question_info],
-            max_workers=3,
-        )
-        logger.info(f"Question-label matching completed, result: {q_match_list}")
-        # merge label to question_info
-        label_map = {item["question"]: item.get("label", "") for item in q_match_list}
-        for question_item in question_info:
-            question_item["label"] = label_map.get(question_item["question"], "")
-        # get filtered question_info
-        question_list = [question_item["question"] for question_item in question_info]
-        question_info = [
-            {
-                "question": question_item["question"],
-                "page": question_item["page"],
-                "qid": question_item["qid"],
-                "label": question_item["label"],
-            }
-            for question_item in question_info
-            if question_item["question"] in question_list
-        ]
-
-    # final answer
-    r = generatr_qa_pairs(
-        question_info=question_info,
-        api_key=API_KEY,
-        base_url=BASE_URL,
-        model_name="qwen-plus",
-        question_number=5,
-        max_workers=10,
-        domain_tree=domain_tree,
-        # message=[]
-    )
-
-    print(r)
