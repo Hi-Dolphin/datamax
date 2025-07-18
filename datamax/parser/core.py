@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -38,13 +38,15 @@ class ParserFactory:
     @staticmethod
     def create_parser(
         file_path: str,
+        use_mllm: bool = False,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
         to_markdown: bool = False,
-        domain: str = "Technology",
-        api_key: str = None,
-        base_url: str = None,
-        model_name: str = None,
+        domain: str = "Technology"
     ):
         """
         Create a parser instance based on the file extension.
@@ -108,19 +110,32 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
+            if use_mineru == True and not ((parser_class_name == "PdfParser") or (parser_class_name == "ImageParser")):
+                    raise ValueError("MinerU is only supported for PDF or image files")
+
+            if use_mllm == True:
+                if parser_class_name != "ImageParser":
+                    raise ValueError("mllm is only supported for image files")
 
             # Instantiate based on parser type
             common_kwargs = {"file_path": file_path, "domain": domain}
             if parser_class_name == "PdfParser":
                 return parser_class(
+                    file_path=file_path,
                     use_mineru=use_mineru,
-                    use_qwen_vl_ocr=use_qwen_vl_ocr,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    **common_kwargs
+                    domain=domain,
                 )
-            elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
+            elif parser_class_name == "ImageParser":
+                return parser_class(
+                    file_path=file_path,
+                    use_mllm = use_mllm,
+                    api_key = api_key,
+                    base_url = base_url,
+                    model_name = model_name,
+                    system_prompt = system_prompt,
+                    use_gpu=False
+                )
+            elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
                     to_markdown=to_markdown,
                     use_uno=True,
@@ -139,12 +154,14 @@ class DataMax(BaseLife):
         file_path: str | list = "",
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
+        use_mllm: bool = False,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        system_prompt: str = "You are a helpful assistant that accurately describes images in detail.",
         to_markdown: bool = False,
         ttl: int = 3600,
-        domain: str = "Technology",
-        api_key: str = None,
-        base_url: str = None,
-        model_name: str = None,
+        domain: str = "Technology"
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -152,24 +169,28 @@ class DataMax(BaseLife):
         :param file_path: The path to the file or directory to be parsed.
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
+        :param use_mllm: Flag to indicate whether mllm should be used for parse IMAGE file.
+        :param api_key: API key for the model  (required when use_mllm or use_qwen_vl_ocr=True).
+        :param base_url: Base URL for the model API (required when use_mllm or use_qwen_vl_ocr=True).
+        :param model_name: Name of the model to use (required when use_mllm or use_qwen_vl_ocr=True).
+        :param system_prompt: System prompt for the model (available when use_mllm=True).
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_qwen_vl_ocr = use_qwen_vl_ocr
+        self.use_mllm = use_mllm
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model_name = model_name
+        self.system_prompt = system_prompt
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model_name = model_name
 
     def set_data(self, file_name, parsed_data):
         """
@@ -406,9 +427,9 @@ class DataMax(BaseLife):
         *,
         content: str = None,
         use_mllm: bool = False,
-        api_key: str,
-        base_url: str,
-        model_name: str,
+        api_key: str = None,
+        base_url: str = None,
+        model_name: str = None,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         question_number: int = 5,
@@ -423,7 +444,7 @@ class DataMax(BaseLife):
         Generate pre-labeling data based on processed document content instead of file path
 
         :param content: Processed document content
-        :param use_mllm: Whether to use mllm model
+        :param use_mllm: Whether to use mllm model for multimodal QA generation
         :param api_key: API key
         :param base_url: API base URL
         :param model_name: Model name
@@ -453,11 +474,30 @@ class DataMax(BaseLife):
         import datamax.utils.qa_generator as qa_gen
         # If content is passed externally, use it directly; otherwise go through parse/clean process
         data = []
+
+        if use_mllm:
+            if isinstance(self.file_path, list):
+                file_names = [f for f in self.file_path]
+            elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                file_names = [self.file_path]
+            elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                file_names = [f for f in list(Path(self.file_path).rglob("*.*"))]
+            md_names = [os.path.splitext(f)[0].lower() + '.md' for f in file_names]
+            saved_md_dir = os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown')
+            if os.path.isdir(saved_md_dir):
+                processed_md_names = [os.path.basename(f) for f in list(Path(saved_md_dir).rglob("*.md"))]
+                file_names = [file for file in file_names if os.path.basename(file) not in md_names]
+            
+
         if content is not None:
             text = content
         else:
+            if use_mllm:
+                self.file_path, file_names = file_names, self.file_path
             processed = self.get_data()
-            # Consistent with original logic, convert multiple files or dict/str to a single string
+            if use_mllm:
+                self.file_path, file_names = file_names, self.file_path
+            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
             if isinstance(processed, list):
                 parts = [d["content"] if isinstance(d, dict) else d for d in processed]
                 text = "\n\n".join(parts)
@@ -466,7 +506,6 @@ class DataMax(BaseLife):
             else:
                 text = processed
             print(text)
-            file_path = self.file_path
 
         # Mark: start DATA_LABELLING
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
@@ -479,27 +518,20 @@ class DataMax(BaseLife):
                 ).to_dict()
             )
         try:
-            base_url = qa_gen.complete_api_url(base_url)
-            if use_mllm and self.use_mineru:
-                logger.info("Using multimodal QA generator...")
-                if isinstance(self.file_path, list):
-                    file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
-                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                    file_names = [os.path.basename(self.file_path).replace('.pdf', '.md')]
-                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                    file_names = [
-                        os.path.basename(file).replace('.pdf', '.md') for file in list(Path(self.file_path).rglob("*.*"))
-                    ]
-                file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
+            # base_url = qa_gen.complete_api_url(base_url)
+            if use_mllm:
+                logger.info("使用多模态QA生成器...")
                 from datamax.utils import multimodal_qa_generator as generator_module
-                data = generator_module.generatr_qa_pairs(
-                    file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    question_number=question_number,
-                    max_workers=max_workers,
-                )
+                for file_name in [os.path.abspath(f) for f in Path(saved_md_dir).rglob("*.md")]:
+                    new_data = generator_module.generatr_qa_pairs(
+                        file_path=file_name,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_name=model_name,
+                        question_number=question_number,
+                        max_workers=max_workers,
+                    )
+                    data = data + new_data
             else:
                 logger.info("Using standard QA generator...")
                 data = qa_gen.full_qa_labeling_process(
@@ -514,19 +546,13 @@ class DataMax(BaseLife):
                     use_tree_label=use_tree_label,
                     messages=messages,
                     interactive_tree=interactive_tree,
-                    custom_domain_tree=custom_domain_tree,
-                    use_mineru=self.use_mineru,  # Pass use_mineru parameter
+                    custom_domain_tree=custom_domain_tree
             )
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 # Mark: success DATA_LABELLED
 
                 self.parsed_data["lifecycle"].append(
-                    self.generate_lifecycle(
-                        source_file=self.file_path,
-                        domain=self.domain,
-                        life_type=LifeType.DATA_LABELLED,
                         usage_purpose="Labeling",
-                    ).to_dict()
                 )
             # show preview of the first 10 qa pairs
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
@@ -714,14 +740,16 @@ class DataMax(BaseLife):
         """
         try:
             parser = ParserFactory.create_parser(
-                use_mineru=self.use_mineru,
-                use_qwen_vl_ocr=self.use_qwen_vl_ocr,
                 file_path=file_path,
-                to_markdown=self.to_markdown,
-                domain=self.domain,
+                use_mllm=self.use_mllm,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model_name=self.model_name,
+                system_prompt=self.system_prompt,
+                use_mineru=self.use_mineru,
+                use_qwen_vl_ocr=self.use_qwen_vl_ocr,
+                to_markdown=self.to_markdown,
+                domain=self.domain,
             )
             if parser:
                 return parser.parse(file_path=file_path)

@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 from datamax.utils.lifecycle_types import LifeType
-from datamax.utils.tokenizer import DashScopeClient
+from datamax.utils.tokenizer import TokenizerClient
 
 
 class LifeCycle:
@@ -72,8 +72,7 @@ PREDEFINED_DOMAINS = [
 
 
 class BaseLife:
-    tk_client = DashScopeClient()
-
+    tk_client = TokenizerClient()
     def __init__(self, *, domain: str = "Technology", **kwargs):
         """
         BaseLife initialization: receives domain and performs validation/warning,

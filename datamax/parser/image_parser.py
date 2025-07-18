@@ -1,9 +1,10 @@
+import base64
+import mimetypes
 import os
 import pathlib
 import sys
-
+from openai import OpenAI
 from datamax.utils import setup_environment
-import dashscope
 from typing import Optional
 
 
@@ -33,20 +34,20 @@ class ImageParser(BaseLife):
         ```
         ## Using Traditional Method
         ```python
-        parser = ImageParser("image.jpg")
+        parser = ImageParser("image.jpg", use_mllm=False)
         result = parser.parse("image.jpg")
         ```
     """
     def __init__(
         self,
         file_path: str,
-        use_gpu: bool = False,
+        use_mllm: bool = False,
         domain: str = "Technology",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = "qwen-vl-plus",
         system_prompt: Optional[str] = "You are a helpful assistant that accurately describes images in detail.",
-        use_mllm: bool = False
+        use_gpu: bool = False
     ):
         # Initialize BaseLife, record domain
         super().__init__(domain=domain)
@@ -57,14 +58,14 @@ class ImageParser(BaseLife):
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
         """
         Initialize the ImageParser with optional Qwen model configuration.
-        
+
         Args:
             file_path: Path to the image file
             api_key: API key for Qwen service (default: None)
             base_url: Base URL for Qwen API (default: None)
             model_name: Qwen model name (default: "qwen-vl-plus")
             system_prompt: System prompt for the model (default: descriptive prompt)
-            use_mllm: Whether to use Qwen model for image parsing (default: False)
+            use_mllm: Whether to use the professional parser (MLLM for images).
         """
         self.file_path = file_path
         self.api_key = api_key
@@ -76,27 +77,51 @@ class ImageParser(BaseLife):
         if self.use_mllm:
             if not self.api_key:
                 raise ValueError("API key is required when use_mllm is True")
-            dashscope.api_key = self.api_key
-            if self.base_url:
-                dashscope.base_url = self.base_url
+            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def _parse_with_qwen(self, query: str) -> str:
+    def _encode_image_to_base64(self, file_path: str) -> str:
+        """
+        Encodes an image file to a Base64 data URI.
+
+        Args:
+            file_path: The path to the image file.
+
+        Returns:
+            A Base64 encoded data URI string.
+        """
+        # Infer the MIME type of the image from the file extension
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if mime_type is None:
+            # Default to JPEG if the MIME type cannot be determined
+            mime_type = "image/jpeg"
+
+        # Read the image file in binary mode
+        with open(file_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+
+        # Format as a data URI
+        return f"data:{mime_type};base64,{encoded_string}"
+
+    def _parse_with_mllm(self, prompt: str) -> str:
         """
         Parse image using Qwen model.
         
         Args:
-            image_path: Path to the image file
-            query: The question/prompt for the image (default: "Describe this image in detail.")
-            
+            prompt: The question/prompt for the image.
+
         Returns:
-            The model's response as a string
+            The model's response as a string.
         """
-        if query is None:
-            query = f"""
+        if prompt is None:
+            prompt = f"""
             Describe this image in detail, focusing on objects, and spatial relationships.
             your output should be in the markdown format.
             every object is described in a separate paragraph, with spatial relationships between objects and its possible functions described in the same paragraph.
             """
+
+        # Encode the local image to a Base64 data URI
+        base64_image = self._encode_image_to_base64(self.file_path)
+
         messages = [
             {
                 'role': 'system',
@@ -105,42 +130,40 @@ class ImageParser(BaseLife):
             {
                 'role': 'user',
                 'content': [
-                    {'image': self.file_path},
-                    {'text': query}
+                    # Use the Base64 data URI instead of a file path
+                    {'type': 'image_url', 'image_url': {'url': base64_image}},
+                    {'type': 'text', 'text': prompt}
                 ]
             }
         ]
-        # print(messages)
-        response = dashscope.MultiModalConversation.call(
-            api_key=self.api_key, 
-            model=self.model_name,
-            messages=messages,
-            result_format="message"
-        )
-        
-        if response.status_code == 200:
-            return response.output.choices[0].message.content[0]["text"]
-        else:
-            print(f"HTTP status code: {response.status_code}")
-            print(f"Error code: {response.code}")
-            print(f"Error message: {response.message}")
 
-    def parse(self, file_path: str, query: Optional[str] = None) -> str:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return ""
+
+
+    def parse(self, file_path: str, system_prompt: Optional[str] = None) -> str:
         """
         Parse the image file using either Qwen model or traditional PDF conversion method.
-        
+
         Args:
             file_path: Path to the image file
-            query: Optional query/prompt for Qwen model (default: None)
-            
+            prompt: Optional prompt/prompt for Qwen model (default: None)
+
         Returns:
             Parsed text content from the image
         """
         try:
             if self.use_mllm:
-                return self._parse_with_qwen(query)
-            
-            # Fall back to traditional method if not using Qwen
+                return self._parse_with_mllm(system_prompt)
+
+            # Fall back to traditional method if not using pro parser
             base_name = pathlib.Path(file_path).stem
 
             # 1) Processing start: generate DATA_PROCESSING event
@@ -195,4 +218,3 @@ if __name__ == "__main__":
         model_name="qwen-vl-max-latest",
         )
     print(ip.parse())
-

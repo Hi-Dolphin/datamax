@@ -5,13 +5,14 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-
-import requests
+from typing import Optional, List, Any
+import uuid
+from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
 from pyexpat.errors import messages
-from tqdm import tqdm  
+from tqdm import tqdm
 from dotenv import load_dotenv
 from datamax.utils.domain_tree import DomainTree   # for cache domain tree
 
@@ -30,6 +31,8 @@ def complete_api_url(base_url: str) -> str:
     E.g. if user passes "https://api.provider.com/v1" it will become
     "https://api.provider.com/v1/chat/completions".
     """
+    if base_url is None:
+        return None
     url = base_url.rstrip("/")
     # If it doesn't end with /chat/completions, append it automatically
     if not url.endswith("/chat/completions"):
@@ -138,7 +141,8 @@ def get_system_prompt_for_domain_tree(text):
         5. 为适当的一级标签添加二级标签
         6. 检查分类逻辑的合理性
         7. 生成符合格式的JSON输出
-        
+
+
 
         ## 需要分析的目录
         ${text}
@@ -328,9 +332,9 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         # Get parsed content
         if isinstance(parsed_data, list):
             # If multiple files, take the first one
-            content = parsed_data[0].get('content', '')
+            content = parsed_data[0].get("content", "")
         else:
-            content = parsed_data.get("content", "")
+            content = parsed_data.get('content', '')
 
         if not content:
             logger.error(f"File content is empty: {file_name}")
@@ -346,6 +350,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         
         # Directly split text content
         page_content = splitter.split_text(content)
+
 
         # 根据文件类型提供不同的日志信息
         if file_ext == '.pdf':
@@ -415,35 +420,27 @@ def llm_generator(
 ) -> list:
     """Generate content using LLM API"""
     try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
         if not message:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "model": model,
-            "messages": message,
-            "temperature": temperature,
-            "top_p": top_p,
-        }
 
-        response = requests.post(base_url, headers=headers, json=data, timeout=120)
-        response.raise_for_status()
-        result = response.json()
+        response = client.chat.completions.create(
+            model=model,
+            messages=message,
+            temperature=temperature,
+            top_p=top_p,
+        )
 
-        # Parse LLM response
-        if "choices" in result and len(result["choices"]) > 0:
-            output = result["choices"][0]["message"]["content"]
-            if type == "question":
-                fmt_output = extract_json_from_llm_output(output)
-                return fmt_output if fmt_output is not None else []
-            else:
-                return [output] if output else []
-        return []
+        output = response.choices[0].message.content
+
+        if type == "question":
+            fmt_output = extract_json_from_llm_output(output)
+            return fmt_output if fmt_output is not None else []
+        else:
+            return [output] if output else []
 
     except Exception as e:
         logger.error(f"LLM keyword extraction failed: {e}")
@@ -500,44 +497,35 @@ def process_domain_tree(
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
     logger.info(f"Domain tree generation started...")
-    
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
     for attempt in range(max_retries):
         try:
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            data = {
-                "model": model,
-                "messages": message,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-            response = requests.post(base_url, headers=headers, json=data)
-            response.raise_for_status()
-            result = response.json()
 
-            # Parse LLM response
-            if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"]["content"]
-                if output:
-                    json_output = extract_json_from_llm_output(output)
-                    if json_output is not None:
-                        domain_tree = DomainTree()
-                        domain_tree.from_json(json_output)
-                        logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
-                        return domain_tree
-                    else:
-                        logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Unable to parse JSON output")
+            response = client.chat.completions.create(
+                model=model,
+                messages=message,
+                temperature=temperature,
+                top_p=top_p,
+            )
+
+            output = response.choices[0].message.content
+            if output:
+                json_output = extract_json_from_llm_output(output)
+                if json_output is not None:
+                    domain_tree = DomainTree()
+                    domain_tree.from_json(json_output)
+                    logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
+                    return domain_tree
                 else:
-                    logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Empty output")
+                    logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Unable to parse JSON output")
             else:
-                logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Invalid response format")
-                
+                logger.warning(f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Empty output")
+
         except Exception as e:
             logger.error(f"Domain tree generation error (attempt {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
@@ -981,3 +969,76 @@ def full_qa_labeling_process(
         domain_tree=domain_tree if use_tree_label else None,
     )
     return qa_list
+
+
+if __name__ == "__main__":
+    # split text into chunks
+    page_content = load_and_split_markdown(
+        md_path="知识图谱.md",
+        chunk_size=500,
+        chunk_overlap=100,
+    )
+
+    # generate domain tree
+    domain_tree = process_domain_tree(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model="qwen-plus",
+        text=page_content,
+        temperature=0.7,
+        top_p=0.9,
+    )
+
+    # generate question_info containing chuck and questions
+    # question_info is the largest question set, will be adjusted according to the modification of the domain tree
+    question_info = process_questions(
+        page_content=page_content,
+        question_number=5,
+        max_workers=10,
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model="qwen-plus",
+    )
+
+    # add unique id to each question
+    for question_item in question_info:
+        question_item["qid"] = str(uuid.uuid4())
+
+    if not question_info:
+        logger.error("Unable to generate any questions, please check input document and API settings")
+        
+    # check if domain_tree is empty
+    if not domain_tree or not domain_tree.to_json():
+        logger.info("领域树为空, 未进行打标")
+    else:
+        # use DomainTree instance to match label
+        q_match_list = process_match_tags(
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            model="qwen-plus",
+            tags_json=domain_tree.to_json(),
+            questions= [question_item["question"] for question_item in question_info],
+            max_workers=3
+        )
+        logger.info(f"问题匹配标签完成, 结果是: {q_match_list}")
+        # merge label to question_info
+        label_map = {item["question"]: item.get("label", "") for item in q_match_list}
+        for question_item in question_info:
+            question_item["label"] = label_map.get(question_item["question"], "")
+        # get filtered question_info
+        question_list = [question_item["question"] for question_item in question_info]
+        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in question_list]
+
+    # final answer
+    r = generatr_qa_pairs(
+        question_info=question_info,
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model_name="qwen-plus",
+        question_number=5,
+        max_workers=10,
+        domain_tree=domain_tree,
+        # message=[]
+    )
+
+    print(r)

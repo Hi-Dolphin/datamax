@@ -1,12 +1,12 @@
 import tiktoken
 
 
-class DashScopeClient:
+class TokenizerClient:
     _instance = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(DashScopeClient, cls).__new__(cls)
+            cls._instance = super(TokenizerClient, cls).__new__(cls)
         return cls._instance
 
     def get_tokenizer(self, content):
