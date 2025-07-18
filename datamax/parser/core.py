@@ -108,9 +108,6 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
-            # use mineru and qwen_vl_ocr only for pdf files currently
-            if parser_class_name != 'PdfParser' and (use_mineru == True or use_qwen_vl_ocr == True):
-                raise ValueError("MinerU and Qwen-VL OCR are only supported for PDF files currently")
 
             # Instantiate based on parser type
             common_kwargs = {"file_path": file_path, "domain": domain}
@@ -118,10 +115,10 @@ class ParserFactory:
                 return parser_class(
                     use_mineru=use_mineru,
                     use_qwen_vl_ocr=use_qwen_vl_ocr,
-                    domain=domain,
                     api_key=api_key,
                     base_url=base_url,
-                    model_name=model_name
+                    model_name=model_name,
+                    **common_kwargs
                 )
             elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
                 return parser_class(
@@ -496,13 +493,13 @@ class DataMax(BaseLife):
                 file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
                 from datamax.utils import multimodal_qa_generator as generator_module
                 data = generator_module.generatr_qa_pairs(
-                file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
-                api_key=api_key,
-                base_url=base_url,
-                model_name=model_name,
-                question_number=question_number,
-                max_workers=max_workers,
-            )
+                    file_path=os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md')),
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    question_number=question_number,
+                    max_workers=max_workers,
+                )
             else:
                 logger.info("Using standard QA generator...")
                 data = qa_gen.full_qa_labeling_process(
@@ -566,7 +563,7 @@ class DataMax(BaseLife):
         :param save_file_name: File name to save the label data.
         """
         if not label_data:
-            raise ValueError("No data to save.")
+            raise ValueError("No data to save. Please check if label_data is empty.")
         if not save_file_name:
             if isinstance(self.file_path, str):
                 save_file_name = os.path.splitext(os.path.basename(self.file_path))[0]

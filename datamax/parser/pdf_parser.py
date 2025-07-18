@@ -13,7 +13,6 @@ from langchain_community.document_loaders import PyMuPDFLoader
 
 from datamax.parser.base import MarkdownOutputVo, BaseLife
 from datamax.utils.lifecycle_types import LifeType
-from datamax.utils.mineru_operator import pdf_processor
 
 
 OCR_MODEL_SET = [
@@ -25,7 +24,7 @@ OCR_MODEL_SET = [
     "qwen-vl-plus-latest",
 ]
 
-class PdfOcrProcessor(BaseLife):
+class PdfLLMOcrProcessor(BaseLife):
     """PDF to Markdown"""
 
     def __init__(self, api_key: str, base_url: str, model_name: str, domain: str = "Technology"):
@@ -195,17 +194,14 @@ class PdfParser(BaseLife):
         model_name: str = None,
     ):
         super().__init__(domain=domain)
-        self.api_key = api_key
-        self.base_url = base_url
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.domain = domain
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_qwen_vl_ocr = use_qwen_vl_ocr
+        self.domain = domain
         self.api_key = api_key
         self.base_url = base_url
         self.model_name = model_name if model_name in OCR_MODEL_SET else model_name
-        
+
         # Validate OCR parameters
         if self.use_qwen_vl_ocr:
             if not all([self.api_key, self.base_url, self.model_name]):
@@ -361,7 +357,7 @@ class PdfParser(BaseLife):
 
             if self.use_qwen_vl_ocr:
                 # Qwen-VL OCR Process PDF
-                ocr_processor = PdfOcrProcessor(
+                ocr_processor = PdfLLMOcrProcessor(
                     api_key=self.api_key,
                     base_url=self.base_url,
                     model_name=self.model_name,
@@ -396,6 +392,8 @@ class PdfParser(BaseLife):
                 if os.path.exists(output_mineru):
                     mk_content = open(output_mineru, encoding="utf-8").read()
                 else:
+                    # Lazy import
+                    from datamax.utils.mineru_operator import pdf_processor
                     mk_content = pdf_processor.process_pdf(file_path)
             else:
                 content = self.read_pdf_file(file_path=file_path)
