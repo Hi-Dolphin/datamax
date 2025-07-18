@@ -170,15 +170,12 @@ class DataMax(BaseLife):
         :param use_mineru: Flag to indicate whether MinerU should be used.
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
         :param use_mllm: Flag to indicate whether mllm should be used for parse IMAGE file.
-        :param api_key: API key for the model (if using mllm).
-        :param base_url: Base URL for the model API (if using mllm).
-        :param model_name: Name of the model to use (if using mllm).
-        :param system_prompt: System prompt for the model (if using mllm).
+        :param api_key: API key for the model  (required when use_mllm or use_qwen_vl_ocr=True).
+        :param base_url: Base URL for the model API (required when use_mllm or use_qwen_vl_ocr=True).
+        :param model_name: Name of the model to use (required when use_mllm or use_qwen_vl_ocr=True).
+        :param system_prompt: System prompt for the model (available when use_mllm=True).
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
-        :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
-        :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
-        :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
         """
         super().__init__(domain=domain)
         self.file_path = file_path
@@ -555,12 +552,7 @@ class DataMax(BaseLife):
                 # Mark: success DATA_LABELLED
 
                 self.parsed_data["lifecycle"].append(
-                    self.generate_lifecycle(
-                        source_file=self.file_path,
-                        domain=self.domain,
-                        life_type=LifeType.DATA_LABELLED,
                         usage_purpose="Labeling",
-                    ).to_dict()
                 )
             # show preview of the first 10 qa pairs
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
@@ -748,6 +740,7 @@ class DataMax(BaseLife):
         """
         try:
             parser = ParserFactory.create_parser(
+                file_path=file_path,
                 use_mllm=self.use_mllm,
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -755,12 +748,8 @@ class DataMax(BaseLife):
                 system_prompt=self.system_prompt,
                 use_mineru=self.use_mineru,
                 use_qwen_vl_ocr=self.use_qwen_vl_ocr,
-                file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                model_name=self.model_name,
             )
             if parser:
                 return parser.parse(file_path=file_path)

@@ -4,7 +4,6 @@ import os
 import pathlib
 import sys
 from openai import OpenAI
-from openai import OpenAI
 from datamax.utils import setup_environment
 from typing import Optional
 
@@ -59,7 +58,7 @@ class ImageParser(BaseLife):
             os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
         """
         Initialize the ImageParser with optional Qwen model configuration.
-        
+
         Args:
             file_path: Path to the image file
             api_key: API key for Qwen service (default: None)
@@ -108,9 +107,8 @@ class ImageParser(BaseLife):
         Parse image using Qwen model.
         
         Args:
-            image_path: Path to the image file
-            query: The question/prompt for the image (default: "Describe this image in detail.")
-            
+            prompt: The question/prompt for the image.
+
         Returns:
             The model's response as a string.
         """
@@ -153,7 +151,7 @@ class ImageParser(BaseLife):
     def parse(self, file_path: str, system_prompt: Optional[str] = None) -> str:
         """
         Parse the image file using either Qwen model or traditional PDF conversion method.
-        
+
         Args:
             file_path: Path to the image file
             prompt: Optional prompt/prompt for Qwen model (default: None)

@@ -82,6 +82,25 @@ dm = DataMax(
 )
 data = dm.get_data()
 
+# 使用ocr解析单个pdf文件
+dm = DataMax(file_path="document.pdf",use_ocr = True)
+data = dm.get_data()
+
+# 使用mineru解析单个pdf文件或图片
+dm = DataMax(file_path="document.pdf/jpg",use_mineru = True)
+data = dm.get_data()
+
+# 使用多模态模型解析单个图片
+dm = DataMax(
+    file_path="picture.jpg",
+    use_mllm = True,
+    api_key = "sk-xxx",
+    base_url = "https://api.provider.com/v1",
+    model_name = "model-name",
+    system_prompt = "You are a helpful assistant that accurately describes images in detail.",
+)
+data = dm.get_data()
+
 # 批量处理
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
 data = dm.get_data()
@@ -124,11 +143,14 @@ qa_data = dm.get_pre_label(
 
 ```python
 # PDF高级解析（可选MinerU或调用多模态大模型）
+# PDF高级解析（可选MinerU或调用多模态大模型）
 dm = DataMax(file_path="complex.pdf", use_mineru=True)
 
 # Word转Markdown
 dm = DataMax(file_path="document.docx", to_markdown=True)
 
+# 图片OCR（需要MinerU，可选多模态大模型）
+dm = DataMax(file_path="image.jpg", use_mllm=False)
 # 图片OCR（需要MinerU，可选多模态大模型）
 dm = DataMax(file_path="image.jpg", use_mllm=False)
 ```
@@ -278,6 +300,14 @@ qa_data = dm.get_pre_label(
 ```
 
 ### 接入多模态模型进行AI标注
+
+可用模型名称：
+- qwen-vl-plus
+- qwen-vl-max
+- qwen-vl-max-latest
+- gpt-4-vision-preview
+- gpt-4o
+- gemini-pro-vision
 
 可用模型名称：
 - qwen-vl-plus

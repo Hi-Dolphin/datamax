@@ -301,7 +301,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
 def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use_mineru: bool = False, use_qwen_vl_ocr: bool = False) -> list:
     """
     Parse other formats to markdown and split
-    
+
     Args:
         file_path: Path to the markdown file
         chunk_size: Size of each chunk
@@ -324,7 +324,6 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
         # 使用DataMax解析文件，传递use_mineru和use_qwen_vl_ocr参数
         dm = DataMax(file_path=file_path, to_markdown=True, use_mineru=use_mineru, use_qwen_vl_ocr=use_qwen_vl_ocr)
         parsed_data = dm.get_data()
-
 
         if not parsed_data:
             logger.error(f"File parsing failed: {file_name}")
@@ -365,7 +364,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int, use
             logger.info(f"📄 {file_ext.upper()} file '{file_name}' split into {len(page_content)} chunks")
             
         return page_content
-        
+
     except Exception as e:
         logger.error(f"Failed to process file {Path(file_path).name}: {str(e)}")
         return []
@@ -421,7 +420,6 @@ def llm_generator(
 ) -> list:
     """Generate content using LLM API"""
     try:
-        client = OpenAI(api_key=api_key, base_url=base_url)
         client = OpenAI(api_key=api_key, base_url=base_url)
         if not message:
             message = [
@@ -531,7 +529,7 @@ def process_domain_tree(
         except Exception as e:
             logger.error(f"Domain tree generation error (attempt {attempt + 1}/{max_retries}): {e}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+                logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
             
             if attempt == max_retries - 1:
                 error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
@@ -563,7 +561,7 @@ def process_questions(
     total_questions = []
     if message is None:
         message = []
-    
+
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
@@ -586,8 +584,8 @@ def process_questions(
             except Exception as e:
                 logger.error(f"Question generation error (attempt {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-
+                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+            
             if attempt < max_retries - 1:
                 logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
                 import time
@@ -643,14 +641,14 @@ def process_answers(
             except Exception as e:
                 logger.error(f"Answer generation error (attempt {attempt + 1}/{max_retries}): {e}")
                 if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
-
+                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+            
             if attempt < max_retries - 1:
                 logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
                 import time
 
                 time.sleep(2)  # retry after 2 seconds
-        
+
         # all retries failed
         question_text = item["question"][:20] + "..." if len(item["question"]) > 20 else item["question"]
         logger.error(f"Network status is poor! Discarded QA pair for question: ({question_text})")
@@ -827,7 +825,7 @@ def full_qa_labeling_process(
     messages: list = None,
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
-    use_mineru: bool = False,  # 添加use_mineru参数
+    use_mineru: bool = False,  # Add use_mineru parameter
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction, 
@@ -846,15 +844,15 @@ def full_qa_labeling_process(
     if not content:
         logger.error("content parameter is required. Check content is null or not. Check file_path is null or not.")
         return []
-    
+
     if not api_key:
         logger.error("api_key parameter is required")
         return []
-    
+
     if not base_url:
         logger.error("base_url parameter is required")
         return []
-    
+
     if not model_name:
         logger.error("model_name parameter is required")
         return []
@@ -899,7 +897,7 @@ def full_qa_labeling_process(
     domain_tree = None
     if use_tree_label:
         from datamax.utils.domain_tree import DomainTree
-        
+
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
@@ -1007,8 +1005,8 @@ if __name__ == "__main__":
         question_item["qid"] = str(uuid.uuid4())
 
     if not question_info:
-        logger.error("未能生成任何问题，请检查输入文档和API设置")
-
+        logger.error("Unable to generate any questions, please check input document and API settings")
+        
     # check if domain_tree is empty
     if not domain_tree or not domain_tree.to_json():
         logger.info("领域树为空, 未进行打标")
@@ -1039,7 +1037,7 @@ if __name__ == "__main__":
         model_name="qwen-plus",
         question_number=5,
         max_workers=10,
-        domain_tree=domain_tree
+        domain_tree=domain_tree,
         # message=[]
     )
 
