@@ -545,7 +545,9 @@ class DataMax(BaseLife):
             import traceback
             traceback.print_exc()
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-            # Mark: failure DATA_LABEL_FAILED
+            # Make sure lifecycle is list
+            if "lifecycle" not in self.parsed_data or not isinstance(self.parsed_data["lifecycle"], list):
+                self.parsed_data["lifecycle"] = []
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
