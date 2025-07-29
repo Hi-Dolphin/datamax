@@ -13,7 +13,14 @@ import datamax.utils.qa_generator as qa_gen
 from datamax.parser.base import BaseLife
 from datamax.utils import data_cleaner
 from datamax.utils.lifecycle_types import LifeType
+import logging
+import datamax.patch_curator_resource
+from typing import Tuple, List, Any
 
+from bespokelabs import curator
+from pydantic import BaseModel
+from bespokelabs.curator.llm.llm import LLM
+logger = logging.getLogger(__name__)
 
 class ModelInvoker:
     def __init__(self):
@@ -171,6 +178,166 @@ class DataMax(BaseLife):
         self.base_url = base_url
         self.model_name = model_name
 
+    @classmethod
+    def call_llm_with_bespokelabs(
+            cls,
+            prompt: str,
+            model_name: str,
+            api_key: str,
+            base_url: str,
+            timeout: int = 30,
+    ) -> tuple[str, str]:
+        """
+        Call the BespokeLabs Curator LLM interface to return the text content and status(success/fail)。
+
+        Args:
+            prompt: Input prompt word
+            model_name: Model name
+            api_key: API Key
+            base_url: API server address
+            timeout: Request timeout duration,  seconds
+
+        Returns:
+            Tuple[str, str]: Return generated text and status(success or fail)
+        """
+        backend_params = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "request_timeout": timeout,
+        }
+
+        try:
+            llm = LLM(
+                model_name=model_name,
+                backend="openai",
+                backend_params=backend_params,
+            )
+            response = llm(prompt)
+            # The response is a CuratorResponse object, and the default dataset is a HuggingFace Dataset
+            if hasattr(response, "dataset") and response.dataset is not None and len(response.dataset) > 0:
+                # Take the first response text from the dataset
+                first_item = response.dataset[0]
+                # Retrieve text based on the actual field, typically '__internal_response' or 'response'
+                text = first_item.get("__internal_response") or first_item.get("response") or str(first_item)
+                return text, "success"
+            else:
+                return "", "fail"
+        except Exception as e:
+            print(f"LLM call error: {e}")
+            return "", "fail"
+
+    @classmethod
+    def qa_generator_with_bespokelabs(
+            cls,
+            content: str,
+            model_name: str,
+            api_key: str,
+            base_url: str,
+            qa_num: int = 5,
+            temperature: float = 0.7,
+            max_tokens: int = 512,
+            top_p: float = 1.0,
+            stop: list | None = None,
+    ) -> list[dict]:
+        """
+        Use BespokeLabs Curator LLM to generate a list of question-answer pairs.
+
+        Args:
+            content: The input text content.
+            model_name: The model name to use.
+            api_key: The API key for authentication.
+            base_url: The base URL of the API endpoint.
+            qa_num: Number of QA pairs to generate.
+            temperature: Sampling temperature for generation.
+            max_tokens: Maximum tokens to generate.
+            top_p: Nucleus sampling parameter.
+            stop: List of stop sequences.
+
+        Returns:
+            list[dict]: A list of dictionaries with 'question' and 'answer' keys.
+        """
+
+        from bespokelabs.curator.llm.llm import LLM
+
+        # Construct a prompt and require the model to output a JSON array
+        prompt_template = f"""
+    请基于以下文本内容生成{qa_num}个简洁的问答对，格式为JSON数组，形如：
+    [
+      {{"question": "问题1", "answer": "答案1"}},
+      {{"question": "问题2", "answer": "答案2"}},
+      ...
+    ]
+
+    文本内容:
+    {content}
+    """
+
+        backend_params = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+
+        llm = LLM(
+            model_name=model_name,
+            backend="openai",
+            backend_params=backend_params,
+            generation_params={
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "top_p": top_p,
+                "stop": stop,
+            }
+        )
+
+        try:
+            # Call the model
+            response = llm(prompt_template)
+
+            # Reuse _extract_text_from_response to extract plain text
+            generated_text = cls._extract_text_from_response(response)
+
+            import json
+            qa_pairs = json.loads(generated_text)
+
+            if isinstance(qa_pairs, list) and all("question" in qa and "answer" in qa for qa in qa_pairs):
+                return qa_pairs
+            else:
+                return []
+        except Exception as e:
+            print(f"QA generation error: {e}")
+            return []
+
+    @staticmethod
+    def _extract_text_from_response(response) -> str:
+        """
+        Extract string text from CuratorResponse object.
+
+        Args:
+            response: CuratorResponse object or string.
+
+        Returns:
+            str: Extracted text string.
+        """
+        # If response is string, return as is
+        if isinstance(response, str):
+            return response
+
+        # If response has 'dataset' attribute and it's not empty
+        if hasattr(response, "dataset") and len(response.dataset) > 0:
+            try:
+                row = response.dataset[0]
+                # If row is dict with "response"
+                if isinstance(row, dict) and "response" in row:
+                    return row["response"]
+                # If row is pydantic BaseModel
+                if isinstance(row, BaseModel):
+                    data = row.model_dump()
+                    return data.get("response", str(response))
+            except Exception as e:
+                logger.warning(f"Failed to extract text from response dataset: {e}")
+
+        # fallback
+        return str(response)
     def set_data(self, file_name, parsed_data):
         """
         Set cached data
@@ -199,8 +366,8 @@ class DataMax(BaseLife):
                 for f in self.file_path:
                     file_name = os.path.basename(f)
                     if (
-                        file_name in self._cache
-                        and self._cache[file_name]["ttl"] > time.time()
+                            file_name in self._cache
+                            and self._cache[file_name]["ttl"] > time.time()
                     ):
                         logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                         parsed_data.append(self._cache[file_name]["data"])
@@ -221,8 +388,8 @@ class DataMax(BaseLife):
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
                 file_name = os.path.basename(self.file_path)
                 if (
-                    file_name in self._cache
-                    and self._cache[file_name]["ttl"] > time.time()
+                        file_name in self._cache
+                        and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                     self.parsed_data = self._cache[file_name]["data"]
@@ -248,8 +415,8 @@ class DataMax(BaseLife):
                     if os.path.isfile(f):
                         file_name = os.path.basename(f)
                         if (
-                            file_name in self._cache
-                            and self._cache[file_name]["ttl"] > time.time()
+                                file_name in self._cache
+                                and self._cache[file_name]["ttl"] > time.time()
                         ):
                             logger.info(
                                 f"✅ [Cache Hit] Using cached data for {file_name}"
@@ -579,7 +746,7 @@ class DataMax(BaseLife):
 
     @staticmethod
     def split_text_into_paragraphs(
-        text: str, max_length: int = 500, chunk_overlap: int = 100
+            text: str, max_length: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text into paragraphs by sentence boundaries, each paragraph not exceeding max_length characters.
@@ -616,7 +783,7 @@ class DataMax(BaseLife):
                     paragraphs.append(current_paragraph[:split_point])
                     # Update overlap buffer
                     overlap_buffer = (
-                        current_paragraph[split_point - chunk_overlap : split_point]
+                        current_paragraph[split_point - chunk_overlap: split_point]
                         if chunk_overlap > 0
                         else ""
                     )
@@ -631,7 +798,7 @@ class DataMax(BaseLife):
 
     @staticmethod
     def split_with_langchain(
-        text: str, chunk_size: int = 500, chunk_overlap: int = 100
+            text: str, chunk_size: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text using LangChain's intelligent text splitting
@@ -650,11 +817,13 @@ class DataMax(BaseLife):
         return text_splitter.split_text(text)
 
     def split_data(
+
         self,
         parsed_data: str | dict = None,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         use_langchain: bool = False,
+
     ):
         """
         Improved splitting method with LangChain option
