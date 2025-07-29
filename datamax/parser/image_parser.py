@@ -12,9 +12,12 @@ ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
 sys.path.insert(0, str(ROOT_DIR))
 from PIL import Image
 
-from datamax.parser.base import BaseLife
+from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.parser.pdf_parser import PdfParser
 from datamax.utils.lifecycle_types import LifeType
+
+
+from loguru import logger
 
 
 class ImageParser(BaseLife):
@@ -40,12 +43,12 @@ class ImageParser(BaseLife):
     def __init__(
         self,
         file_path: str,
+        system_prompt: Optional[str],
         use_gpu: bool = False,
         domain: str = "Technology",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = "qwen-vl-plus",
-        system_prompt: Optional[str] = "You are a helpful assistant that accurately describes images in detail.",
         use_mllm: bool = False
     ):
         # Initialize BaseLife, record domain
@@ -91,6 +94,9 @@ class ImageParser(BaseLife):
         Returns:
             The model's response as a string
         """
+        logger.success(f"⏳ Using Qwen model to parse image: {self.file_path}")
+        logger.debug(f"system_prompt: {self.system_prompt}")
+
         if query is None:
             query = f"""
             Describe this image in detail, focusing on objects, and spatial relationships.
@@ -138,7 +144,32 @@ class ImageParser(BaseLife):
         """
         try:
             if self.use_mllm:
-                return self._parse_with_qwen(query)
+                # 1) Processing start: generate DATA_PROCESSING event
+                extension = self.get_file_extension(file_path)
+
+                lc_start = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_PROCESSING,
+                    usage_purpose="Parsing",
+                )
+                llm_res = self._parse_with_qwen(query)
+                output_vo = MarkdownOutputVo(extension, llm_res)
+
+                # 2) Processing end: generate DATA_PROCESSED event
+                lc_end = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    life_type=(
+                        LifeType.DATA_PROCESSED
+                        if llm_res.strip()
+                        else LifeType.DATA_PROCESS_FAILED
+                    ),
+                    usage_purpose="Parsing",
+                )
+                output_vo.add_lifecycle(lc_start)
+                output_vo.add_lifecycle(lc_end)
+                return output_vo.to_dict()
             
             # Fall back to traditional method if not using Qwen
             base_name = pathlib.Path(file_path).stem
@@ -185,14 +216,3 @@ class ImageParser(BaseLife):
 
         except Exception:
             raise
-
-if __name__ == "__main__":
-    ip = ImageParser(
-        file_path="picture.png",
-        use_mllm=True,
-        api_key="sk-xxxx",
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model_name="qwen-vl-max-latest",
-        )
-    print(ip.parse())
-
