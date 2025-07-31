@@ -38,8 +38,10 @@ class ParserFactory:
     @staticmethod
     def create_parser(
         file_path: str,
+        mllm_system_prompt: str,
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
+        use_mllm: bool = False,
         to_markdown: bool = False,
         domain: str = "Technology",
         api_key: str = None,
@@ -53,6 +55,8 @@ class ParserFactory:
                     (only supported files in .doc or .docx format)
         :param use_mineru: Flag to indicate whether MinerU should be used. (only supported files in .pdf format)
         :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used. (only supported files in .pdf format)
+        :param use_mllm: Flag to indicate whether MLLM should be used. (only supported files in .jpg, .jpeg, .png, .webp format)
+        :param mllm_system_prompt: System prompt for MLLM.
         :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
         :param base_url: Base URL for OCR service (required when use_qwen_vl_ocr=True).
         :param model_name: Model name for OCR service (required when use_qwen_vl_ocr=True).
@@ -102,9 +106,15 @@ class ParserFactory:
         parser_class_name, module_name = mapping
 
         try:
+            if use_mineru and use_mllm:
+                raise ValueError("You must choose between the Mineru and MLLM solutions - they cannot be used at the same time!")
             # use_mineru & use_qwen_vl_ocr can't be used at the same time
             if use_mineru and use_qwen_vl_ocr:
                 raise ValueError("You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!")
+            
+            if mllm_system_prompt and use_mllm and parser_class_name != "ImageParser":
+                raise ValueError("MLLM can only be used with Image type temporarily, try to use Mineru or Qwen-VL-OCR instead, ``use_mineru=True`` or ``use_qwen_vl_ocr=True``")
+
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
@@ -126,6 +136,15 @@ class ParserFactory:
                     use_uno=True,
                     **common_kwargs
                 )
+            elif parser_class_name == "ImageParser":
+                return parser_class(
+                    use_mllm=use_mllm,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    system_prompt=mllm_system_prompt,
+                    **common_kwargs
+                )
             else:
                 return parser_class(**common_kwargs)
 
@@ -139,6 +158,8 @@ class DataMax(BaseLife):
         file_path: str | list = "",
         use_mineru: bool = False,
         use_qwen_vl_ocr: bool = False,
+        use_mllm: bool = False,
+        mllm_system_prompt: str = "描述图片内容，包括图片中的文字、图片中的对象、图片中的场景等。输出一份专业的中文markdown报告",
         to_markdown: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
@@ -150,8 +171,9 @@ class DataMax(BaseLife):
         Initialize the DataMaxParser with file path and parsing options.
 
         :param file_path: The path to the file or directory to be parsed.
-        :param use_mineru: Flag to indicate whether MinerU should be used.
-        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for PDF parsing.
+        :param use_mineru: Flag to indicate whether MinerU should be used for PDF or image parsing.
+        :param use_qwen_vl_ocr: Flag to indicate whether Qwen-VL OCR should be used for only PDF parsing.
+        :param use_mllm: Flag to indicate whether MLLM should be used for only image parsing.
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         :param api_key: API key for OCR service (required when use_qwen_vl_ocr=True).
@@ -162,6 +184,8 @@ class DataMax(BaseLife):
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_qwen_vl_ocr = use_qwen_vl_ocr
+        self.use_mllm = use_mllm
+        self.mllm_system_prompt = mllm_system_prompt
         self.to_markdown = to_markdown
         self.parsed_data = None
         self.model_invoker = ModelInvoker()
@@ -716,6 +740,8 @@ class DataMax(BaseLife):
             parser = ParserFactory.create_parser(
                 use_mineru=self.use_mineru,
                 use_qwen_vl_ocr=self.use_qwen_vl_ocr,
+                use_mllm=self.use_mllm,
+                mllm_system_prompt=self.mllm_system_prompt,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
                 domain=self.domain,

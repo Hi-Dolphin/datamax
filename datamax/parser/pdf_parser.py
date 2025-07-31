@@ -378,23 +378,25 @@ class PdfParser(BaseLife):
                     mk_content = str(result)
                 
                 # save to markdown file
-                output_dir = "uploaded_files"
+                output_dir = "__temp__"
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
                 output_markdown = f"{output_dir}/markdown/{output_folder_name}.md"
                 os.makedirs(os.path.dirname(output_markdown), exist_ok=True)
                 with open(output_markdown, "w", encoding="utf-8") as f:
                     f.write(mk_content)
             elif self.use_mineru:
-                output_dir = "uploaded_files"
-                output_folder_name = os.path.basename(file_path).replace(".pdf", "")
-                output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
+                ## cancel cache
+                # output_dir = "__temp__"
+                # output_folder_name = os.path.basename(file_path).replace(".pdf", "")
+                # output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
 
-                if os.path.exists(output_mineru):
-                    mk_content = open(output_mineru, encoding="utf-8").read()
-                else:
-                    # Lazy import
-                    from datamax.utils.mineru_operator import pdf_processor
-                    mk_content = pdf_processor.process_pdf(file_path)
+                # if os.path.exists(output_mineru):
+                #     mk_content = open(output_mineru, encoding="utf-8").read()
+                # else:
+
+                # Lazy import
+                from datamax.utils.mineru_operator import pdf_processor
+                mk_content = pdf_processor.process_pdf(file_path)
             else:
                 content = self.read_pdf_file(file_path=file_path)
                 mk_content = content
