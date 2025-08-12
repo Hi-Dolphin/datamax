@@ -1,0 +1,250 @@
+version: '3.8'
+
+services:
+  datamax:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: datamax:latest
+    container_name: datamax-app
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
+      - DATAMAX_LOG_LEVEL=INFO
+      - DATAMAX_DATA_DIR=/app/data
+      - DATAMAX_OUTPUT_DIR=/app/output
+      - DATAMAX_CACHE_DIR=/app/cache
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+      - ./config:/app/config:ro
+    ports:
+      - "8000:8000"
+    networks:
+      - datamax-network
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import datamax; print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: datamax-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - datamax-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: datamax-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=datamax
+      - POSTGRES_USER=datamax
+      - POSTGRES_PASSWORD=datamax_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - datamax-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datamax -d datamax"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: datamax-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - datamax-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  kibana:
+    image: kibana:8.11.0
+    container_name: datamax-kibana
+    restart: unless-stopped
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=kibana
+      - SERVER_HOST=0.0.0.0
+    ports:
+      - "5601:5601"
+    networks:
+      - datamax-network
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  nginx:
+    image: nginx:alpine
+    container_name: datamax-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./static:/var/www/static:ro
+    networks:
+      - datamax-network
+    depends_on:
+      - datamax
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: datamax-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - datamax-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: datamax-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - datamax-network
+    depends_on:
+      - prometheus
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: datamax:latest
+    container_name: datamax-worker
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
+      - DATAMAX_LOG_LEVEL=INFO
+      - DATAMAX_WORKER_MODE=true
+      - DATAMAX_REDIS_URL=redis://redis:6379/0
+      - DATAMAX_DATABASE_URL=postgresql://datamax:datamax_password@postgres:5432/datamax
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+      - ./config:/app/config:ro
+    networks:
+      - datamax-network
+    depends_on:
+      - redis
+      - postgres
+    command: ["python", "-m", "datamax.worker"]
+    deploy:
+      replicas: 2
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: datamax:latest
+    container_name: datamax-scheduler
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
+      - DATAMAX_LOG_LEVEL=INFO
+      - DATAMAX_SCHEDULER_MODE=true
+      - DATAMAX_REDIS_URL=redis://redis:6379/0
+      - DATAMAX_DATABASE_URL=postgresql://datamax:datamax_password@postgres:5432/datamax
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+      - ./config:/app/config:ro
+    networks:
+      - datamax-network
+    depends_on:
+      - redis
+      - postgres
+    command: ["python", "-m", "datamax.scheduler"]
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  datamax-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

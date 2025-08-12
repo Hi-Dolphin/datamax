@@ -1,0 +1,265 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README*
+CHANGELOG*
+CONTRIBUTING*
+LICENSE*
+docs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Data and output
+data/
+output/
+logs/
+cache/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+*.log.*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+Jenkinsfile
+
+# Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Development tools
+.pre-commit-config.yaml
+tox.ini
+.flake8
+.bandit
+.safety
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Large files
+*.bin
+*.dat
+*.dump
+
+# Security
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Monitoring
+monitoring/
+metrics/
+
+# Scripts
+scripts/
+
+# Examples
+examples/
+samples/
+demo/
+
+# Benchmarks
+benchmarks/
+performance/
+
+# Research
+notebooks/
+experiments/
+prototypes/
+
+# Configuration overrides
+config.local.*
+settings.local.*
+
+# Task files (RIPER-5 protocol)
+.tasks/
+
+# Local development
+.local/
+local/
+dev/
+
+# Test artifacts
+test_output/
+test_results/
+test_data/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Editor configs
+.editorconfig
+
+# Linting reports
+lint_reports/
+
+# Coverage reports
+cov_html/
+coverage_html_report/
+
+# Generated files
+generated/
+auto_generated/
+
+# Machine learning
+models/
+checkpoints/
+*.pkl
+*.joblib
+*.h5
+*.onnx
+
+# Data science
+*.parquet
+*.feather
+*.hdf5
+
+# Runtime
+pid/
+*.pid
+*.lock
+
+# Makefile
+Makefile
+
+# Requirements (keep only main requirements.txt)
+dev-requirements.txt
+test-requirements.txt
+
+# Setup files (not needed in container)
+setup.py
+setup.cfg
+pyproject.toml
+MANIFEST.in
+
+# Ignore everything in root except what we need
+/*
+!/datamax/
+!/requirements.txt
+!/README.md
+!/LICENSE
+
+# But include these specific files if they exist
+!setup.py
+!pyproject.toml
+!requirements.txt
+!datamax/
+!scripts/docker-entrypoint.sh
+!scripts/healthcheck.py
