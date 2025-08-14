@@ -1,0 +1,112 @@
+# DataMax Pipeline Configuration Example
+# This file demonstrates how to configure the complete DataMax pipeline
+
+# Crawler Configuration
+crawlers:
+  arxiv:
+    base_url: "https://arxiv.org/"
+    rate_limit: 1.0  # seconds between requests
+    timeout: 30      # request timeout in seconds
+    max_retries: 3
+    user_agent: "DataMax-Crawler/1.0"
+    max_results: 10  # maximum number of papers to fetch
+  
+  web:
+    user_agent: "DataMax-Crawler/1.0"
+    timeout: 15
+    max_retries: 2
+    rate_limit: 0.5
+
+# Storage Configuration
+storage:
+  default_format: "json"  # json, yaml
+  output_dir: "./pipeline_output"
+  cloud_storage:
+    enabled: false
+    provider: "s3"  # s3, gcs, azure
+
+# Parser Configuration
+parser:
+  chunk_size: 1000
+  chunk_overlap: 200
+  preserve_structure: true
+
+# Cleaner Configuration
+cleaner:
+  abnormal_cleaning:
+    enabled: true
+    remove_html: true
+    convert_newlines: true
+    simplify_chinese: true
+  
+  text_filtering:
+    enabled: true
+    min_chars: 100
+    max_chars: 50000
+    word_repetition_threshold: 0.7
+    numeric_content_threshold: 0.6
+  
+  privacy_desensitization:
+    enabled: true
+    replace_emails: true
+    replace_phone_numbers: true
+    replace_ip_addresses: true
+    replace_id_cards: true
+
+# Generator Configuration
+generator:
+  # LLM API Configuration
+  api:
+    provider: "dashscope"  # dashscope, openai, custom
+    api_key: "${DASHSCOPE_API_KEY}"  # Use environment variable
+    base_url: "${DASHSCOPE_BASE_URL}"
+    model_name: "qwen-plus"
+    temperature: 0.7
+    top_p: 0.9
+  
+  # QA Generation Settings
+  qa_generation:
+    question_number: 5
+    max_workers: 3
+    use_tree_label: true
+    interactive_tree: false
+    max_retries: 3
+  
+  # Domain Tree Settings
+  domain_tree:
+    auto_generate: true
+    custom_domains: []
+    max_depth: 3
+  
+  # Multimodal QA Settings
+  multimodal:
+    enabled: true
+    image_formats: ["jpg", "jpeg", "png", "gif", "bmp"]
+    max_image_size: "10MB"
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_output: true
+  log_file: "./pipeline_output/datamax.log"
+
+# Pipeline Settings
+pipeline:
+  # Search Configuration
+  search:
+    query: "machine learning transformers"
+    max_results: 5
+  
+  # Processing Options
+  processing:
+    parallel_workers: 3
+    batch_size: 10
+    enable_caching: true
+    cache_dir: "./cache"
+  
+  # Output Options
+  output:
+    generate_report: true
+    save_intermediate_files: true
+    compress_output: false

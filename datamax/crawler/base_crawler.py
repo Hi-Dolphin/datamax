@@ -5,7 +5,7 @@ Provides the abstract base class for all crawler implementations in DataMax.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from datamax.utils.base_life import BaseLife
+from datamax.parser.base import BaseLife
 from datamax.utils.lifecycle_types import LifeType
 from .exceptions import CrawlerException
 
