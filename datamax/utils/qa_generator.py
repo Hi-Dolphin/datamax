@@ -431,7 +431,9 @@ def llm_generator(
             "top_p": top_p,
         }
 
-        response = requests.post(base_url, headers=headers, json=data, timeout=120)
+        # Normalize the base_url to include /chat/completions endpoint
+        api_url = complete_api_url(base_url)
+        response = requests.post(api_url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
         result = response.json()
 
@@ -517,7 +519,7 @@ def process_domain_tree(
                 "temperature": temperature,
                 "top_p": top_p,
             }
-            response = requests.post(base_url, headers=headers, json=data)
+            response = requests.post(complete_api_url(base_url), headers=headers, json=data)
             response.raise_for_status()
             result = response.json()
 

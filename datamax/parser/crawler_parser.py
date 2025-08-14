@@ -32,9 +32,6 @@ class CrawlerParser(BaseLife):
         self.file_path = file_path
         self.parsed_data = None
         self.raw_data = None
-        
-        # Set initial status
-        self.set_status(LifeType.DATA_PARSING)
     
     def parse(self) -> MarkdownOutputVo:
         """Parse crawler data file.
@@ -65,22 +62,11 @@ class CrawlerParser(BaseLife):
                 content=markdown_content
             )
             
-            # Add lifecycle information
-            lifecycle = self.generate_lifecycle(
-                source_file=self.file_path,
-                domain=self.domain,
-                life_type=LifeType.DATA_PARSED,
-                usage_purpose="Crawler data parsing"
-            )
-            output.add_lifecycle(lifecycle)
-            
             self.parsed_data = output
-            self.set_status(LifeType.DATA_PARSED)
             
             return output
             
         except Exception as e:
-            self.set_status(LifeType.DATA_PARSE_FAILED)
             raise Exception(f"Failed to parse crawler data: {str(e)}") from e
     
     def _load_data(self) -> Dict[str, Any]:

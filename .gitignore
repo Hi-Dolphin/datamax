@@ -16,6 +16,8 @@ uploaded_files/*
 serp*.json
 build
 build/*
+pipeline_output
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -226,7 +228,7 @@ test.py
 # venv
 venv/
 venv*/
-examples/*
+
 # scripts
 security_report.json
 README_CI_CD.md

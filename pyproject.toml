@@ -139,7 +139,7 @@ all = [
 ]
 
 [project.scripts]
-pydatamax = "pydatamax.cli.main:main"
+pydatamax = "datamax.cli.main:main"
 datamax = "datamax.cli.main:main"
 
 [project.urls]
@@ -150,7 +150,7 @@ Repository = "https://github.com/Hi-Dolphin/datamax"
 Source = "https://github.com/Hi-Dolphin/datamax"
 
 [tool.setuptools]
-packages = ["datamax", "pydatamax"]
+packages = ["datamax"]
 include-package-data = true
 
 [tool.setuptools.package-data]
@@ -227,7 +227,7 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
-    "slow: marks tests as slow (deselect with '-m "not slow"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "network: marks tests that require network access",
     "unit: marks tests as unit tests",
@@ -243,7 +243,7 @@ timeout = 300
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["datamax", "pydatamax"]
+source = ["datamax"]
 omit = [
     "*/tests/*",
     "*/test_*",
@@ -265,8 +265,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "if 0:",
     "if __name__ == .__main__.:",
-    "class .*\bProtocol\):",
-    "@(abc\.)?abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
 ]
 ignore_errors = true
 show_missing = true
