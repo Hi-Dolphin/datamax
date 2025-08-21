@@ -42,7 +42,8 @@ setup(
         "langchain-community>=0.3.0,<1.0.0",
         "langchain-text-splitters>=0.3.0,<1.0.0",
         "ebooklib==0.19",
-        "setuptools"
+        "setuptools",
+        "transformers==4.53.1"
     ],
     author="ccy",
     author_email="cy.kron@foxmail.com",
