@@ -131,6 +131,35 @@ def parse(ctx, input, output, domain, format):
 
 
 @cli.command()
+@click.argument('target', required=False)
+@click.option('--search', '-s', is_flag=True, help='Search the web for TARGET')
+@click.option('--output', '-o', help='Output file path')
+@click.option('--format', '-f', type=click.Choice(['json', 'yaml']), 
+              default='json', help='Output format')
+@click.pass_context
+def web(ctx, target, search, output, format):
+    """Crawl a web page or search the web.
+    
+    TARGET can be a URL to crawl or a search query.
+    If TARGET is not provided, you'll be prompted to enter it.
+    Use --search flag to explicitly treat TARGET as a search query.
+    """
+    # Import here to avoid circular imports
+    from .commands import web as web_command
+    
+    # If no target provided, prompt user
+    if not target:
+        if search:
+            target = click.prompt("Enter your search query")
+        else:
+            target = click.prompt("Enter URL to crawl or search query")
+    
+    # Call the web command with all parameters
+    ctx.invoke(web_command, target=target, output=output, format=format, 
+               extract_links=False, max_links=100, follow_redirects=False, 
+               timeout=30, search=search)
+
+@cli.command()
 @click.pass_context
 def status(ctx):
     """Show DataMax system status and available components."""

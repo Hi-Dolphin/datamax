@@ -5,6 +5,7 @@ Implements specific commands for crawler functionality.
 
 import sys
 import json
+import os
 import asyncio
 from pathlib import Path
 from typing import Optional, List
@@ -36,13 +37,15 @@ def crawler():
 @click.option('--storage', '-s', type=click.Choice(['local', 'cloud']), 
               default='local', help='Storage type')
 @click.option('--config', '-c', help='Configuration file path')
+@click.option('--engine', '-e', type=click.Choice(['auto', 'arxiv', 'web']), 
+              default='auto', help='Crawler engine to use')
 @click.option('--async-mode', is_flag=True, help='Use async crawling')
 @click.pass_context
-def crawl(ctx, target, output, format, storage, config, async_mode):
-    """Crawl a URL or search query using appropriate crawler.
+def crawl(ctx, target, output, format, storage, config, engine, async_mode):
+    """Crawl a URL or search query using specified or all crawlers.
     
     TARGET can be a URL, ArXiv ID, or search query.
-    The system will automatically detect the appropriate crawler to use.
+    With engine=auto, all registered crawlers will be used concurrently.
     """
     try:
         # Load configuration
@@ -65,18 +68,25 @@ def crawl(ctx, target, output, format, storage, config, async_mode):
         
         storage_adapter = create_storage_adapter(storage_config)
         
-        # Create crawler factory
-        factory = CrawlerFactory(config=crawler_config)
-        
         if not ctx.obj.get('quiet'):
             click.echo(f"Crawling target: {target}")
+            if engine == 'auto':
+                click.echo("Using all available engines concurrently")
+            else:
+                click.echo(f"Using engine: {engine}")
         
-        if async_mode:
-            # Async crawling
-            result = asyncio.run(_async_crawl(factory, target, storage_adapter, ctx))
+        if engine == 'auto':
+            # Use the new one-line crawl function with auto mode
+            from datamax.crawler import crawl as crawl_function
+            result = crawl_function(target, engine='auto')
+        elif async_mode:
+            # Async crawling with specific engine
+            factory = CrawlerFactory()
+            result = asyncio.run(_async_crawl(factory, target, storage_adapter, ctx, engine))
         else:
-            # Sync crawling
-            crawler = factory.create_crawler(target)
+            # Sync crawling with specific engine
+            factory = CrawlerFactory()
+            crawler = factory.create_crawler(engine)
             crawler.set_storage_adapter(storage_adapter)
             result = crawler.crawl(target)
         
@@ -101,6 +111,12 @@ def crawl(ctx, target, output, format, storage, config, async_mode):
         if not ctx.obj.get('quiet'):
             click.echo(f"Crawling completed successfully: {output_path}")
             
+            # Show summary for auto mode
+            if engine == 'auto':
+                click.echo(f"Used {result.get('total_engines', 0)} engines:")
+                click.echo(f"  Successful: {result.get('successful_engines', 0)}")
+                click.echo(f"  Failed: {result.get('failed_engines', 0)}")
+            
     except CrawlerException as e:
         logger.error(f"Crawler error: {str(e)}")
         sys.exit(1)
@@ -112,9 +128,12 @@ def crawl(ctx, target, output, format, storage, config, async_mode):
         sys.exit(1)
 
 
-async def _async_crawl(factory, target, storage_adapter, ctx):
+async def _async_crawl(factory, target, storage_adapter, ctx, engine=None):
     """Perform async crawling."""
-    crawler = factory.create_crawler(target)
+    if engine:
+        crawler = factory.create_crawler(engine)
+    else:
+        crawler = factory.create_crawler(target)
     crawler.set_storage_adapter(storage_adapter)
     
     if hasattr(crawler, 'crawl_async'):
@@ -209,7 +228,7 @@ def arxiv(ctx, arxiv_input, output, format, max_results, sort_by, category):
 
 
 @click.command()
-@click.argument('url')
+@click.argument('target')
 @click.option('--output', '-o', help='Output file path')
 @click.option('--format', '-f', type=click.Choice(['json', 'yaml']), 
               default='json', help='Output format')
@@ -217,11 +236,13 @@ def arxiv(ctx, arxiv_input, output, format, max_results, sort_by, category):
 @click.option('--max-links', type=int, default=100, help='Maximum number of links to extract')
 @click.option('--follow-redirects', is_flag=True, help='Follow HTTP redirects')
 @click.option('--timeout', type=int, default=30, help='Request timeout in seconds')
+@click.option('--search', '-s', is_flag=True, help='Treat target as a search query instead of a URL')
 @click.pass_context
-def web(ctx, url, output, format, extract_links, max_links, follow_redirects, timeout):
-    """Crawl a web page and extract content.
+def web(ctx, target, output, format, extract_links, max_links, follow_redirects, timeout, search):
+    """Crawl a web page or search the web.
     
-    URL should be a valid HTTP/HTTPS URL.
+    TARGET can be a valid HTTP/HTTPS URL or a search query.
+    Use --search flag to explicitly treat target as a search query.
     """
     try:
         # Create web crawler
@@ -234,6 +255,11 @@ def web(ctx, url, output, format, extract_links, max_links, follow_redirects, ti
             'max_links': max_links
         })
         
+        # Add search API configuration if available
+        search_api_key = os.environ.get('SEARCH_API_KEY')
+        if search_api_key:
+            web_config['search_api_key'] = search_api_key
+        
         crawler = WebCrawler(config=web_config)
         
         # Set up storage
@@ -244,24 +270,39 @@ def web(ctx, url, output, format, extract_links, max_links, follow_redirects, ti
         storage_adapter = create_storage_adapter(storage_config)
         crawler.set_storage_adapter(storage_adapter)
         
+        # Determine if target is URL or search query
+        from urllib.parse import urlparse
+        parsed = urlparse(target)
+        is_url = parsed.scheme in ['http', 'https'] and bool(parsed.netloc)
+        
+        # If search flag is explicitly set, treat as search query
+        # If it's not a valid URL, also treat as search query
+        is_search = search or (not is_url)
+        
         if not ctx.obj.get('quiet'):
-            click.echo(f"Crawling web page: {url}")
+            if is_search:
+                click.echo(f"Searching web for: {target}")
+            else:
+                click.echo(f"Crawling web page: {target}")
         
         # Perform crawling
-        result = crawler.crawl(url)
+        result = crawler.crawl(target)
         
         # Save result
         if output:
             output_path = Path(output)
         else:
-            # Generate output filename from URL
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            domain = parsed.netloc.replace('.', '_')
-            path_part = parsed.path.replace('/', '_').strip('_')
-            safe_name = f"{domain}_{path_part}" if path_part else domain
-            safe_name = "".join(c for c in safe_name if c.isalnum() or c in ('-', '_'))[:50]
-            output_path = Path(f"web_{safe_name}.{format}")
+            if is_search:
+                # Generate output filename for search
+                safe_target = "".join(c for c in target if c.isalnum() or c in ('-', '_'))[:50]
+                output_path = Path(f"web_search_{safe_target}.{format}")
+            else:
+                # Generate output filename from URL
+                domain = parsed.netloc.replace('.', '_')
+                path_part = parsed.path.replace('/', '_').strip('_')
+                safe_name = f"{domain}_{path_part}" if path_part else domain
+                safe_name = "".join(c for c in safe_name if c.isalnum() or c in ('-', '_'))[:50]
+                output_path = Path(f"web_{safe_name}.{format}")
         
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -274,18 +315,29 @@ def web(ctx, url, output, format, extract_links, max_links, follow_redirects, ti
                 yaml.dump(result, f, default_flow_style=False, allow_unicode=True)
         
         if not ctx.obj.get('quiet'):
-            click.echo(f"Web crawling completed: {output_path}")
+            click.echo(f"Web operation completed: {output_path}")
             
-            # Show summary
-            text_length = len(result.get('text_content', ''))
-            links_count = len(result.get('links', []))
-            click.echo(f"Extracted {text_length} characters of text and {links_count} links")
+            # Show summary based on result type
+            if result.get('type') == 'web_search_results':
+                result_count = result.get('result_count', 0)
+                click.echo(f"Found {result_count} search results")
+                if result_count > 0:
+                    results = result.get('results', [])
+                    for i, res in enumerate(results[:3]):  # Show first 3 results
+                        title = res.get('title', 'No title')
+                        url = res.get('url', 'No URL')
+                        click.echo(f"  {i+1}. {title}")
+                        click.echo(f"     {url}")
+            else:
+                text_length = len(result.get('text_content', ''))
+                links_count = len(result.get('links', []))
+                click.echo(f"Extracted {text_length} characters of text and {links_count} links")
             
     except CrawlerException as e:
         logger.error(f"Web crawler error: {str(e)}")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Web crawling failed: {str(e)}")
+        logger.error(f"Web operation failed: {str(e)}")
         if ctx.obj.get('verbose'):
             import traceback
             traceback.print_exc()
