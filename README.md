@@ -88,6 +88,9 @@ datamax crawler web https://example.com
 # Crawl multiple pages
 datamax crawler web https://example.com https://another-site.com
 
+# Use all engines and save to specific location
+datamax crawler crawl "machine learning" --engine auto --output ./data
+
 # Save to specific location
 datamax crawler web https://example.com --output ./web_data
 ```
@@ -111,6 +114,29 @@ datamax crawler list
 ```
 
 ### Python API Usage
+
+#### One-Line Crawling
+For simple use cases, you can crawl data with a single line of code:
+
+```python
+import datamax
+
+# Crawl ArXiv papers
+result = datamax.crawl("machine learning", engine="arxiv")
+
+# Crawl web pages
+result = datamax.crawl("https://example.com", engine="web")
+
+# Use all engines concurrently (new feature)
+result = datamax.crawl("machine learning", engine="auto")
+
+# Auto-detect crawler type (uses single appropriate crawler)
+result = datamax.crawl("quantum computing")  # Uses ArXiv crawler
+result = datamax.crawl("https://example.com")  # Uses web crawler
+```
+
+The `auto` engine mode runs all registered crawlers concurrently and combines their results,
+making it easy to gather data from multiple sources with a single call.
 
 #### Basic Crawling
 ```python
@@ -212,6 +238,7 @@ DataMax/
 │   ├── base.py       # Base crawler interface
 │   ├── arxiv.py      # ArXiv crawler implementation
 │   ├── web.py        # Web crawler implementation
+│   ├── crawl.py      # One-line crawler interface
 │   ├── factory.py    # Crawler factory
 │   ├── config.py     # Configuration management
 │   └── storage.py    # Storage adapters

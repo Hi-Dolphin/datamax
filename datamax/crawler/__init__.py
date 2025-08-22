@@ -25,6 +25,7 @@ from .logging_config import (
     get_crawler_logger,
     get_crawler_metrics
 )
+from .crawl import crawl, crawl_arxiv, crawl_web
 
 __all__ = [
     'BaseCrawler',
@@ -49,5 +50,8 @@ __all__ = [
     'get_crawler_metrics',
     'set_factory',
     'create_crawler_for_url',
-    'create_crawler'
+    'create_crawler',
+    'crawl',
+    'crawl_arxiv',
+    'crawl_web'
 ]
