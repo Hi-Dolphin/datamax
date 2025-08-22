@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Various bug fixes and improvements
 
-## [0.1.21] - 2024-01-XX
+## [0.2.0] - 2024-01-XX
 
 ### Added
 - Advanced data crawling and processing framework
@@ -114,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Release Notes
 
-### Version 0.1.21 Highlights
+### Version 0.2.0 Highlights
 
 This release represents a major milestone in the DataMax project, providing a complete, production-ready framework for data crawling and processing. Key highlights include:
 

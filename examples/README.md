@@ -74,7 +74,20 @@ with open('config_example.yaml', 'r') as f:
 crawler_config = CrawlerConfig(config['crawlers'])
 ```
 
-### 6. `test_examples.py`
+### 6. `one_line_crawler_example.py`
+**One-line Crawler Example**
+
+Demonstrates how to use the simplified one-line crawler interface for quick data fetching:
+- 🚀 **Minimal Code**: Crawl data with a single function call
+- 🔍 **Multiple Engines**: Support for ArXiv, web, and auto-detection
+- 🔄 **All Engines Mode**: New feature to use all registered engines concurrently
+- 📦 **Immediate Results**: Get crawled data directly without complex setup
+
+```bash
+python one_line_crawler_example.py
+```
+
+### 7. `test_examples.py`
 **示例测试套件**
 
 自动化测试脚本，验证所有示例的功能：
@@ -111,17 +124,22 @@ crawler_config = CrawlerConfig(config['crawlers'])
    python complete_pipeline_example.py
    ```
 
-3. **Run the multimodal processing example** for image and text processing:
+3. **Run the one-line crawler example** for simple data fetching:
+   ```bash
+   python one_line_crawler_example.py
+   ```
+
+4. **Run the multimodal processing example** for image and text processing:
    ```bash
    python multimodal_example.py
    ```
 
-4. **Run the web crawler example** for web content processing:
+5. **Run the web crawler example** for web content processing:
    ```bash
    python crawler_example.py
    ```
 
-5. **Run the test suite** to validate all examples:
+6. **Run the test suite** to validate all examples:
    ```bash
    # 运行测试套件（验证所有示例）
    python test_examples.py

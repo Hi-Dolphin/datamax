@@ -371,7 +371,7 @@ When reporting bugs, include:
 ```markdown
 **Environment:**
 - Python version: 3.10.5
-- DataMax version: 0.1.21
+- DataMax version: 0.2.0
 - OS: Windows 11
 
 **Steps to reproduce:**

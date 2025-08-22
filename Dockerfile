@@ -77,11 +77,11 @@ CMD ["datamax", "--help"]
 
 # Labels
 LABEL maintainer="DataMax Team" \
-      version="0.1.21" \
+      version="0.2.0" \
       description="DataMax - Advanced Data Crawling and Processing Framework" \
       org.opencontainers.image.title="DataMax" \
       org.opencontainers.image.description="Advanced data crawling and processing framework" \
-      org.opencontainers.image.version="0.1.21" \
+      org.opencontainers.image.version="0.2.0" \
       org.opencontainers.image.vendor="DataMax Team" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Hi-Dolphin/datamax" \
