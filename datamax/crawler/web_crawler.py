@@ -1,6 +1,6 @@
 """Web Crawler Implementation
 
-Provides general-purpose web crawler for HTML pages.
+Provides general-purpose web crawler for HTML pages and web search API integration.
 """
 
 import asyncio
@@ -13,11 +13,11 @@ from .exceptions import CrawlerException, NetworkException, ParseException
 
 
 class WebCrawler(BaseCrawler):
-    """General-purpose web crawler for HTML pages.
+    """General-purpose web crawler for HTML pages and web search API.
     
-    Extracts text content, metadata, and links from web pages.
+    Can crawl individual web pages or perform web searches using search APIs.
     """
-    
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize web crawler.
         
@@ -25,16 +25,42 @@ class WebCrawler(BaseCrawler):
             config: Configuration dictionary
         """
         super().__init__(config)
+        self.config = config or {}
         self.user_agent = self.config.get('user_agent', 'DataMax-Crawler/1.0')
         self.timeout = self.config.get('timeout', 15)
         self.max_retries = self.config.get('max_retries', 2)
         self.rate_limit = self.config.get('rate_limit', 0.5)
         self.follow_redirects = self.config.get('follow_redirects', True)
         self.max_content_length = self.config.get('max_content_length', 10 * 1024 * 1024)  # 10MB
+        
+        # Search API configuration
+        self.search_api_key = self.config.get('search_api_key')
+        self.search_api_url = self.config.get('search_api_url', 'https://api.bochaai.com/v1/web-search')
+        
         self.session = None
-    
+
     def _setup_crawler(self):
         """Setup web crawler specific configurations."""
+        # Set attributes from config if not already set
+        if not hasattr(self, 'user_agent'):
+            self.user_agent = self.config.get('user_agent', 'DataMax-Crawler/1.0')
+        if not hasattr(self, 'timeout'):
+            self.timeout = self.config.get('timeout', 15)
+        if not hasattr(self, 'max_retries'):
+            self.max_retries = self.config.get('max_retries', 2)
+        if not hasattr(self, 'rate_limit'):
+            self.rate_limit = self.config.get('rate_limit', 0.5)
+        if not hasattr(self, 'follow_redirects'):
+            self.follow_redirects = self.config.get('follow_redirects', True)
+        if not hasattr(self, 'max_content_length'):
+            self.max_content_length = self.config.get('max_content_length', 10 * 1024 * 1024)  # 10MB
+            
+        # Set search API attributes
+        if not hasattr(self, 'search_api_key'):
+            self.search_api_key = self.config.get('search_api_key')
+        if not hasattr(self, 'search_api_url'):
+            self.search_api_url = self.config.get('search_api_url', 'https://api.bochaai.com/v1/web-search')
+            
         # Headers for web requests
         self.headers = {
             'User-Agent': self.user_agent,
@@ -44,7 +70,31 @@ class WebCrawler(BaseCrawler):
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1'
         }
-    
+
+    def validate_target(self, target: str) -> bool:
+        """Validate if the target is a valid URL or search keyword.
+        
+        Args:
+            target: Target URL or search keyword to validate
+            
+        Returns:
+            True if target is valid (URL or non-empty keyword)
+        """
+        try:
+            # Empty targets are not valid
+            if not target or not target.strip():
+                return False
+                
+            # Check if it's a valid URL
+            parsed = urlparse(target)
+            is_url = parsed.scheme in ['http', 'https'] and bool(parsed.netloc)
+            
+            # For search keywords, ensure they're not just URLs in disguise
+            # Any non-empty string is valid as a search keyword
+            return True
+        except Exception:
+            return False
+
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session.
         
@@ -60,27 +110,12 @@ class WebCrawler(BaseCrawler):
                 connector=connector
             )
         return self.session
-    
+
     async def _close_session(self):
         """Close HTTP session."""
         if self.session and not self.session.closed:
             await self.session.close()
-    
-    def validate_target(self, target: str) -> bool:
-        """Validate if the target is a valid URL.
-        
-        Args:
-            target: Target URL to validate
-            
-        Returns:
-            True if target is a valid HTTP/HTTPS URL
-        """
-        try:
-            parsed = urlparse(target)
-            return parsed.scheme in ['http', 'https'] and bool(parsed.netloc)
-        except Exception:
-            return False
-    
+
     async def _fetch_page(self, url: str) -> Dict[str, Any]:
         """Fetch web page content.
         
@@ -140,7 +175,70 @@ class WebCrawler(BaseCrawler):
                 if attempt == self.max_retries - 1:
                     raise NetworkException(f"Failed to fetch {url}: {str(e)}")
                 await asyncio.sleep(2 ** attempt)
-    
+
+    async def _search_web_api(self, query: str) -> Dict[str, Any]:
+        """Perform web search using search API.
+        
+        Args:
+            query: Search query
+            
+        Returns:
+            Dictionary containing search results
+            
+        Raises:
+            NetworkException: If search API request fails
+        """
+        if not self.search_api_key:
+            raise NetworkException("Search API key not configured")
+            
+        session = await self._get_session()
+        
+        # Prepare search request
+        search_data = {
+            "query": query,
+            "summary": True,
+            "count": 10
+        }
+        
+        headers = {
+            'Authorization': f'Bearer {self.search_api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        for attempt in range(self.max_retries):
+            try:
+                await asyncio.sleep(self.rate_limit)  # Rate limiting
+                
+                async with session.post(
+                    self.search_api_url,
+                    json=search_data,
+                    headers=headers
+                ) as response:
+                    if response.status == 200:
+                        response_data = await response.json()
+                        
+                        # Check if response has data
+                        if response_data.get('code') == 200 and response_data.get('data'):
+                            return response_data['data']
+                        else:
+                            error_msg = response_data.get('msg', 'Unknown search API error')
+                            raise NetworkException(f"Search API error: {error_msg}")
+                    else:
+                        raise NetworkException(f"Search API HTTP {response.status}: {response.reason}")
+                        
+            except asyncio.TimeoutError:
+                if attempt == self.max_retries - 1:
+                    raise NetworkException(f"Timeout searching for '{query}'")
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+            except aiohttp.ClientError as e:
+                if attempt == self.max_retries - 1:
+                    raise NetworkException(f"Client error searching for '{query}': {str(e)}")
+                await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    raise NetworkException(f"Failed to search for '{query}': {str(e)}")
+                await asyncio.sleep(2 ** attempt)
+
     def _extract_text_content(self, html_content: str) -> str:
         """Extract clean text content from HTML.
         
@@ -177,7 +275,7 @@ class WebCrawler(BaseCrawler):
             return text
         except Exception as e:
             raise ParseException(f"Failed to extract text content: {str(e)}")
-    
+
     def _extract_metadata(self, html_content: str, url: str) -> Dict[str, Any]:
         """Extract metadata from HTML.
         
@@ -267,7 +365,7 @@ class WebCrawler(BaseCrawler):
         except Exception as e:
             # Return basic metadata on error
             return metadata
-    
+
     def _extract_links(self, html_content: str, base_url: str) -> List[Dict[str, str]]:
         """Extract links from HTML content.
         
@@ -329,12 +427,56 @@ class WebCrawler(BaseCrawler):
             
         except Exception:
             return links
-    
-    async def crawl_async(self, url: str, **kwargs) -> Dict[str, Any]:
+
+    def _format_search_results(self, search_data: Dict[str, Any], query: str) -> Dict[str, Any]:
+        """Format search API results into web crawler format.
+        
+        Args:
+            search_data: Raw search API response data
+            query: Original search query
+            
+        Returns:
+            Formatted search results
+        """
+        # Handle the response format from the API
+        web_pages = search_data.get('webPages', {})
+        results = web_pages.get('value', []) if isinstance(web_pages, dict) else []
+        
+        # If results is directly in search_data, use that
+        if not results and isinstance(search_data.get('results'), list):
+            results = search_data['results']
+        
+        # Format search results as web pages
+        formatted_results = []
+        for result in results:
+            # Handle different result formats
+            if isinstance(result, dict):
+                formatted_results.append({
+                    'url': result.get('url', ''),
+                    'title': result.get('title', result.get('name', '')),
+                    'description': result.get('description', result.get('snippet', '')),
+                    'summary': result.get('summary', ''),
+                    'site_name': result.get('siteName', ''),
+                    'date_published': result.get('datePublished', result.get('dateLastCrawled', '')),
+                    'display_url': result.get('displayUrl', result.get('url', ''))
+                })
+        
+        return {
+            'type': 'web_search_results',
+            'query': query,
+            'original_query': search_data.get('queryContext', {}).get('originalQuery', query),
+            'total_estimated_matches': web_pages.get('totalEstimatedMatches', len(formatted_results)) if isinstance(web_pages, dict) else len(formatted_results),
+            'results': formatted_results,
+            'result_count': len(formatted_results),
+            'crawled_at': datetime.now().isoformat(),
+            'source': 'web_search'
+        }
+
+    async def crawl_async(self, target: str, **kwargs) -> Dict[str, Any]:
         """Async version of crawl method.
         
         Args:
-            url: Web page URL
+            target: Web page URL or search query
             **kwargs: Additional parameters
             
         Returns:
@@ -342,41 +484,50 @@ class WebCrawler(BaseCrawler):
         """
         try:
             # Validate URL
-            if not self.validate_target(url):
-                raise ValueError(f"Invalid URL: {url}")
+            if not self.validate_target(target):
+                raise ValueError(f"Invalid target: {target}")
             
-            # Fetch page content
-            response_data = await self._fetch_page(url)
+            # Check if target is a URL or search keyword
+            parsed = urlparse(target)
+            is_url = parsed.scheme in ['http', 'https'] and bool(parsed.netloc)
             
-            # Extract content
-            html_content = response_data['content']
-            text_content = self._extract_text_content(html_content)
-            metadata = self._extract_metadata(html_content, response_data['url'])
-            links = self._extract_links(html_content, response_data['url'])
-            
-            return {
-                'type': 'web_page',
-                'url': response_data['url'],
-                'original_url': url,
-                'status_code': response_data['status_code'],
-                'content_type': response_data['content_type'],
-                'encoding': response_data['encoding'],
-                'metadata': metadata,
-                'text_content': text_content,
-                'links': links,
-                'link_count': len(links),
-                'content_length': len(text_content),
-                'crawled_at': datetime.now().isoformat(),
-                'source': 'web'
-            }
-            
+            if is_url:
+                # Direct URL crawling
+                response_data = await self._fetch_page(target)
+                
+                # Extract content
+                html_content = response_data['content']
+                text_content = self._extract_text_content(html_content)
+                metadata = self._extract_metadata(html_content, response_data['url'])
+                links = self._extract_links(html_content, response_data['url'])
+                
+                return {
+                    'type': 'web_page',
+                    'url': response_data['url'],
+                    'original_url': target,
+                    'status_code': response_data['status_code'],
+                    'content_type': response_data['content_type'],
+                    'encoding': response_data['encoding'],
+                    'metadata': metadata,
+                    'text_content': text_content,
+                    'links': links,
+                    'link_count': len(links),
+                    'content_length': len(text_content),
+                    'crawled_at': datetime.now().isoformat(),
+                    'source': 'web'
+                }
+            else:
+                # Search keyword - use web search API
+                search_data = await self._search_web_api(target)
+                return self._format_search_results(search_data, target)
+                
         except Exception as e:
             if isinstance(e, (CrawlerException, NetworkException, ParseException)):
                 raise
             raise CrawlerException(f"Web crawling failed: {str(e)}") from e
         finally:
             await self._close_session()
-    
+
     async def crawl_multiple_async(self, urls: List[str], **kwargs) -> List[Dict[str, Any]]:
         """Crawl multiple URLs asynchronously.
         
@@ -406,12 +557,12 @@ class WebCrawler(BaseCrawler):
                 })
         
         return results
-    
+
     async def crawl(self, target: str) -> Dict[str, Any]:
-        """Crawl web page.
+        """Crawl web page or perform web search.
         
         Args:
-            target: Target URL to crawl
+            target: Target URL or search keyword to crawl
             
         Returns:
             Dictionary containing crawled data
@@ -420,31 +571,41 @@ class WebCrawler(BaseCrawler):
             CrawlerException: If crawling fails
         """
         try:
-            # Fetch page content
-            response_data = await self._fetch_page(target)
+            # Check if target is a URL or search keyword
+            parsed = urlparse(target)
+            is_url = parsed.scheme in ['http', 'https'] and bool(parsed.netloc)
             
-            # Extract content
-            html_content = response_data['content']
-            text_content = self._extract_text_content(html_content)
-            metadata = self._extract_metadata(html_content, response_data['url'])
-            links = self._extract_links(html_content, response_data['url'])
-            
-            return {
-                'type': 'web_page',
-                'url': response_data['url'],
-                'original_url': target,
-                'status_code': response_data['status_code'],
-                'content_type': response_data['content_type'],
-                'encoding': response_data['encoding'],
-                'metadata': metadata,
-                'text_content': text_content,
-                'links': links,
-                'link_count': len(links),
-                'content_length': len(text_content),
-                'crawled_at': datetime.now().isoformat(),
-                'source': 'web'
-            }
-            
+            if is_url:
+                # Direct URL crawling
+                response_data = await self._fetch_page(target)
+                
+                # Extract content
+                html_content = response_data['content']
+                text_content = self._extract_text_content(html_content)
+                metadata = self._extract_metadata(html_content, response_data['url'])
+                links = self._extract_links(html_content, response_data['url'])
+                
+                return {
+                    'type': 'web_page',
+                    'url': response_data['url'],
+                    'original_target': target,
+                    'is_search': False,
+                    'status_code': response_data['status_code'],
+                    'content_type': response_data['content_type'],
+                    'encoding': response_data['encoding'],
+                    'metadata': metadata,
+                    'text_content': text_content,
+                    'links': links,
+                    'link_count': len(links),
+                    'content_length': len(text_content),
+                    'crawled_at': datetime.now().isoformat(),
+                    'source': 'web'
+                }
+            else:
+                # Search keyword - use web search API
+                search_data = await self._search_web_api(target)
+                return self._format_search_results(search_data, target)
+                
         except Exception as e:
             if isinstance(e, (CrawlerException, NetworkException, ParseException)):
                 raise
