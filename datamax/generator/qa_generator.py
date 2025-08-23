@@ -211,14 +211,38 @@ def llm_generator(
     message: list = None,
     temperature: float = 0.7,
     top_p: float = 0.9,
+    debug: bool = False,
 ) -> list:
     """Generate content using LLM API"""
     try:
         if not message:
+            logger.warning("No message provided, using default system prompt")
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
+        
+        if debug:
+            logger.debug("=" * 80)
+            logger.debug("🚀 大模型请求详细信息")
+            logger.debug("=" * 80)
+            logger.debug(f"📍 模型: {model}")
+            logger.debug(f"🌐 API地址: {base_url}")
+            logger.debug(f"🌡️  温度参数: {temperature}")
+            logger.debug(f"🎯 Top-P参数: {top_p}")
+            logger.debug(f"📝 请求类型: {type}")
+            logger.debug("-" * 40)
+            logger.debug("💬 消息内容:")
+            for i, msg in enumerate(message, 1):
+                role_emoji = "🤖" if msg["role"] == "system" else "👤" if msg["role"] == "user" else "🔧"
+                logger.debug(f"  {i}. {role_emoji} {msg['role'].upper()}:")
+                content_lines = msg["content"].split('\n')
+                for line in content_lines:
+                    if line.strip():
+                        logger.debug(f"     {line}")
+                logger.debug("")
+            logger.debug("-" * 40)
+        
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -230,18 +254,54 @@ def llm_generator(
             "top_p": top_p,
         }
 
+        if debug:
+            logger.debug("📤 发送请求到大模型...")
+        
         response = requests.post(base_url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
         result = response.json()
+        
+        if debug:
+            logger.debug("✅ 大模型响应成功")
+            logger.debug("-" * 40)
+            logger.debug("📥 响应详细信息:")
+            logger.debug(f"  📊 状态码: {response.status_code}")
+            if "usage" in result:
+                usage = result["usage"]
+                logger.debug(f"  🔢 Token使用情况:")
+                logger.debug(f"     输入Token: {usage.get('prompt_tokens', 'N/A')}")
+                logger.debug(f"     输出Token: {usage.get('completion_tokens', 'N/A')}")
+                logger.debug(f"     总Token: {usage.get('total_tokens', 'N/A')}")
+            logger.debug("-" * 40)
 
         # Parse LLM response
         if "choices" in result and len(result["choices"]) > 0:
             output = result["choices"][0]["message"]["content"]
+            
+            if debug:
+                logger.debug("📋 大模型原始回答:")
+                output_lines = output.split('\n')
+                for line in output_lines:
+                    if line.strip():
+                        logger.debug(f"  {line}")
+                logger.debug("-" * 40)
+            
             if type == "question":
                 fmt_output = extract_json_from_llm_output(output)
+                if debug:
+                    logger.debug(f"🔄 解析后的问题列表: {fmt_output}")
+                    logger.debug(f"📈 解析出 {len(fmt_output) if fmt_output else 0} 个问题")
+                    logger.debug("=" * 80)
                 return fmt_output if fmt_output is not None else []
             else:
+                if debug:
+                    logger.debug(f"📝 返回原始内容 (长度: {len(output) if output else 0} 字符)")
+                    logger.debug("=" * 80)
                 return [output] if output else []
+        
+        if debug:
+            logger.debug("⚠️  响应中没有有效的choices内容")
+            logger.debug("=" * 80)
         return []
 
     except Exception as e:
@@ -261,6 +321,7 @@ def process_match_tags(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_workers: int = 3,
+    debug: bool = False,
 ):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     logger.info(f"Starting concurrent question-tag matching... (max_workers={max_workers})")
@@ -274,6 +335,7 @@ def process_match_tags(
             base_url=base_url,
             prompt=prompt,
             type="question",
+            debug=debug,
         )
         # llm_generator return a list, only one question is passed, take the first one
         return match[0] if match else {"question": q, "label": "其他"}
@@ -296,9 +358,22 @@ def process_domain_tree(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
     logger.info(f"Domain tree generation started...")
+    
+    if debug:
+        logger.debug("=" * 80)
+        logger.debug("🌳 DOMAIN TREE GENERATION DEBUG INFO")
+        logger.debug("=" * 80)
+        logger.debug(f"📝 System Prompt: {prompt[:200]}...")
+        logger.debug(f"🔧 Model: {model}")
+        logger.debug(f"🌐 API URL: {base_url}")
+        logger.debug(f"🌡️ Temperature: {temperature}")
+        logger.debug(f"🎯 Top-P: {top_p}")
+        logger.debug(f"🔄 Max Retries: {max_retries}")
+        logger.debug("=" * 80)
     
     for attempt in range(max_retries):
         try:
@@ -319,15 +394,26 @@ def process_domain_tree(
             response = requests.post(base_url, headers=headers, json=data)
             response.raise_for_status()
             result = response.json()
+            
+            if debug:
+                logger.debug(f"📡 API Response Status: {response.status_code}")
+                if "usage" in result:
+                    logger.debug(f"🔢 Token Usage: {result['usage']}")
 
             # Parse LLM response
             if "choices" in result and len(result["choices"]) > 0:
                 output = result["choices"][0]["message"]["content"]
+                if debug:
+                    logger.debug(f"📄 Raw Response: {output[:500]}...")
                 if output:
                     json_output = extract_json_from_llm_output(output)
+                    if debug:
+                        logger.debug(f"🔍 Parsed JSON: {json_output}")
                     if json_output is not None:
                         domain_tree = DomainTree()
                         domain_tree.from_json(json_output)
+                        if debug:
+                            logger.debug(f"🌳 Generated Domain Tree: {domain_tree.visualize()}")
                         logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
                         return domain_tree
                     else:
@@ -367,6 +453,7 @@ def process_questions(
     max_workers: int = 5,
     message: list = None,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> list:
     """Generate questions using multi-threading with retry mechanism"""
     total_questions = []
@@ -385,6 +472,7 @@ def process_questions(
                     message=message,
                     prompt=prompt,
                     type="question",
+                    debug=debug,
                 )
                 if questions:
                     return [
@@ -408,13 +496,21 @@ def process_questions(
     logger.info(f"Starting question generation (threads: {max_workers}, retries: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_generate_questions_with_retry, page) for page in page_content]
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating questions") as pbar:
-            for future in pbar:
+        if debug:
+            # Debug模式下禁用进度条，避免与debug日志冲突
+            for future in as_completed(futures):
                 result = future.result()
                 if result:
                     with lock:
                         total_questions.extend(result)
-                    pbar.set_postfix({"Generated questions": len(total_questions)})
+        else:
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating questions") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result:
+                        with lock:
+                            total_questions.extend(result)
+                        pbar.set_postfix({"Generated questions": len(total_questions)})
     return total_questions
 
 
@@ -426,6 +522,7 @@ def process_answers(
     message: list | None = None,
     max_workers=5,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
@@ -444,6 +541,7 @@ def process_answers(
                     prompt=prompt,
                     message=message,
                     type="answer",
+                    debug=debug,
                 )
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]  # llm_generator returns a list
@@ -472,14 +570,23 @@ def process_answers(
             for item in question_items
         }
 
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating answers") as pbar:
-            for future in pbar:
+        if debug:
+            # Debug模式下禁用进度条，避免与debug日志冲突
+            for future in as_completed(futures):
                 result = future.result()
                 if result is not None:  # only add question with answer
                     question, answer = result
                     with lock:
                         qa_pairs[question] = answer
-                    pbar.set_postfix({"Generated answers": len(qa_pairs)})
+        else:
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating answers") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result is not None:  # only add question with answer
+                        question, answer = result
+                        with lock:
+                            qa_pairs[question] = answer
+                        pbar.set_postfix({"Generated answers": len(qa_pairs)})
     return qa_pairs
 
 
@@ -499,11 +606,12 @@ def generatr_qa_pairs(
     message: list = None,
     max_workers: int = 5,
     domain_tree: DomainTree = None,
+    debug: bool = False,
 ) -> list:
     if message is None:
         message = []
     if domain_tree is None:
-        from datamax.utils.domain_tree import DomainTree
+        from datamax.generator.domain_tree import DomainTree
         domain_tree = DomainTree([])
     qa_pairs = process_answers(
         question_items=question_info,
@@ -512,6 +620,7 @@ def generatr_qa_pairs(
         api_key=api_key,
         base_url=base_url,
         model=model_name,
+        debug=debug,
     )
     logger.success(
         f"Completed! Generated {len(qa_pairs)} QA pairs in total"
@@ -637,6 +746,7 @@ def full_qa_labeling_process(
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
     use_mineru: bool = False,  # Add use_mineru parameter
+    debug: bool = False,
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction, 
@@ -644,7 +754,7 @@ def full_qa_labeling_process(
     """
     import uuid
 
-    from datamax.utils.qa_generator import (
+    from datamax.generator.qa_generator import (
         generatr_qa_pairs,
         process_domain_tree,
         process_match_tags,
@@ -707,7 +817,7 @@ def full_qa_labeling_process(
     # 2. domain tree generation
     domain_tree = None
     if use_tree_label:
-        from datamax.utils.domain_tree import DomainTree
+        from datamax.generator.domain_tree import DomainTree
 
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
@@ -723,6 +833,7 @@ def full_qa_labeling_process(
                 text="\n".join(page_content),
                 temperature=0.7,
                 top_p=0.9,
+                debug=debug,
             )
             if domain_tree is None:
                 # tree generation failed, use text generation strategy
@@ -749,6 +860,7 @@ def full_qa_labeling_process(
         question_number=question_number,
         max_workers=max_workers,
         message=messages,
+        debug=debug,
     )
     for question_item in question_info:
         if "qid" not in question_item:
@@ -762,6 +874,7 @@ def full_qa_labeling_process(
             tags_json=domain_tree.to_json(),
             questions=[q["question"] for q in question_info],
             max_workers=max_workers,
+            debug=debug,
         )
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
         for question_item in question_info:
@@ -778,6 +891,7 @@ def full_qa_labeling_process(
         question_number=question_number,
         max_workers=max_workers,
         domain_tree=domain_tree if use_tree_label else None,
+        debug=debug,
     )
     
     # Return both qa_list and domain_tree
