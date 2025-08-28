@@ -6,6 +6,7 @@ Provides specialized crawler for ArXiv academic papers.
 import re
 import asyncio
 import aiohttp
+import os
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -26,6 +27,7 @@ class ArxivCrawler(BaseCrawler):
             config: Configuration dictionary
         """
         super().__init__(config)
+        self.config = config or {}
         self.base_url = self.config.get('base_url', 'https://arxiv.org/')
         self.api_url = 'http://export.arxiv.org/api/query'
         self.rate_limit = self.config.get('rate_limit', 1.0)  # seconds between requests
@@ -398,7 +400,7 @@ class ArxivCrawler(BaseCrawler):
         
         Args:
             target: ArXiv ID, URL, or search query
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (including max_results/count)
             
         Returns:
             Crawled data dictionary
@@ -438,11 +440,12 @@ class ArxivCrawler(BaseCrawler):
         finally:
             await self._close_session()
     
-    async def crawl(self, target: str) -> Dict[str, Any]:
+    async def crawl(self, target: str, **kwargs) -> Dict[str, Any]:
         """Crawl ArXiv target.
         
         Args:
             target: ArXiv URL, ID, or search query
+            **kwargs: Additional parameters (including max_results/count)
             
         Returns:
             Crawled data dictionary
@@ -450,4 +453,4 @@ class ArxivCrawler(BaseCrawler):
         Raises:
             CrawlerException: If crawling fails
         """
-        return await self.crawl_async(target)
+        return await self.crawl_async(target, **kwargs)

@@ -14,16 +14,18 @@ def test_crawl_function():
     """Test the crawl function with different engines."""
     print("Testing crawl function...")
     
-    # Test with a valid web URL
+    # Test with a web search keyword
     try:
-        result = datamax.crawl("https://httpbin.org/html", engine="web")
-        print("Web crawl successful:")
+        result = datamax.crawl("latest AI news", engine="web")
+        print("Web search successful:")
         print(f"  Type: {result.get('type')}")
-        print(f"  URL: {result.get('url')}")
-        print(f"  Title: {result.get('metadata', {}).get('title')}")
+        print(f"  Query: {result.get('query')}")
+        print(f"  Result count: {result.get('result_count')}")
+        if result.get('results'):
+            print(f"  First result title: {result['results'][0].get('title')}")
         print()
     except Exception as e:
-        print(f"Web crawl failed: {e}")
+        print(f"Web search failed: {e}")
         print()
     
     # Test with arxiv
@@ -59,7 +61,7 @@ def test_crawl_function():
             if engine == 'arxiv':
                 print(f"  - ArXiv: Found {data.get('total_results', 0)} papers")
             elif engine == 'web':
-                print(f"  - Web: Crawled {data.get('url', 'unknown')}")
+                print(f"  - Web: Found {data.get('result_count', 0)} results")
         print()
     except Exception as e:
         print(f"Auto crawl with all engines failed: {e}")

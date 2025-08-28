@@ -13,7 +13,6 @@ from .exceptions import (
     AuthenticationException,
     ConfigurationException
 )
-from .config_manager import CrawlerConfig, get_config, set_config
 from .storage_adapter import StorageAdapter, LocalStorageAdapter, CloudStorageAdapter, create_storage_adapter
 from .crawler_factory import CrawlerFactory, get_factory, set_factory, create_crawler_for_url, create_crawler
 from .arxiv_crawler import ArxivCrawler
@@ -35,7 +34,6 @@ __all__ = [
     'RateLimitException',
     'AuthenticationException',
     'ConfigurationException',
-    'CrawlerConfig',
     'StorageAdapter',
     'LocalStorageAdapter',
     'CloudStorageAdapter',

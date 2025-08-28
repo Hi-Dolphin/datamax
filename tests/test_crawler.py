@@ -110,12 +110,12 @@ class TestCrawlerFactory:
         """Test web crawler creation."""
         factory = CrawlerFactory()
         
-        # Test HTTP URL
-        crawler = factory.create_crawler('https://example.com')
+        # Test with search keyword
+        crawler = factory.create_crawler('latest news')
         assert isinstance(crawler, WebCrawler)
         
-        # Test HTTPS URL
-        crawler = factory.create_crawler('http://example.com')
+        # Test with another search keyword
+        crawler = factory.create_crawler('machine learning')
         assert isinstance(crawler, WebCrawler)
     
     def test_list_crawlers(self):
@@ -202,52 +202,60 @@ class TestWebCrawler:
         assert crawler is not None
     
     def test_url_validation(self):
-        """Test URL validation."""
+        """Test search keyword validation."""
         crawler = WebCrawler()
         
-        # Valid URLs
-        assert crawler.validate_target('https://example.com')
-        assert crawler.validate_target('http://example.com')
-        assert crawler.validate_target('https://example.com/path')
+        # Valid search keywords
+        assert crawler.validate_target('latest news')
+        assert crawler.validate_target('machine learning research')
+        assert crawler.validate_target('AI developments')
         
-        # Invalid URLs
-        assert crawler.validate_target('not-a-url') == False
-        assert crawler.validate_target('ftp://example.com') == False
+        # Invalid keywords
+        assert crawler.validate_target('') == False
+        assert crawler.validate_target('   ') == False
     
-    @patch('aiohttp.ClientSession.get')
+    @patch('aiohttp.ClientSession.post')
     @pytest.mark.asyncio
-    async def test_web_crawl_mock(self, mock_get):
-        """Test web crawling with mocked response."""
-        # Mock response
+    async def test_web_crawl_mock(self, mock_post):
+        """Test web search with mocked response."""
+        # Mock response for search API
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.text.return_value = '''
-        <html>
-            <head>
-                <title>Test Page</title>
-                <meta name="description" content="Test description">
-            </head>
-            <body>
-                <h1>Test Heading</h1>
-                <p>Test content paragraph.</p>
-                <a href="https://example.com/link1">Link 1</a>
-                <a href="/relative-link">Link 2</a>
-            </body>
-        </html>
-        '''
-        mock_response.url = 'https://example.com'
+        mock_response.json.return_value = {
+            'code': 200,
+            'data': {
+                'webPages': {
+                    'value': [
+                        {
+                            'url': 'https://example.com/article1',
+                            'title': 'Test Article 1',
+                            'description': 'Test article description',
+                            'snippet': 'Test article snippet'
+                        },
+                        {
+                            'url': 'https://example.com/article2',
+                            'title': 'Test Article 2',
+                            'description': 'Another test article',
+                            'snippet': 'Another test snippet'
+                        }
+                    ]
+                }
+            }
+        }
         
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_post.return_value.__aenter__.return_value = mock_response
         
-        crawler = WebCrawler()
-        result = await crawler.crawl_async('https://example.com')
+        crawler = WebCrawler({
+            'search_api_key': 'test-key',
+            'search_api_url': 'https://api.test.com/search'
+        })
+        result = await crawler.crawl_async('test search')
         
-        assert result['type'] == 'web_page'
-        assert result['url'] == 'https://example.com'
-        assert 'metadata' in result
-        assert result['metadata']['title'] == 'Test Page'
-        assert 'Test content paragraph' in result['text_content']
-        assert len(result['links']) > 0
+        assert result['type'] == 'web_search_results'
+        assert result['query'] == 'test search'
+        assert result['result_count'] == 2
+        assert result['results'][0]['title'] == 'Test Article 1'
+        assert result['results'][1]['title'] == 'Test Article 2'
 
 
 class TestBaseCrawler:
@@ -337,7 +345,7 @@ class TestIntegration:
         # In real test, would mock the network response
     
     def test_end_to_end_web(self, tmp_path):
-        """Test end-to-end web crawling workflow."""
+        """Test end-to-end web search workflow."""
         # Create factory and storage
         factory = CrawlerFactory()
         storage_config = {
@@ -347,12 +355,12 @@ class TestIntegration:
         }
         storage_adapter = create_storage_adapter(storage_config)
         
-        # Create crawler
-        crawler = factory.create_crawler('https://example.com')
+        # Create crawler with search keyword
+        crawler = factory.create_crawler('latest news')
         crawler.set_storage_adapter(storage_adapter)
         
         # Validate target
-        assert crawler.validate_target('https://example.com')
+        assert crawler.validate_target('latest news')
         
         # Test would require actual network call
         # In real test, would mock the network response

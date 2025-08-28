@@ -5,6 +5,7 @@ Provides centralized logging configuration and monitoring utilities.
 
 import sys
 import json
+import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -31,10 +32,10 @@ class CrawlerLogger:
             enable_json: Enable JSON formatted logging
             enable_console: Enable console logging
         """
-        self.log_level = log_level.upper()
-        self.log_file = log_file
-        self.enable_json = enable_json
-        self.enable_console = enable_console
+        self.log_level = os.environ.get('LOG_LEVEL', log_level).upper()
+        self.log_file = os.environ.get('LOG_FILE', log_file)
+        self.enable_json = os.environ.get('LOG_ENABLE_JSON', str(enable_json)).lower() == 'true'
+        self.enable_console = os.environ.get('LOG_ENABLE_CONSOLE', str(enable_console)).lower() == 'true'
         
         # Remove default logger
         logger.remove()
