@@ -168,18 +168,35 @@ def generatr_qa_pairs(
     chunk_overlap=300,
     question_number=2,
     max_workers=5,
+    debug: bool = False,
     **kwargs,
 ):
     """
     The main function for generating multimodal question-answer pairs from a Markdown file containing images.
     """
+    if debug:
+        logger.debug(f"generatr_qa_pairs called with parameters:")
+        logger.debug(f"  file_path: {file_path}")
+        logger.debug(f"  api_key: {'***' if api_key else None}")
+        logger.debug(f"  model_name: {model_name}")
+        logger.debug(f"  chunk_size: {chunk_size}")
+        logger.debug(f"  chunk_overlap: {chunk_overlap}")
+        logger.debug(f"  question_number: {question_number}")
+        logger.debug(f"  max_workers: {max_workers}")
+        logger.debug(f"  kwargs: {kwargs}")
+    
     chunks_with_images = parse_markdown_and_associate_images(
         file_path, chunk_size, chunk_overlap
     )
 
     if not chunks_with_images:
         logger.warning("Failed to parse any text blocks containing images from the file.")
+        if debug:
+            logger.debug("No chunks with images found, returning empty list")
         return []
+    
+    if debug:
+        logger.debug(f"Found {len(chunks_with_images)} chunks with images")
 
     final_qa_list = []
 
@@ -187,7 +204,13 @@ def generatr_qa_pairs(
         context_text = chunk_data["text"]
         images = chunk_data["images"]
         
+        if debug:
+            logger.debug(f"Processing chunk with text length: {len(context_text)}, images: {len(images)}")
+        
         instruction_prompt = get_instruction_prompt(question_number)
+        
+        if debug:
+            logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
         
         generated_dialogs = generate_multimodal_qa_with_dashscope(
             api_key=api_key,
@@ -199,6 +222,8 @@ def generatr_qa_pairs(
 
         chunk_qas = []
         if generated_dialogs and isinstance(generated_dialogs, list):
+            if debug:
+                logger.debug(f"Generated {len(generated_dialogs)} dialogs for chunk")
             for dialog in generated_dialogs:
                 if isinstance(dialog, dict) and "user" in dialog and "assistant" in dialog:
                     formatted_qa = {
@@ -215,17 +240,41 @@ def generatr_qa_pairs(
                         "images": images,
                     }
                     chunk_qas.append(formatted_qa)
+        elif debug:
+            logger.debug(f"No valid dialogs generated for chunk")
+        
+        if debug:
+            logger.debug(f"Chunk processing completed, generated {len(chunk_qas)} QA pairs")
         return chunk_qas
     logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
+    if debug:
+        logger.debug(f"Using ThreadPoolExecutor with {max_workers} workers")
+    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
 
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
-            for future in pbar:
+        # 在debug模式下禁用tqdm进度条以避免与日志输出冲突
+        if debug:
+            # debug模式下不使用进度条，直接处理futures
+            for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
                     with lock:
                         final_qa_list.extend(result)
-                    pbar.set_postfix({"Generated QA": len(final_qa_list)})
+                        logger.debug(f"Processed chunk {i}/{len(futures)}: Added {len(result)} QA pairs, total: {len(final_qa_list)}")
+                else:
+                    logger.debug(f"Processed chunk {i}/{len(futures)}: Future returned empty result")
+        else:
+            # 非debug模式下使用进度条
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result:
+                        with lock:
+                            final_qa_list.extend(result)
+                        pbar.set_postfix({"Generated QA": len(final_qa_list)})
+    
     logger.success(f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs.")
+    if debug:
+        logger.debug(f"Returning {len(final_qa_list)} multimodal QA pairs")
     return final_qa_list
