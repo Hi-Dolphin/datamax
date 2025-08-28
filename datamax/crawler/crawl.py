@@ -9,12 +9,13 @@ from typing import Dict, Any, Optional, List
 from .crawler_factory import create_crawler, get_factory
 
 
-async def _async_crawl_single(engine: str, keyword: str) -> Dict[str, Any]:
+async def _async_crawl_single(engine: str, keyword: str, count: int = 10) -> Dict[str, Any]:
     """Asynchronously crawl data using a single engine.
     
     Args:
         engine: Crawler engine to use
         keyword: Search keyword or target URL/ID
+        count: Number of results to return (for search engines)
         
     Returns:
         Crawled data dictionary
@@ -33,17 +34,19 @@ async def _async_crawl_single(engine: str, keyword: str) -> Dict[str, Any]:
                     "error": f"Target validation failed for {engine} engine"
                 }
         
-        result = await crawler.crawl(keyword)
+        # Pass count parameter to crawler
+        result = await crawler.crawl(keyword, max_results=count)
         return {"engine": engine, "success": True, "data": result}
     except Exception as e:
         return {"engine": engine, "success": False, "error": str(e)}
 
 
-async def _async_crawl_all(keyword: str) -> Dict[str, Any]:
+async def _async_crawl_all(keyword: str, count: int = 10) -> Dict[str, Any]:
     """Asynchronously crawl data using all available engines.
     
     Args:
         keyword: Search keyword or target URL/ID
+        count: Number of results to return (for search engines)
         
     Returns:
         Combined crawled data dictionary from all engines
@@ -53,7 +56,7 @@ async def _async_crawl_all(keyword: str) -> Dict[str, Any]:
     crawler_types = factory.list_crawlers()
     
     # Run all crawlers concurrently
-    tasks = [_async_crawl_single(engine, keyword) for engine in crawler_types]
+    tasks = [_async_crawl_single(engine, keyword, count) for engine in crawler_types]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     # Process results
@@ -78,6 +81,7 @@ async def _async_crawl_all(keyword: str) -> Dict[str, Any]:
     combined_data = {
         "type": "combined_results",
         "keyword": keyword,
+        "count": count,
         "engines_used": crawler_types,
         "total_engines": len(crawler_types),
         "successful_engines": len(successful_results),
@@ -89,12 +93,13 @@ async def _async_crawl_all(keyword: str) -> Dict[str, Any]:
     return combined_data
 
 
-async def _async_crawl(keyword: str, engine: str = "auto") -> Dict[str, Any]:
+async def _async_crawl(keyword: str, engine: str = "auto", count: int = 10) -> Dict[str, Any]:
     """Asynchronously crawl data based on keyword and engine.
     
     Args:
         keyword: Search keyword or target URL/ID
         engine: Crawler engine to use ("arxiv", "web", "auto")
+        count: Number of results to return (for search engines)
         
     Returns:
         Crawled data dictionary
@@ -105,28 +110,29 @@ async def _async_crawl(keyword: str, engine: str = "auto") -> Dict[str, Any]:
     try:
         if engine == "auto":
             # Use all available engines
-            return await _async_crawl_all(keyword)
+            return await _async_crawl_all(keyword, count)
         else:
             # Use specified crawler
             crawler = create_crawler(engine)
-            result = await crawler.crawl(keyword)
+            result = await crawler.crawl(keyword, max_results=count)
             return result
         
     except Exception as e:
         raise Exception(f"Crawling failed: {str(e)}") from e
 
 
-def crawl(keyword: str, engine: str = "auto") -> Dict[str, Any]:
+def crawl(keyword: str, engine: str = "auto", count: int = 10) -> Dict[str, Any]:
     """Crawl data based on keyword and engine.
     
     Examples:
-        >>> datamax.crawl("航运", engine="arxiv")
-        >>> datamax.crawl("https://example.com", engine="web")
-        >>> datamax.crawl("航运")  # Uses all engines
+        >>> datamax.crawl("航运", engine="arxiv", count=5)
+        >>> datamax.crawl("航运", engine="web", count=5)
+        >>> datamax.crawl("航运", count=5)  # Uses all engines
         
     Args:
         keyword: Search keyword or target URL/ID
         engine: Crawler engine to use ("arxiv", "web", "auto")
+        count: Number of results to return (for search engines)
         
     Returns:
         Crawled data dictionary
@@ -136,31 +142,33 @@ def crawl(keyword: str, engine: str = "auto") -> Dict[str, Any]:
     """
     try:
         # Run the async crawl function
-        return asyncio.run(_async_crawl(keyword, engine))
+        return asyncio.run(_async_crawl(keyword, engine, count))
     except Exception as e:
         raise Exception(f"Crawling failed: {str(e)}") from e
 
 
 # Convenience functions for specific engines
-def crawl_arxiv(keyword: str) -> Dict[str, Any]:
+def crawl_arxiv(keyword: str, count: int = 10) -> Dict[str, Any]:
     """Crawl ArXiv data.
     
     Args:
         keyword: ArXiv ID, URL, or search query
+        count: Number of results to return (for search queries)
         
     Returns:
         Crawled data dictionary
     """
-    return crawl(keyword, engine="arxiv")
+    return crawl(keyword, engine="arxiv", count=count)
 
 
-def crawl_web(target: str) -> Dict[str, Any]:
-    """Crawl web page data or search the web.
+def crawl_web(keyword: str, count: int = 10) -> Dict[str, Any]:
+    """Search the web using keywords.
     
     Args:
-        target: Web page URL or search query
+        keyword: Search keyword
+        count: Number of results to return
         
     Returns:
-        Crawled data dictionary
+        Search results dictionary
     """
-    return crawl(target, engine="web")
+    return crawl(keyword, engine="web", count=count)

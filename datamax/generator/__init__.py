@@ -25,6 +25,16 @@ from .prompt_templates import (
     get_system_prompt_for_question,
     get_system_prompt_for_answer
 )
+from .mcp_agent_generator import (
+    MCPAgent,
+    MCPAgentConfig,
+    ToolDefinition,
+    ToolType,
+    MessageRole,
+    MCPMessage,
+    create_demo_agent,
+    demo_conversation
+)
 
 __all__ = [
     # QA Generator
@@ -39,5 +49,8 @@ __all__ = [
     "DomainTree",
     # Prompt Templates
     "get_system_prompt_for_match_label", "get_system_prompt_for_domain_tree",
-    "get_system_prompt_for_question", "get_system_prompt_for_answer"
+    "get_system_prompt_for_question", "get_system_prompt_for_answer",
+    # MCP Agent Generator
+    "MCPAgent", "MCPAgentConfig", "ToolDefinition", "ToolType", "MessageRole",
+    "MCPMessage", "create_demo_agent", "demo_conversation"
 ]

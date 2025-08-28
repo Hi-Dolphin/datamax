@@ -5,10 +5,10 @@ based on target URLs or crawler types.
 """
 
 import re
+import os
 from typing import Dict, Type, Optional, Any
 from urllib.parse import urlparse
 from .base_crawler import BaseCrawler
-from .config_manager import get_config
 from .storage_adapter import create_storage_adapter
 from .exceptions import CrawlerException, ConfigurationException
 
@@ -24,7 +24,6 @@ class CrawlerFactory:
         """Initialize the crawler factory."""
         self._crawlers: Dict[str, Type[BaseCrawler]] = {}
         self._url_patterns: Dict[str, str] = {}
-        self._config = get_config()
         self._storage_adapter = None
     
     def register_crawler(self, name: str, crawler_class: Type[BaseCrawler], url_patterns: Optional[list] = None):
@@ -95,14 +94,40 @@ class CrawlerFactory:
             )
         
         crawler_class = self._crawlers[crawler_type]
-        crawler_config = self._config.get_crawler_config(crawler_type)
+        
+        # Create configuration from environment variables
+        crawler_config = {}
+        if crawler_type == 'arxiv':
+            crawler_config = {
+                'base_url': os.environ.get('ARXIV_BASE_URL', 'https://arxiv.org/'),
+                'rate_limit': float(os.environ.get('ARXIV_RATE_LIMIT', '1.0')),
+                'timeout': int(os.environ.get('ARXIV_TIMEOUT', '30')),
+                'max_retries': int(os.environ.get('ARXIV_MAX_RETRIES', '3')),
+                'user_agent': os.environ.get('ARXIV_USER_AGENT', 'DataMax-Crawler/1.0')
+            }
+        elif crawler_type == 'web':
+            crawler_config = {
+                'user_agent': os.environ.get('WEB_USER_AGENT', 'DataMax-Crawler/1.0'),
+                'timeout': int(os.environ.get('WEB_TIMEOUT', '15')),
+                'max_retries': int(os.environ.get('WEB_MAX_RETRIES', '2')),
+                'rate_limit': float(os.environ.get('WEB_RATE_LIMIT', '0.5')),
+                'search_api_url': os.environ.get('WEB_SEARCH_API_URL', 'https://api.bochaai.com/v1/web-search')
+            }
         
         # Create crawler instance
         crawler = crawler_class(crawler_config)
         
         # Set up storage adapter
         if self._storage_adapter is None:
-            storage_config = self._config.get_storage_config()
+            # Create storage configuration from environment variables
+            storage_config = {
+                'default_format': os.environ.get('STORAGE_DEFAULT_FORMAT', 'json'),
+                'output_dir': os.environ.get('STORAGE_OUTPUT_DIR', './output'),
+                'cloud_storage': {
+                    'enabled': os.environ.get('STORAGE_CLOUD_ENABLED', 'false').lower() == 'true',
+                    'provider': os.environ.get('STORAGE_CLOUD_PROVIDER', 's3')
+                }
+            }
             self._storage_adapter = create_storage_adapter(storage_config)
         
         crawler.set_storage_adapter(self._storage_adapter)

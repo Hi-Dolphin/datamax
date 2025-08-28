@@ -73,44 +73,26 @@ datamax crawler arxiv 2301.07041
 # Crawl by ArXiv URL
 datamax crawler arxiv https://arxiv.org/abs/2301.07041
 
-# Search and crawl papers
-datamax crawler arxiv "machine learning" --search --max-results 10
+# Search and crawl papers with specific count
+datamax crawler arxiv "machine learning" --search --max-results 5
 
 # Specify output directory and format
 datamax crawler arxiv 2301.07041 --output ./data --format json
 ```
 
-#### Crawl Web Pages
+#### Search the Web
 ```bash
-# Crawl a web page
-datamax crawler web https://example.com
+# Search the web with keywords and specific count
+datamax crawler web "latest AI news" --count 5
 
-# Crawl multiple pages
-datamax crawler web https://example.com https://another-site.com
-
-# Use all engines and save to specific location
-datamax crawler crawl "machine learning" --engine auto --output ./data
-
-# Save to specific location
-datamax crawler web https://example.com --output ./web_data
+# Save search results to specific location
+datamax crawler web "machine learning research" --output ./web_data --count 10
 ```
 
-#### Parse Crawled Data
+#### Use All Engines
 ```bash
-# Parse crawler output to Markdown
-datamax parse data/arxiv_2301.07041.json --output paper.md
-
-# Parse with specific type
-datamax parse data/web_page.json --type crawler --output page.md
-```
-
-#### System Status
-```bash
-# Check system status and available components
-datamax status
-
-# List available crawlers
-datamax crawler list
+# Use all engines with specific count
+datamax crawler crawl "machine learning" --engine auto --output ./data --count 5
 ```
 
 ### Python API Usage
@@ -121,18 +103,18 @@ For simple use cases, you can crawl data with a single line of code:
 ```python
 import datamax
 
-# Crawl ArXiv papers
-result = datamax.crawl("machine learning", engine="arxiv")
+# Crawl ArXiv papers with specific count
+result = datamax.crawl("machine learning", engine="arxiv", count=5)
 
-# Crawl web pages
-result = datamax.crawl("https://example.com", engine="web")
+# Search the web with keywords and specific count
+result = datamax.crawl("latest AI news", engine="web", count=5)
 
-# Use all engines concurrently (new feature)
-result = datamax.crawl("machine learning", engine="auto")
+# Use all engines concurrently with specific count
+result = datamax.crawl("machine learning", engine="auto", count=5)
 
-# Auto-detect crawler type (uses single appropriate crawler)
-result = datamax.crawl("quantum computing")  # Uses ArXiv crawler
-result = datamax.crawl("https://example.com")  # Uses web crawler
+# Convenience functions with count parameter
+result = datamax.crawl_arxiv("quantum computing", count=3)
+result = datamax.crawl_web("latest news", count=7)
 ```
 
 The `auto` engine mode runs all registered crawlers concurrently and combines their results,
@@ -174,7 +156,7 @@ from datamax.crawler import ArxivCrawler, WebCrawler, CrawlerConfig
 from datamax.parser import CrawlerParser
 
 # Custom configuration
-config = CrawlerConfig({
+config = {
     'arxiv': {
         'max_results': 50,
         'timeout': 60
@@ -183,16 +165,16 @@ config = CrawlerConfig({
         'type': 'local',
         'base_path': './custom_data'
     }
-})
+}
 
 # Create specific crawler
 arxiv_crawler = ArxivCrawler(config=config)
 
-# Search for papers
+# Search for papers with specific count
 async def search_papers():
     results = await arxiv_crawler.search_async(
         query="machine learning",
-        max_results=10
+        max_results=5  # Specify count here
     )
     return results
 
@@ -262,45 +244,59 @@ DataMax/
 
 ## 🔧 Configuration
 
-### Default Configuration
-DataMax uses a hierarchical configuration system. Create a `config.json` file:
+### Environment Variables
+All configuration for DataMax is now handled through environment variables, simplifying setup and deployment.
 
-```json
-{
-  "arxiv": {
-    "base_url": "http://export.arxiv.org/api/",
-    "max_results": 10,
-    "timeout": 30,
-    "retry_attempts": 3,
-    "retry_delay": 1.0
-  },
-  "web": {
-    "timeout": 30,
-    "retry_attempts": 3,
-    "retry_delay": 1.0,
-    "user_agent": "DataMax-Crawler/1.0",
-    "max_content_length": 10485760
-  },
-  "storage": {
-    "type": "local",
-    "format": "json",
-    "base_path": "./data",
-    "create_subdirs": true
-  },
-  "logging": {
-    "level": "INFO",
-    "format": "standard",
-    "file_output": false
-  }
-}
+#### Web Crawler Configuration
+- `SEARCH_API_KEY` - API key for the web search API (required for web crawler)
+- `WEB_SEARCH_API_URL` - URL for the web search API (default: https://api.bochaai.com/v1/web-search)
+- `WEB_USER_AGENT` - User agent string for web requests (default: DataMax-Crawler/1.0)
+- `WEB_TIMEOUT` - Timeout for web requests in seconds (default: 15)
+- `WEB_MAX_RETRIES` - Maximum number of retry attempts (default: 2)
+- `WEB_RATE_LIMIT` - Rate limit between requests in seconds (default: 0.5)
+
+#### ArXiv Crawler Configuration
+- `ARXIV_BASE_URL` - Base URL for ArXiv API (default: https://arxiv.org/)
+- `ARXIV_USER_AGENT` - User agent string for ArXiv requests (default: DataMax-Crawler/1.0)
+- `ARXIV_TIMEOUT` - Timeout for ArXiv requests in seconds (default: 30)
+- `ARXIV_MAX_RETRIES` - Maximum number of retry attempts (default: 3)
+- `ARXIV_RATE_LIMIT` - Rate limit between requests in seconds (default: 1.0)
+
+#### Storage Configuration
+- `STORAGE_DEFAULT_FORMAT` - Default storage format (json or yaml) (default: json)
+- `STORAGE_OUTPUT_DIR` - Output directory for stored data (default: ./output)
+- `STORAGE_CLOUD_ENABLED` - Enable cloud storage (true/false) (default: false)
+- `STORAGE_CLOUD_PROVIDER` - Cloud storage provider (s3, gcs, azure) (default: s3)
+
+#### Logging Configuration
+- `LOG_LEVEL` - Logging level (DEBUG, INFO, WARNING, ERROR) (default: INFO)
+- `LOG_FILE` - Path to log file (optional)
+- `LOG_ENABLE_JSON` - Enable JSON formatted logging (true/false) (default: false)
+- `LOG_ENABLE_CONSOLE` - Enable console logging (true/false) (default: true)
+
+For more details, see [crawler configuration documentation](datamax/crawler/README.md).
+
+### Usage Examples
+
+#### Setting Environment Variables (Linux/Mac)
+```bash
+export SEARCH_API_KEY="your-search-api-key"
+export ARXIV_TIMEOUT=60
+export STORAGE_OUTPUT_DIR="/path/to/output"
 ```
 
-### Environment Variables
-```bash
-# Override configuration with environment variables
-export DATAMAX_ARXIV_TIMEOUT=60
-export DATAMAX_STORAGE_PATH=/custom/data/path
-export DATAMAX_LOG_LEVEL=DEBUG
+#### Setting Environment Variables (Windows)
+```cmd
+set SEARCH_API_KEY=your-search-api-key
+set ARXIV_TIMEOUT=60
+set STORAGE_OUTPUT_DIR=C:\path\to\output
+```
+
+#### Using with Docker
+```dockerfile
+ENV SEARCH_API_KEY=your-search-api-key
+ENV ARXIV_TIMEOUT=60
+ENV STORAGE_OUTPUT_DIR=/app/output
 ```
 
 ## 🧪 Testing
@@ -332,9 +328,19 @@ pytest tests/ --cov=datamax
 - **Network Tests**: Test actual network operations (optional)
 - **CLI Tests**: Test command-line interface functionality
 
-## 📚 API Reference
+### API Reference
 
-### Crawler API
+#### Core Functions
+```python
+# Main crawl function with count parameter
+datamax.crawl(keyword, engine="auto", count=10)
+
+# ArXiv specific function with count parameter
+datamax.crawl_arxiv(keyword, count=10)
+
+# Web search specific function with count parameter
+datamax.crawl_web(keyword, count=10)
+```
 
 #### CrawlerFactory
 ```python
@@ -346,17 +352,16 @@ crawlers = factory.list_crawlers()        # List available crawlers
 #### ArxivCrawler
 ```python
 crawler = ArxivCrawler(config=None)
-result = await crawler.crawl_async(arxiv_id)
-results = await crawler.search_async(query, max_results=10)
+result = await crawler.crawl_async(arxiv_id, max_results=10)
+results = await crawler.search_async(query, max_results=5)
 valid = crawler.validate_target(target)
 ```
 
 #### WebCrawler
 ```python
 crawler = WebCrawler(config=None)
-result = await crawler.crawl_async(url)
-results = await crawler.crawl_multiple_async(urls)
-valid = crawler.validate_target(url)
+result = await crawler.crawl_async("search keywords", max_results=10)
+valid = crawler.validate_target("search keywords")
 ```
 
 ### Parser API
