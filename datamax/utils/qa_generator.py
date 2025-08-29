@@ -720,6 +720,7 @@ def generatr_qa_pairs(
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
+        relative_chuck = question_item["page"]
         # only add question with answer
         if question in qa_pairs:
             label = question_item.get("label", "")
@@ -731,9 +732,9 @@ def generatr_qa_pairs(
                 "instruction": question,
                 "input": "",
                 "output": answer,
+                "relative_chuck": relative_chuck,
                 "label": label,
                 "tag-path": tag_path,
-                
             }
             res_list.append(qa_entry)
     return res_list
@@ -970,6 +971,8 @@ def full_qa_labeling_process(
     else:
         for question_item in question_info:
             question_item["label"] = ""
+    
+    
     # 5. generate answers
     qa_list = generatr_qa_pairs(
         question_info=question_info,
