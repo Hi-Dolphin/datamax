@@ -479,6 +479,7 @@ class DataMax(BaseLife):
         data = []
         if content is not None:
             text = content
+            self.parsed_data = {"content": content}
         else:
             processed = self.get_data()
             # Consistent with original logic, convert multiple files or dict/str to a single string
@@ -489,7 +490,6 @@ class DataMax(BaseLife):
                 text = processed.get("content", "")
             else:
                 text = processed
-            print(text)
             file_path = self.file_path
 
         # Mark: start DATA_LABELLING
