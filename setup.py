@@ -73,6 +73,11 @@ core_requirements = [
     "lxml>=4.9.0",
     "python-dateutil>=2.8.0",
     "typing-extensions>=4.0.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-timeout>=2.1.0",
 ]
 
 # Development dependencies

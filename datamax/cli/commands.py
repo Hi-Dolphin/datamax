@@ -21,6 +21,7 @@ from datamax.crawler import (
     create_storage_adapter
 )
 from datamax.crawler.exceptions import CrawlerException
+from datamax.cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
 
 
 @click.group()
@@ -384,8 +385,574 @@ def list_crawlers(ctx):
         sys.exit(1)
 
 
+@click.command()
+@click.argument('input_file', required=False)
+@click.option('--output', '-o', help='Output file path')
+@click.option('--mode', '-m', type=click.Choice(['full', 'abnormal', 'filter', 'privacy', 'no_html']),
+              default='full', help='Cleaning mode')
+@click.option('--filter-threshold', type=float, default=0.6,
+              help='Word repetition threshold for filtering (0.0-1.0)')
+@click.option('--min-chars', type=int, default=30,
+              help='Minimum character count for filtering')
+@click.option('--max-chars', type=int, default=500000,
+              help='Maximum character count for filtering')
+@click.option('--numeric-threshold', type=float, default=0.6,
+              help='Numeric content threshold for filtering (0.0-1.0)')
+@click.option('--stdin', is_flag=True, help='Read from stdin instead of file')
+@click.option('--stdout', is_flag=True, help='Write to stdout instead of file')
+@click.pass_context
+def clean(ctx, input_file, output, mode, filter_threshold, min_chars, max_chars,
+          numeric_threshold, stdin, stdout):
+    """Clean and process text data.
+
+    Clean text using various modes:
+    - full: Complete cleaning (abnormal + filter + privacy)
+    - abnormal: Remove abnormal characters, HTML, normalize text
+    - filter: Filter by content quality (repetition, length, numeric content)
+    - privacy: Remove sensitive information (emails, phones, IDs, etc.)
+    - no_html: Basic cleaning without HTML removal
+
+    INPUT_FILE can be a text file path. Use --stdin to read from stdin.
+    """
+    try:
+        # Read input
+        if stdin:
+            if not ctx.obj.get('quiet'):
+                click.echo("Reading from stdin...")
+            text = sys.stdin.read()
+            if not text.strip():
+                click.echo("Error: No input received from stdin.", err=True)
+                sys.exit(1)
+        else:
+            if not input_file:
+                input_file = click.prompt("Enter input file path")
+
+            input_path = Path(input_file)
+            if not input_path.exists():
+                click.echo(f"Error: Input file '{input_file}' not found.", err=True)
+                sys.exit(1)
+
+            if not ctx.obj.get('quiet'):
+                click.echo(f"Reading input file: {input_file}")
+
+            with open(input_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+
+        # Perform cleaning based on mode
+        if not ctx.obj.get('quiet'):
+            click.echo(f"Cleaning text in '{mode}' mode...")
+
+        result = {}
+
+        if mode == 'full':
+            # Complete cleaning pipeline
+            cleaner = AbnormalCleaner(text)
+            cleaned = cleaner.to_clean()
+
+            if isinstance(cleaned, dict) and 'text' in cleaned and cleaned['text']:
+                filter_obj = TextFilter(cleaned['text'])
+                filtered = filter_obj.to_filter()
+
+                if isinstance(filtered, dict) and 'text' in filtered and filtered['text']:
+                    privacy = PrivacyDesensitization(filtered['text'])
+                    result = privacy.to_private()
+                else:
+                    if not ctx.obj.get('quiet'):
+                        click.echo("Warning: Text failed filtering, skipping privacy cleaning")
+                    result = cleaned
+            else:
+                result = cleaned
+
+        elif mode == 'abnormal':
+            cleaner = AbnormalCleaner(text)
+            result = cleaner.to_clean()
+
+        elif mode == 'filter':
+            # Apply abnormal cleaning first, then filter
+            cleaner = AbnormalCleaner(text)
+            cleaned = cleaner.no_html_clean()
+
+            if isinstance(cleaned, dict) and 'text' in cleaned and cleaned['text']:
+                filter_obj = TextFilter(cleaned['text'])
+                filter_obj.filter_by_word_repetition(filter_threshold)
+                filter_obj.filter_by_char_count(min_chars, max_chars)
+                filter_obj.filter_by_numeric_content(numeric_threshold)
+                result = filter_obj.to_filter()
+            else:
+                result = cleaned
+
+        elif mode == 'privacy':
+            privacy = PrivacyDesensitization(text)
+            result = privacy.to_private()
+
+        elif mode == 'no_html':
+            cleaner = AbnormalCleaner(text)
+            result = cleaner.no_html_clean()
+
+        # Check if cleaning was successful
+        if isinstance(result, dict) and 'text' in result and result['text']:
+            cleaned_text = result['text']
+            if not ctx.obj.get('quiet'):
+                click.echo("Cleaning completed successfully")
+                click.echo(f"Original length: {len(text)} characters")
+                click.echo(f"Cleaned length: {len(cleaned_text)} characters")
+
+            # Output handling
+            if stdout:
+                click.echo(cleaned_text)
+            else:
+                # Determine output path
+                if output:
+                    output_path = Path(output)
+                else:
+                    if stdin:
+                        output_path = Path("cleaned_output.txt")
+                    else:
+                        input_path = Path(input_file)
+                        output_path = input_path.parent / f"{input_path.stem}_cleaned{input_path.suffix}"
+
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(cleaned_text)
+
+                if not ctx.obj.get('quiet'):
+                    click.echo(f"Cleaned text saved to: {output_path}")
+
+        else:
+            if isinstance(result, dict):
+                click.echo("Warning: Cleaning returned empty result", err=True)
+            else:
+                click.echo(f"Error: Unexpected result type: {type(result)}", err=True)
+            sys.exit(1)
+
+    except Exception as e:
+        logger.error(f"Cleaning failed: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command()
+@click.pass_context
+def list_cleaners(ctx):
+    """List available cleaning modes and their capabilities."""
+    try:
+        from .cleaner_cli import CleanerCLI
+
+        cleaner_cli = CleanerCLI()
+        cleaning_modes = cleaner_cli.list_cleaning_modes()
+
+        click.echo("Available Cleaning Modes:")
+        click.echo("=" * 50)
+
+        for mode_name, description in cleaning_modes.items():
+            click.echo(f"\n🧹 {mode_name.upper()} Mode")
+            click.echo(f"   Description: {description}")
+
+            # Get detailed info
+            mode_info = cleaner_cli.get_cleaning_info(mode_name)
+            if mode_info.get('steps'):
+                click.echo(f"   Steps: {', '.join(mode_info['steps'])}")
+            if mode_info.get('parameters'):
+                click.echo(f"   Parameters: {', '.join(mode_info['parameters'])}")
+
+        click.echo("\n💡 Use 'datamax clean <input_file> --mode <mode>' to clean text")
+        click.echo("💡 Use 'datamax clean --stdin --mode <mode>' to clean from stdin")
+        click.echo("💡 Use 'datamax clean <input_file> --stdout' to output to stdout")
+
+    except Exception as e:
+        logger.error(f"Failed to list cleaners: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+# Generator commands
+from datamax.cli.generator_cli import GeneratorCLI
+
+
+@click.command()
+@click.argument('input_file')
+@click.option('--output', '-o', help='Output file path')
+@click.option('--api-key', help='API key')
+@click.option('--base-url', help='API base URL')
+@click.option('--model', '-m', help='Model name')
+@click.option('--chunk-size', type=int, default=500, help='Text chunk size')
+@click.option('--chunk-overlap', type=int, default=100, help='Chunk overlap size')
+@click.option('--question-number', type=int, default=5, help='Number of questions per chunk')
+@click.option('--max-workers', type=int, default=5, help='Maximum number of workers')
+@click.pass_context
+def qa(ctx, input_file, output, api_key, base_url, model, chunk_size, chunk_overlap,
+       question_number, max_workers):
+    """Generate QA pairs from text files.
+
+    Generate question-answer pairs from various text formats using LLM.
+    Supports PDF, Markdown, and other text documents.
+    """
+    try:
+        # Create output path if specified
+        if output:
+            output_path = Path(output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            input_path = Path(input_file)
+            output_path = input_path.parent / f"{input_path.stem}_qa.json"
+
+        # Create generator CLI instance
+        generator = GeneratorCLI(verbose=ctx.obj.get('verbose', False))
+
+        if not ctx.obj.get('quiet'):
+            click.echo(f"Generating QA pairs from: {input_file}")
+            click.echo(f"Output will be saved to: {output_path}")
+
+        # Generate QA pairs
+        result = generator.generate_qa(
+            input_file=input_file,
+            output_file=str(output_path),
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            question_number=question_number,
+            max_workers=max_workers
+        )
+
+        # Save result
+        saved_path = generator.save_result(result, str(output_path))
+
+        if not ctx.obj.get('quiet'):
+            qa_count = len(result.get('qa_pairs', []))
+            click.echo(f"QA generation completed successfully!")
+            click.echo(f"Generated {qa_count} QA pairs")
+            click.echo(f"Results saved to: {saved_path}")
+
+    except Exception as e:
+        logger.error(f"QA generation failed: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command()
+@click.argument('input_file')
+@click.option('--output', '-o', help='Output file path')
+@click.option('--api-key', help='OpenAI API key')
+@click.option('--model', '-m', default='gpt-4-vision-preview', help='Model name')
+@click.option('--chunk-size', type=int, default=2000, help='Text chunk size')
+@click.option('--chunk-overlap', type=int, default=300, help='Chunk overlap size')
+@click.option('--question-number', type=int, default=2, help='Number of questions per chunk')
+@click.option('--max-workers', type=int, default=5, help='Maximum number of workers')
+@click.pass_context
+def multimodal(ctx, input_file, output, api_key, model, chunk_size, chunk_overlap,
+              question_number, max_workers):
+    """Generate multimodal QA pairs from markdown files with images.
+
+    Generate question-answer pairs from markdown files containing images.
+    Requires OpenAI API key for vision capabilities.
+    """
+    try:
+        # Create output path if specified
+        if output:
+            output_path = Path(output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            input_path = Path(input_file)
+            output_path = input_path.parent / f"{input_path.stem}_multimodal_qa.json"
+
+        # Create generator CLI instance
+        generator = GeneratorCLI(verbose=ctx.obj.get('verbose', False))
+
+        if not ctx.obj.get('quiet'):
+            click.echo(f"Generating multimodal QA pairs from: {input_file}")
+            click.echo(f"Output will be saved to: {output_path}")
+
+        # Generate multimodal QA pairs
+        result = generator.generate_multimodal_qa(
+            input_file=input_file,
+            output_file=str(output_path),
+            api_key=api_key,
+            model=model,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            question_number=question_number,
+            max_workers=max_workers
+        )
+
+        # Save result
+        saved_path = generator.save_result(result, str(output_path))
+
+        if not ctx.obj.get('quiet'):
+            qa_count = len(result)
+            click.echo(f"Multimodal QA generation completed successfully!")
+            click.echo(f"Generated {qa_count} QA pairs")
+            click.echo(f"Results saved to: {saved_path}")
+
+    except Exception as e:
+        logger.error(f"Multimodal QA generation failed: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command()
+@click.pass_context
+def list_generators(ctx):
+    """List available generators and their descriptions."""
+    try:
+        generator = GeneratorCLI()
+        generators = generator.list_generators()
+
+        click.echo("Available Generators:")
+        click.echo("=" * 50)
+
+        for name, description in generators.items():
+            click.echo(f"\n🔧 {name.upper()}")
+            click.echo(f"   {description}")
+
+        click.echo("\n💡 Usage Examples:")
+        click.echo("   datamax generator qa document.pdf")
+        click.echo("   datamax generator multimodal document.md --api-key $OPENAI_API_KEY")
+        click.echo("   datamax generator list")
+
+    except Exception as e:
+        logger.error(f"Failed to list generators: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+# Parser commands
+from datamax.cli.parser_cli import ParserCLI
+
+
+@click.command()
+@click.argument('input_file')
+@click.argument('output_file', required=False)
+@click.option('--format', '-f', type=click.Choice(['markdown', 'json', 'text']),
+              default='markdown', help='Output format')
+@click.option('--domain', '-d', default='Technology', help='Document domain')
+@click.option('--use-mineru', is_flag=True, help='Use MinerU for PDF parsing')
+@click.option('--use-qwen-vl-ocr', is_flag=True, help='Use Qwen-VL OCR for PDF')
+@click.option('--use-mllm', is_flag=True, help='Use Vision model for images')
+@click.option('--api-key', help='API key for OCR/MLLM services')
+@click.option('--base-url', help='Base URL for API services')
+@click.option('--model', '-m', help='Model name for API services')
+@click.option('--mllm-prompt', help='System prompt for Vision model')
+@click.option('--to-markdown', is_flag=True, help='Convert to Markdown format')
+@click.pass_context
+def parse(ctx, input_file, output_file, format, domain, use_mineru,
+          use_qwen_vl_ocr, use_mllm, api_key, base_url, model, mllm_prompt, to_markdown):
+    """Parse a single file using DataMax parser.
+
+    INPUT_FILE: Path to the file to parse
+    OUTPUT_FILE: Optional output file path (auto-generated if not provided)
+
+    Examples:
+        datamax parser parse document.pdf
+        datamax parser parse document.pdf output.md --format markdown
+        datamax parser parse image.jpg --use-mllm --api-key $OPENAI_API_KEY --mllm-prompt "Describe this image"
+        datamax parser parse document.pdf --use-mineru
+        datamax parser parse document.docx --to-markdown
+    """
+    try:
+        # Validate options
+        if use_mineru and use_qwen_vl_ocr:
+            raise click.BadParameter("Cannot use both --use-mineru and --use-qwen-vl-ocr simultaneously")
+
+        if use_mllm and (use_mineru or use_qwen_vl_ocr):
+            raise click.BadParameter("Cannot use --use-mllm with PDF options (--use-mineru/--use-qwen-vl-ocr)")
+
+        # Generate output file path if not provided
+        if not output_file:
+            input_path = Path(input_file)
+            extension = {
+                'markdown': 'md',
+                'json': 'json',
+                'text': 'txt'
+            }.get(format, 'md')
+            output_file = f"{input_path.stem}_parsed.{extension}"
+
+        # Create parser CLI instance
+        parser = ParserCLI(verbose=ctx.obj.get('verbose', False))
+
+        if not ctx.obj.get('quiet'):
+            click.echo(f"Parsing file: {input_file}")
+            click.echo(f"Output will be saved to: {output_file}")
+
+        # Parse the file
+        result = parser.parse_file(
+            input_file=input_file,
+            output_file=output_file,
+            format=format,
+            domain=domain,
+            use_mineru=use_mineru,
+            use_qwen_vl_ocr=use_qwen_vl_ocr,
+            use_mllm=use_mllm,
+            mllm_system_prompt=mllm_prompt or "描述图片内容，包括图片中的文字、图片中的对象、图片中的场景等。输出一份专业的中文markdown报告",
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model,
+            to_markdown=to_markdown
+        )
+
+        if not ctx.obj.get('quiet'):
+            click.echo("✅ Parsing completed successfully!")
+            click.echo(f"📄 Results saved to: {output_file}")
+
+    except Exception as e:
+        logger.error(f"Parsing failed: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command()
+@click.argument('input_dir')
+@click.argument('output_dir')
+@click.option('--format', '-f', type=click.Choice(['markdown', 'json', 'text']),
+              default='markdown', help='Output format')
+@click.option('--pattern', '-p', default='*.*', help='File pattern to match')
+@click.option('--recursive', '-r', is_flag=True, help='Process directories recursively')
+@click.option('--max-workers', type=int, default=4, help='Maximum concurrent workers')
+@click.option('--domain', '-d', default='Technology', help='Document domain')
+@click.option('--use-mineru', is_flag=True, help='Use MinerU for PDF parsing')
+@click.option('--use-qwen-vl-ocr', is_flag=True, help='Use Qwen-VL OCR for PDF')
+@click.option('--use-mllm', is_flag=True, help='Use Vision model for images')
+@click.option('--api-key', help='API key for OCR/MLLM services')
+@click.option('--base-url', help='Base URL for API services')
+@click.option('--model', '-m', help='Model name for API services')
+@click.option('--mllm-prompt', help='System prompt for Vision model')
+@click.option('--to-markdown', is_flag=True, help='Convert to Markdown format')
+@click.pass_context
+def batch(ctx, input_dir, output_dir, format, pattern, recursive, max_workers,
+          domain, use_mineru, use_qwen_vl_ocr, use_mllm, api_key, base_url,
+          model, mllm_prompt, to_markdown):
+    """Parse multiple files in batch mode.
+
+    INPUT_DIR: Directory containing files to parse
+    OUTPUT_DIR: Directory to save parsed results
+
+    Examples:
+        datamax parser batch ./documents ./parsed
+        datamax parser batch ./docs ./output --recursive --max-workers 8
+        datamax parser batch ./pdfs ./output --use-mineru --pattern "*.pdf"
+        datamax parser batch ./images ./output --use-mllm --api-key $OPENAI_API_KEY
+    """
+    try:
+        # Validate options
+        if use_mineru and use_qwen_vl_ocr:
+            raise click.BadParameter("Cannot use both --use-mineru and --use-qwen-vl-ocr simultaneously")
+
+        # Parse options for passing to parse_file
+        parse_options = {
+            'domain': domain,
+            'use_mineru': use_mineru,
+            'use_qwen_vl_ocr': use_qwen_vl_ocr,
+            'use_mllm': use_mllm,
+            'mllm_system_prompt': mllm_prompt or "描述图片内容，包括图片中的文字、图片中的对象、图片中的场景等。输出一份专业的中文markdown报告",
+            'api_key': api_key,
+            'base_url': base_url,
+            'model_name': model,
+            'to_markdown': to_markdown
+        }
+
+        # Create parser CLI instance
+        parser = ParserCLI(verbose=ctx.obj.get('verbose', False))
+
+        if not ctx.obj.get('quiet'):
+            click.echo(f"Starting batch parsing: {input_dir} -> {output_dir}")
+            click.echo(f"Pattern: {pattern}, Recursive: {recursive}, Workers: {max_workers}")
+
+        # Parse files in batch
+        results = parser.parse_batch(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            format=format,
+            pattern=pattern,
+            recursive=recursive,
+            max_workers=max_workers,
+            continue_on_error=True,
+            **parse_options
+        )
+
+        # Summary is already shown by ParserCLI in verbose mode
+        if not ctx.obj.get('verbose') and not ctx.obj.get('quiet'):
+            successful = len([r for r in results if r.get('success', False)])
+            failed = len(results) - successful
+            click.echo(f"\n📊 Batch processing completed!")
+            click.echo(f"   ✅ Successful: {successful}")
+            click.echo(f"   ❌ Failed: {failed}")
+            click.echo(f"   📁 Results saved to: {output_dir}")
+
+    except Exception as e:
+        logger.error(f"Batch parsing failed: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@click.command()
+@click.pass_context
+def list_formats(ctx):
+    """List all supported file formats and their capabilities."""
+    try:
+        parser = ParserCLI()
+        formats = parser.list_supported_formats()
+
+        click.echo("📄 Supported File Formats:")
+        click.echo("=" * 60)
+
+        # Group formats by category
+        categories = {
+            'Documents': ['.pdf', '.docx', '.doc', '.wps', '.epub', '.md'],
+            'Spreadsheets': ['.xlsx', '.xls', '.csv'],
+            'Presentations': ['.pptx', '.ppt'],
+            'Web': ['.html'],
+            'Text': ['.txt'],
+            'Images': ['.jpg', '.jpeg', '.png', '.webp'],
+            'Code': ['.py', '.js', '.java', '.cpp', '.c', '.go', '.rs']
+        }
+
+        for category, extensions in categories.items():
+            click.echo(f"\n🔧 {category}:")
+            for ext in extensions:
+                if ext in formats:
+                    click.echo(f"   {ext:<8} {formats[ext]}")
+
+        click.echo("\n💡 Usage Examples:")
+        click.echo("   datamax parser parse document.pdf")
+        click.echo("   datamax parser parse image.jpg --use-mllm --api-key $OPENAI_API_KEY")
+        click.echo("   datamax parser batch ./docs ./output --use-mineru")
+        click.echo("\n🔗 For advanced options, use:")
+        click.echo("   datamax parser parse --help")
+
+    except Exception as e:
+        logger.error(f"Failed to list formats: {str(e)}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 # Export commands for use in main CLI
 crawler_command = crawler
 arxiv_command = arxiv
 web_command = web
 list_crawlers_command = list_crawlers
+clean_command = clean
+list_cleaners_command = list_cleaners
+qa_command = qa
+multimodal_command = multimodal
+list_generators_command = list_generators
+parse_command = parse
+batch_command = batch
+list_formats_command = list_formats

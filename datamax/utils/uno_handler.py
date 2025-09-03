@@ -8,61 +8,61 @@ from pathlib import Path
 from loguru import logger
 
 
-# delayed import of lock and flag
+# Delayed import flags and lock
 _uno_imported = False
 _import_error = None
 _import_lock = threading.Lock()
 
 
 def _lazy_import_uno():
-    """延迟导入 UNO 模块，避免与其他库冲突（线程安全）"""
+    """Lazy import UNO modules to avoid conflicts with other libraries (thread-safe)"""
     global _uno_imported, _import_error
 
-    # quick check,avoiding unnacessary acquisition of lock
+    # Quick check without acquiring lock if already imported
     if _uno_imported:
         return True
 
     with _import_lock:
-        # double check lock mode
+        # Double-check lock pattern
         if _uno_imported:
             return True
 
         try:
-            # import module relate to UNO
+            # Import UNO-related modules
             global uno, PropertyValue, NoConnectException
             import uno
             from com.sun.star.beans import PropertyValue
             from com.sun.star.connection import NoConnectException
 
             _uno_imported = True
-            logger.info("✅ UNO模块导入成功")
+            logger.info("UNO modules imported successfully")
             return True
         except ImportError as e:
             _import_error = e
-            logger.error(f"❌ UNO模块导入失败: {e!s}")
+            logger.error(f"UNO modules import failed: {e}")
             return False
 
 
 def ensure_uno_imported():
-    """确保UNO已导入，适用于需要提前导入的场景"""
+    """Ensure UNO is imported for scenarios requiring pre-import"""
     if not _lazy_import_uno():
         raise ImportError(
-            f"python-uno未安装或无法导入。错误: {_import_error}\n"
-            "请安装LibreOffice并确保python-uno可用。\n"
+            f"python-uno is not installed or cannot be imported. Error: {_import_error}\n"
+            "Please install LibreOffice and ensure python-uno is available.\n"
             "Ubuntu/Debian: apt-get install libreoffice python3-uno\n"
-            "其他系统请参考: https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
+            "For other systems, refer to: https://wiki.documentfoundation.org/Documentation/DevGuide/Installing_the_SDK"
         )
 
 
-# check if uno is available(not importing immediately）
+# Check if uno is available (without actually importing)
 def check_uno_available():
-    """检查 UNO 是否可用（不会真正导入）"""
+    """Check if UNO is available (without actually importing)"""
     try:
         import importlib.util
 
         spec = importlib.util.find_spec("uno")
         return spec is not None
-    except:
+    except Exception:
         return False
 
 
@@ -71,20 +71,20 @@ HAS_UNO = check_uno_available()
 
 class UnoManager:
     """
-    UNO管理器，用于管理LibreOffice服务实例和文档转换
-    单线程版本，适合稳定高效的文档处理
+    UNO manager for handling LibreOffice service instances and document conversion.
+    Single-threaded version, suitable for stable and efficient document processing.
     """
 
     def __init__(self, host: str = "localhost", port: int = 2002, timeout: int = 30):
         """
-        初始化UNO管理器
+        Initialize UNO manager.
 
         Args:
-            host: LibreOffice服务主机地址
-            port: LibreOffice服务端口
-            timeout: 连接超时时间（秒）
+            host: LibreOffice service host address
+            port: LibreOffice service port
+            timeout: Connection timeout (seconds)
         """
-        # Ensure that UNO has been imported (in a thread-safe manner)
+        # Ensure UNO has been imported (in a thread-safe manner)
         ensure_uno_imported()
 
         self.host = host
@@ -98,18 +98,18 @@ class UnoManager:
         self._ctx = None
         self._soffice_process = None
         self._connected = False
-        logger.info(f"🚀 UnoManager初始化 - 主机: {host}, 端口: {port} (单线程模式)")
+        logger.info(f"UnoManager initialized - Host: {host}, Port: {port} (single-threaded mode)")
 
     def _start_soffice_service(self):
-        """启动LibreOffice服务"""
-        logger.info(f"🌟 启动LibreOffice服务，监听端口 {self.port}...")
+        """Start LibreOffice service"""
+        logger.info(f"Starting LibreOffice service on port {self.port}...")
 
-        # check if soffice running
+        # Check if soffice is already running
         if self._check_soffice_running():
-            logger.info("✅ LibreOffice服务已在运行")
+            logger.info("LibreOffice service is already running")
             return
 
-        # new a soffice
+        # Start soffice process
         cmd = [
             "soffice",
             "--headless",
@@ -126,33 +126,33 @@ class UnoManager:
             self._soffice_process = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            logger.info("⏳ 等待LibreOffice服务启动...")
+            logger.info("Waiting for LibreOffice service to start...")
 
-            # Intelligent waiting: Polling to check service status, providing flexible time for machines of different performance levels.
+            # Intelligent waiting: Poll service status for flexibility across different machine performance levels
             start_time = time.time()
-            check_interval = 1  # checking every sec
-            max_wait_time = 30  # wait for max 30 sec
+            check_interval = 1  # check every second
+            max_wait_time = 30  # maximum wait time in seconds
 
             while time.time() - start_time < max_wait_time:
                 if self._check_soffice_running():
                     elapsed = time.time() - start_time
-                    logger.info(f"✅ LibreOffice服务启动成功 (耗时 {elapsed:.1f}秒)")
+                    logger.info(f"LibreOffice service started successfully ({elapsed:.1f}s)")
                     return
 
                 logger.debug(
-                    f"🔄 服务未就绪，继续等待... (已等待 {time.time() - start_time:.1f}秒)"
+                    f"Service not ready, waiting... ({time.time() - start_time:.1f}s elapsed)"
                 )
                 time.sleep(check_interval)
 
-            # overtime
-            raise Exception(f"LibreOffice服务启动超时 (等待了{max_wait_time}秒)")
+            # Timeout
+            raise Exception(f"LibreOffice service startup timed out (waited {max_wait_time}s)")
 
         except Exception as e:
-            logger.error(f"❌ 启动LibreOffice服务失败: {e!s}")
+            logger.error(f"Failed to start LibreOffice service: {e}")
             raise
 
     def _check_soffice_running(self) -> bool:
-        """检查LibreOffice服务是否在运行"""
+        """Check if LibreOffice service is running"""
         try:
             import socket
 
@@ -160,94 +160,94 @@ class UnoManager:
             result = sock.connect_ex((self.host, self.port))
             sock.close()
             return result == 0
-        except:
+        except Exception:
             return False
 
     def is_connected(self) -> bool:
-        """检查是否已连接"""
+        """Check if already connected"""
         with self._lock:
             return self._connected and self._desktop is not None
 
     def connect(self):
-        """连接到LibreOffice服务"""
+        """Connect to LibreOffice service"""
         with self._lock:
             if self._connected and self._desktop is not None:
-                return  # connected
+                return  # already connected
 
             self._start_soffice_service()
 
-            logger.info("🔌 连接到LibreOffice服务...")
+            logger.info("Connecting to LibreOffice service...")
             start_time = time.time()
 
             while time.time() - start_time < self.timeout:
                 try:
-                    # get context
+                    # Get component context
                     local_ctx = uno.getComponentContext()
                     resolver = local_ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.bridge.UnoUrlResolver", local_ctx
                     )
 
-                    # connect to LibreOffice
+                    # Connect to LibreOffice
                     self._ctx = resolver.resolve(f"uno:{self.connection_string}")
                     self._desktop = self._ctx.ServiceManager.createInstanceWithContext(
                         "com.sun.star.frame.Desktop", self._ctx
                     )
 
                     self._connected = True
-                    logger.info("✅ 成功连接到LibreOffice服务")
+                    logger.info("Successfully connected to LibreOffice service")
                     return
 
                 except NoConnectException:
-                    logger.debug("⏳ 等待LibreOffice服务就绪...")
+                    logger.debug("Waiting for LibreOffice service to be ready...")
                     time.sleep(1)
                 except Exception as e:
-                    logger.error(f"❌ 连接失败: {e!s}")
+                    logger.error(f"Connection failed: {e}")
                     time.sleep(1)
 
-            raise TimeoutError(f"连接LibreOffice服务超时（{self.timeout}秒）")
+            raise TimeoutError(f"Connection to LibreOffice service timed out ({self.timeout}s)")
 
     def disconnect(self):
-        """断开与LibreOffice服务的连接"""
+        """Disconnect from LibreOffice service"""
         with self._lock:
             if self._desktop is not None:
                 try:
                     self._desktop.terminate()
-                except:
+                except Exception:
                     pass
                 self._desktop = None
                 self._ctx = None
                 self._connected = False
-                logger.info("🔌 已断开LibreOffice服务连接")
+                logger.info("Disconnected from LibreOffice service")
 
     def stop_service(self):
-        """停止LibreOffice服务"""
+        """Stop LibreOffice service"""
         self.disconnect()
         if self._soffice_process:
             try:
                 self._soffice_process.terminate()
                 self._soffice_process.wait(timeout=10)
-            except:
+            except Exception:
                 self._soffice_process.kill()
             self._soffice_process = None
-            logger.info("🛑 LibreOffice服务已停止")
+            logger.info("LibreOffice service stopped")
 
     @contextmanager
     def get_document(self, file_path: str):
         """
-        获取文档对象的上下文管理器
+        Context manager for document object.
 
         Args:
-            file_path: 文档路径
+            file_path: Path to the document
 
         Yields:
-            文档对象
+            Document object
         """
         self.connect()
 
-        # converse path to URL
+        # Convert path to URL
         file_url = uno.systemPathToFileUrl(os.path.abspath(file_path))
 
-        # open file
+        # Open file
         properties = []
         properties.append(self._make_property("Hidden", True))
         properties.append(self._make_property("ReadOnly", True))
@@ -257,14 +257,14 @@ class UnoManager:
             document = self._desktop.loadComponentFromURL(
                 file_url, "_blank", 0, properties
             )
-            logger.debug(f"📄 打开文档: {file_path}")
+            logger.debug(f"Document opened: {file_path}")
             yield document
         finally:
             if document:
                 try:
                     document.dispose()
-                    logger.debug(f"📄 关闭文档: {file_path}")
-                except:
+                    logger.debug(f"Document closed: {file_path}")
+                except Exception:
                     pass
 
     def convert_document(
@@ -275,35 +275,40 @@ class UnoManager:
         filter_name: str | None = None,
     ):
         """
-        转换文档格式
+        Convert document format.
 
         Args:
-            input_path: 输入文件路径
-            output_path: 输出文件路径
-            output_format: 输出格式（如'txt', 'pdf', 'docx'等）
-            filter_name: 过滤器名称（可选）
+            input_path: Input file path
+            output_path: Output file path
+            output_format: Output format (e.g., 'txt', 'pdf', 'docx', etc.)
+            filter_name: Filter name (optional)
         """
-        logger.info(f"🔄 开始转换文档: {input_path} -> {output_path} ({output_format})")
+        logger.info(f"Converting document: {input_path} -> {output_path} ({output_format})")
 
         with self.get_document(input_path) as document:
             if document is None:
-                raise Exception(f"无法打开文档: {input_path}")
+                raise Exception(f"Unable to open document: {input_path}")
 
-            # prepare to output properties
+            # Prepare output properties
             properties = []
 
-            # set filter
+            # Set filter
             if filter_name:
                 properties.append(self._make_property("FilterName", filter_name))
             else:
-                # choose filter by format
+                # Select filter by format
                 if output_format == "txt":
-                    # multi-filter for multi-files
+                    # Multiple filters for different text formats
                     filter_options = [
                         ("Text (encoded)", "UTF8"),
                         ("Text", None),
                         ("HTML (StarWriter)", None),
                     ]
+
+                    # Ensure output directory exists before trying filters
+                    output_dir = os.path.dirname(output_path)
+                    if output_dir and not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
 
                     success = False
                     for filter_name, filter_option in filter_options:
@@ -317,35 +322,30 @@ class UnoManager:
                                     self._make_property("FilterOptions", filter_option)
                                 )
 
-                            # ensuring that the output directory exists.
-                            output_dir = os.path.dirname(output_path)
-                            if output_dir and not os.path.exists(output_dir):
-                                os.makedirs(output_dir)
-
-                            # converse to URL
+                            # Convert to URL
                             output_url = uno.systemPathToFileUrl(
                                 os.path.abspath(output_path)
                             )
 
-                            # conversing
+                            # Convert document
                             document.storeToURL(output_url, properties)
                             logger.info(
-                                f"✅ 文档转换成功 (使用过滤器: {filter_name}): {output_path}"
+                                f"Document conversion successful (using filter: {filter_name}): {output_path}"
                             )
                             success = True
                             break
                         except Exception as e:
-                            logger.debug(f"🔄 过滤器 {filter_name} 失败: {e!s}")
+                            logger.debug(f"Filter {filter_name} failed: {e}")
                             continue
 
                     if not success:
                         raise Exception(
-                            f"所有文本过滤器都失败，无法转换文档: {input_path}"
+                            f"All text filters failed, unable to convert document: {input_path}"
                         )
 
-                    return  # converted,return
+                    return  # Conversion complete
                 else:
-                    # Other formats use the default filter
+                    # Other formats use default filters
                     filter_map = {
                         "pdf": "writer_pdf_Export",
                         "docx": "MS Word 2007 XML",
@@ -357,61 +357,61 @@ class UnoManager:
                             self._make_property("FilterName", filter_map[output_format])
                         )
 
-            # ensuring that the output directory exists
+            # Ensure output directory exists
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir)
 
-            # converse to URL
+            # Convert to URL
             output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
 
-            # conversing
+            # Convert document
             document.storeToURL(output_url, properties)
-            logger.info(f"✅ 文档转换成功: {output_path}")
+            logger.info(f"Document conversion successful: {output_path}")
 
     def _make_property(self, name: str, value):
-        """创建属性对象"""
+        """Create a property object"""
         prop = PropertyValue()
         prop.Name = name
         prop.Value = value
         return prop
 
 
-# global Singleton UnoManager
+# Global singleton UnoManager
 _global_uno_manager: UnoManager | None = None
 _manager_lock = threading.Lock()
 
 
 def get_uno_manager() -> UnoManager:
-    """获取全局单例UNO管理器"""
+    """Get global singleton UNO manager"""
     global _global_uno_manager
 
     if _global_uno_manager is None:
         with _manager_lock:
             if _global_uno_manager is None:
                 _global_uno_manager = UnoManager()
-                logger.info("🎯 创建全局单例UnoManager (单线程模式)")
+                logger.info("Global singleton UnoManager created (single-threaded mode)")
 
     return _global_uno_manager
 
 
 def cleanup_uno_manager():
-    """清理全局UNO管理器"""
+    """Clean up global UNO manager"""
     global _global_uno_manager
 
     with _manager_lock:
         if _global_uno_manager is not None:
             try:
                 _global_uno_manager.stop_service()
-            except:
+            except Exception:
                 pass
             _global_uno_manager = None
-            logger.info("🧹 清理全局UnoManager")
+            logger.info("Global UnoManager cleaned up")
 
 
 @contextmanager
 def uno_manager_context():
-    """UNO管理器上下文管理器，自动获取和管理"""
+    """UNO manager context manager, auto acquires and manages"""
     manager = get_uno_manager()
     try:
         yield manager
@@ -424,15 +424,15 @@ def convert_with_uno(
     input_path: str, output_format: str, output_dir: str | None = None
 ) -> str:
     """
-    使用UNO转换文档格式（便捷函数）
+    Convert document format using UNO (convenience function).
 
     Args:
-        input_path: 输入文件路径
-        output_format: 输出格式
-        output_dir: 输出目录（可选，默认为输入文件所在目录）
+        input_path: Input file path
+        output_format: Output format
+        output_dir: Output directory (optional, defaults to input file directory)
 
     Returns:
-        输出文件路径
+        Output file path
     """
     input_path = Path(input_path)
 

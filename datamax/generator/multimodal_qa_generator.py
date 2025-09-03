@@ -1,13 +1,15 @@
-# datamax/utils/multimodal_qa_generator.py
+# datamax/generator/multimodal_qa_generator.py
 
+import base64
 import json
+import mimetypes
 import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 
-import dashscope
+from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from tqdm import tqdm
@@ -15,6 +17,15 @@ from tqdm import tqdm
 lock = threading.Lock()
 
 from .prompt_templates import get_instruction_prompt
+
+
+def encode_image_to_base64(image_path: str) -> str:
+    """
+    Encode an image file to base64 string.
+    """
+    with open(image_path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode('utf-8')
+    return encoded
 
 
 def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_overlap: int) -> List[Dict[str, Any]]:
@@ -84,7 +95,7 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
         return []
 
 
-def generate_multimodal_qa_with_dashscope(
+def generate_multimodal_qa_with_openai(
     api_key: str,
     model: str,
     instruction_prompt: str,
@@ -93,69 +104,54 @@ def generate_multimodal_qa_with_dashscope(
     temperature: float = 0.7,
 ) -> List[Dict[str, str]]:
     """
-    Generate content and parse JSON output using the DashScope multimodal dialogue API
+    Generate content and parse JSON output using the OpenAI multimodal dialogue API
     """
     try:
-        dashscope.api_key = api_key
-        
+        client = OpenAI(api_key=api_key)
+
         user_content = []
         for path in image_paths:
-            local_file_path = f'file://{os.path.abspath(path)}'
-            user_content.append({'image': local_file_path})
-        
-        user_content.append({'text': f"这是你需要处理的上下文文本：\n\n---\n{context_text}\n---"})
-        
+            base64_image = encode_image_to_base64(path)
+            mime_type, _ = mimetypes.guess_type(path)
+            if mime_type is None:
+                mime_type = "image/jpeg"  # default
+            image_url = f"data:{mime_type};base64,{base64_image}"
+            user_content.append({"type": "image_url", "image_url": {"url": image_url}})
+
+        user_content.append({"type": "text", "text": f"This is the context text you need to process:\n\n---\n{context_text}\n---"})
+
         messages = [
-            {'role': 'system', 'content': [{'text': instruction_prompt}]},
-            {'role': 'user', 'content': user_content}
+            {"role": "system", "content": instruction_prompt},
+            {"role": "user", "content": user_content}
         ]
-        
-        response = dashscope.MultiModalConversation.call(
+
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
-            result_format="message",
-            temperature=temperature
+            temperature=temperature,
+            stream=False,
         )
 
-        if response.status_code == 200:
-            output_content = response.output.choices[0].get('message', {}).get('content')
+        text_content = response.choices[0].message.content
 
-            # Check if returned content is a list or string
-            if isinstance(output_content, list) and output_content:
-                # If it's a list, extract the 'text' content from the first element
-                text_content = output_content[0].get('text')
-            elif isinstance(output_content, str):
-                # If it's a string, use directly
-                text_content = output_content
-            else:
-                # Other unexpected cases, log error and return empty
-                logger.error(f"Unrecognized API return content format: {type(output_content)}: {output_content}")
-                return []
+        if not text_content:
+            logger.error("Failed to extract valid text from API return content.")
+            return []
 
-            if not text_content:
-                logger.error("Failed to extract valid text from API return content.")
-
-                return []
-
-            json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                json_str = text_content
-
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-
-                logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
-                return []
+        json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
         else:
-            logger.error(f"DashScope API call failed: Code: {response.status_code}, Message: {response.message}")
+            json_str = text_content
+
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
             return []
 
     except Exception as e:
         logger.error(f"Exception occurred during LLM API call: {e}")
-
         import traceback
         traceback.print_exc()
         return []
@@ -212,7 +208,7 @@ def generatr_qa_pairs(
         if debug:
             logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
         
-        generated_dialogs = generate_multimodal_qa_with_dashscope(
+        generated_dialogs = generate_multimodal_qa_with_openai(
             api_key=api_key,
             model=model_name,
             instruction_prompt=instruction_prompt,
@@ -253,9 +249,9 @@ def generatr_qa_pairs(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
 
-        # 在debug模式下禁用tqdm进度条以避免与日志输出冲突
+        # Disable tqdm progress bar in debug mode to avoid conflict with log output
         if debug:
-            # debug模式下不使用进度条，直接处理futures
+            # Do not use progress bar in debug mode, process futures directly
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
@@ -265,7 +261,7 @@ def generatr_qa_pairs(
                 else:
                     logger.debug(f"Processed chunk {i}/{len(futures)}: Future returned empty result")
         else:
-            # 非debug模式下使用进度条
+            # Use progress bar in non-debug mode
             with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
                 for future in pbar:
                     result = future.result()

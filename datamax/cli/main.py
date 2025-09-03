@@ -17,7 +17,15 @@ from datamax.cli.commands import (
     crawler_command,
     arxiv_command,
     web_command,
-    list_crawlers_command
+    list_crawlers_command,
+    clean_command,
+    list_cleaners_command,
+    qa_command,
+    multimodal_command,
+    list_generators_command,
+    parse_command,
+    batch_command,
+    list_formats_command
 )
 from datamax.utils.lifecycle_types import LifeType
 
@@ -51,83 +59,7 @@ def cli(ctx, verbose, quiet):
     ctx.obj['quiet'] = quiet
 
 
-@cli.command()
-@click.option('--input', '-i', required=True, help='Input file or directory path')
-@click.option('--output', '-o', help='Output directory (default: ./output)')
-@click.option('--domain', '-d', default='Technology', help='Domain category')
-@click.option('--format', '-f', type=click.Choice(['markdown', 'json', 'yaml']), 
-              default='markdown', help='Output format')
-@click.pass_context
-def parse(ctx, input, output, domain, format):
-    """Parse data files using DataMax parser.
-    
-    Parse various data formats including crawler data, documents, and more.
-    """
-    try:
-        from datamax.parser import DataMax, CrawlerParser
-        
-        input_path = Path(input)
-        if not input_path.exists():
-            click.echo(f"Error: Input path '{input}' does not exist.", err=True)
-            sys.exit(1)
-        
-        output_dir = Path(output) if output else Path('./output')
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        if not ctx.obj.get('quiet'):
-            click.echo(f"Parsing {input_path} with domain '{domain}'...")
-        
-        # Determine parser type based on file content or extension
-        if input_path.suffix.lower() == '.json':
-            # Try to detect if it's crawler data
-            try:
-                import json
-                with open(input_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                if any(key in data for key in ['type', 'source', 'target', 'crawled_at']):
-                    # Use crawler parser
-                    parser = CrawlerParser(str(input_path), domain=domain)
-                    result = parser.parse()
-                    
-                    output_file = output_dir / f"{input_path.stem}_parsed.md"
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        f.write(result.content)
-                    
-                    if not ctx.obj.get('quiet'):
-                        click.echo(f"Crawler data parsed successfully: {output_file}")
-                    return
-            except Exception:
-                pass
-        
-        # Use default DataMax parser
-        datamax = DataMax(str(input_path), domain=domain)
-        result = datamax.parse()
-        
-        # Save result
-        if format == 'markdown':
-            output_file = output_dir / f"{input_path.stem}_parsed.md"
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(result.content)
-        elif format == 'json':
-            output_file = output_dir / f"{input_path.stem}_parsed.json"
-            import json
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'content': result.content,
-                    'extension': result.extension,
-                    'lifecycle': [lc.__dict__ for lc in result.lifecycle]
-                }, f, indent=2, ensure_ascii=False)
-        
-        if not ctx.obj.get('quiet'):
-            click.echo(f"Parsing completed successfully: {output_file}")
-            
-    except Exception as e:
-        logger.error(f"Parsing failed: {str(e)}")
-        if ctx.obj.get('verbose'):
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+
 
 
 @cli.command()
@@ -173,11 +105,11 @@ def status(ctx):
             click.echo("✅ Parser module: Available")
         except ImportError as e:
             click.echo(f"❌ Parser module: Error - {e}")
-        
+
         try:
             from datamax.crawler import CrawlerFactory, ArxivCrawler, WebCrawler
             click.echo("✅ Crawler module: Available")
-            
+
             # Show registered crawlers
             factory = CrawlerFactory()
             crawlers = factory.list_crawlers()
@@ -185,6 +117,15 @@ def status(ctx):
                 click.echo(f"   Registered crawlers: {', '.join(crawlers)}")
         except ImportError as e:
             click.echo(f"❌ Crawler module: Error - {e}")
+
+        try:
+            from datamax.cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
+            click.echo("✅ Cleaner module: Available")
+            click.echo("   - Abnormal text cleaning")
+            click.echo("   - Content quality filtering")
+            click.echo("   - Privacy data desensitization")
+        except ImportError as e:
+            click.echo(f"❌ Cleaner module: Error - {e}")
         
         # Show lifecycle types
         click.echo("\nAvailable Lifecycle Types:")
@@ -192,7 +133,29 @@ def status(ctx):
             click.echo(f"  - {life_type.value}")
         
         click.echo("\n✅ DataMax is ready to use!")
-        
+
+        # Check generator components
+        try:
+            from datamax.cli.generator_cli import GeneratorCLI
+            click.echo("✅ Generator module: Available")
+            generator_cli = GeneratorCLI()
+            generators = generator_cli.list_generators()
+            if generators:
+                click.echo(f"   Available generators: {', '.join(generators.keys())}")
+        except ImportError as e:
+            click.echo(f"❌ Generator module: Error - {e}")
+
+        # Check parser CLI components
+        try:
+            from datamax.cli.parser_cli import ParserCLI
+            click.echo("✅ Parser CLI: Available")
+            parser_cli = ParserCLI()
+            formats = parser_cli.list_supported_formats()
+            if formats:
+                click.echo(f"   Supported formats: {len(formats)} file types")
+        except ImportError as e:
+            click.echo(f"❌ Parser CLI: Error - {e}")
+
     except Exception as e:
         logger.error(f"Status check failed: {str(e)}")
         if ctx.obj.get('verbose'):
@@ -201,11 +164,45 @@ def status(ctx):
         sys.exit(1)
 
 
+# Generator command group
+@cli.group()
+def generator():
+    """Generator commands for QA pair generation."""
+    pass
+
+
+# Parser command group
+@cli.group()
+def parser():
+    """Parser commands for document parsing and conversion."""
+    pass
+
+
+# Add generator subcommands
+generator.add_command(qa_command, name='qa')
+generator.add_command(multimodal_command, name='multimodal')
+generator.add_command(list_generators_command, name='list')
+
+# Add parser subcommands
+parser.add_command(parse_command, name='parse')
+parser.add_command(batch_command, name='batch')
+parser.add_command(list_formats_command, name='list-formats')
+
 # Add crawler commands
 cli.add_command(crawler_command)
 cli.add_command(arxiv_command)
 cli.add_command(web_command)
 cli.add_command(list_crawlers_command)
+
+# Add cleaning command
+cli.add_command(clean_command)
+cli.add_command(list_cleaners_command)
+
+# Add generator command group
+cli.add_command(generator)
+
+# Add parser command group
+cli.add_command(parser)
 
 
 def main():

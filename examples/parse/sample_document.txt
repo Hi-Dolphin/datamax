@@ -1,0 +1,65 @@
+# DataMax Parser Example Document
+
+## Overview
+
+This is a sample document for testing DataMax parser functionality. The parser supports various file formats including PDF, DOCX, images, and more.
+
+## Features Demonstrated
+
+### Text Parsing
+- Plain text extraction from documents
+- Format preservation
+- Character encoding handling
+
+### Image Processing
+- OCR (Optical Character Recognition)
+- Vision model integration
+- Multi-modal content analysis
+
+### Advanced Options
+- MinerU for enhanced PDF parsing
+- Qwen-VL OCR for better text recognition
+- MLLM (Multi-modal Large Language Models) for image understanding
+
+## Usage Examples
+
+### Basic Parsing
+```
+datamax parser parse document.pdf
+```
+
+### With Advanced Options
+```
+datamax parser parse document.pdf --use-mineru --use-mllm
+```
+
+### Batch Processing
+```
+datamax parser batch ./documents ./output --recursive
+```
+
+## Supported Formats
+
+1. **Documents**: PDF, DOCX, DOC, WPS, EPUB
+2. **Spreadsheets**: XLSX, XLS, CSV
+3. **Presentations**: PPTX, PPT
+4. **Web Content**: HTML
+5. **Text Files**: TXT
+6. **Images**: JPG, PNG, WebP
+7. **Code Files**: PY, JS, JAVA, CPP, etc.
+
+## API Integration
+
+For advanced features like image analysis, you can integrate with external APIs:
+
+- OpenAI Vision API for image understanding
+- Custom OCR services
+- Cloud-based parsing services
+
+## Output Formats
+
+- **Markdown**: Preserves document structure
+- **JSON**: Structured data representation
+- **Text**: Plain text extraction
+
+This document serves as a comprehensive test case for DataMax parser capabilities.

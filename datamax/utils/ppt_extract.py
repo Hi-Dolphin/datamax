@@ -12,7 +12,6 @@ from pptx.shapes.group import GroupShape
 from pptx.shapes.picture import Picture
 from pptx.slide import Slide
 from pptx.table import Table, _Cell, _Row
-from werkzeug.datastructures import FileStorage
 
 
 class PPtExtractor:
@@ -108,14 +107,14 @@ class PPtExtractor:
 
     def extract(
         self,
-        presentation_source: FileStorage | Path,
+        presentation_source: Path,
         id: str,
         dir: Path,
         media_dir: Path,
         skip_image: bool,
     ):
-        if not isinstance(presentation_source, (FileStorage, Path)):
-            raise ValueError("presentation_source must be a FileStorage or Path object")
+        if not isinstance(presentation_source, Path):
+            raise ValueError("presentation_source must be a Path object")
         if not isinstance(id, str):
             raise ValueError("id must be a string")
         if not isinstance(dir, Path):

@@ -17,7 +17,6 @@ serp*.json
 build
 build/*
 pipeline_output
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -241,3 +240,4 @@ DEPLOYMENT_GUIDE.md
 *.txt
 *.csv
 
+!sample_document.txt

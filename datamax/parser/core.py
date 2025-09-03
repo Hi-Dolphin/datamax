@@ -12,7 +12,7 @@ from openai import OpenAI
 import datamax.generator.qa_generator as qa_generator
 
 from datamax.parser.base import BaseLife
-from datamax.utils import data_cleaner
+from datamax.cleaner import data_cleaner
 from datamax.utils.lifecycle_types import LifeType
 
 

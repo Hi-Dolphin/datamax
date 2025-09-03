@@ -43,19 +43,7 @@ def complete_api_url(base_url: str) -> str:
     return url
 
 
-# ------------prompt functions imported from prompt_templates-----------------
 
-
-# get_system_prompt_for_domain_tree function has been moved to prompt_templates.py
-
-
-# get_system_prompt_for_question function has been moved to prompt_templates.py
-
-
-# get_system_prompt_for_answer function has been moved to prompt_templates.py
-
-
-# ------------spliter----------------
 def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -> list:
     """
     Parse Markdown using UnstructuredMarkdownLoader
