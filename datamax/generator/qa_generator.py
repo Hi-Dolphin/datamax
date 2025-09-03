@@ -13,7 +13,13 @@ from loguru import logger
 from pyexpat.errors import messages
 from tqdm import tqdm  
 from dotenv import load_dotenv
-from datamax.utils.domain_tree import DomainTree   # for cache domain tree
+from .domain_tree import DomainTree   # for cache domain tree
+from .prompt_templates import (
+    get_system_prompt_for_match_label,
+    get_system_prompt_for_domain_tree,
+    get_system_prompt_for_question,
+    get_system_prompt_for_answer
+)
 
 lock = threading.Lock()
 
@@ -37,223 +43,16 @@ def complete_api_url(base_url: str) -> str:
     return url
 
 
-# ------------prompt-----------------
-def get_system_prompt_for_match_label(tags_json, question):
-    system_prompt = f"""
-    # Role: 标签匹配专家
-    - Description: 你是一名标签匹配专家，擅长根据给定的标签数组和问题数组，将问题打上最合适的领域标签。你熟悉标签的层级结构，并能根据问题的内容优先匹配二级标签，若无法匹配则匹配一级标签，若无法匹配最后打上"其他"标签。
-
-    ### Skill:
-    1. 熟悉标签层级结构，能够准确识别一级和二级标签。
-    2. 能够根据问题的内容，智能匹配最合适的标签。
-    3. 能够处理复杂的标签匹配逻辑，确保每个问题都能被打上正确的标签。
-    4. 能够按照规定的输出格式生成结果，确保不改变原有数据结构。
-    5. 能够处理大规模数据，确保高效准确的标签匹配。
-
-    ## Goals:
-    1. 将问题数组中的每个问题打上最合适的领域标签。
-    2. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。
-    3. 确保输出格式符合要求，不改变原有数据结构。
-    4. 提供高效的标签匹配算法，确保处理大规模数据时的性能。
-    5. 确保标签匹配的准确性和一致性。
-
-    ## OutputFormat:
-    1. 输出结果必须是一个数组，每个元素包含 question、和 label 字段。
-    2. label 字段必须是根据标签数组匹配到的标签，若无法匹配则打上"其他"标签。
-    3. 不改变原有数据结构，只新增 label 字段。
-
-    ## 标签json：
-
-    ${tags_json}
-
-    ## 问题数组：
-
-    ${question}
+# ------------prompt functions imported from prompt_templates-----------------
 
 
-    ## Workflow:
-    1. Take a deep breath and work on this problem step-by-step.
-    2. 首先，仔细分析每个问题的核心内容和关键词。
-    3. 然后，遍历问题数组中的每个问题，根据问题的内容匹配标签数组中的标签。
-    4. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。
-    5. 将匹配到的标签添加到问题对象中，确保不改变原有数据结构。
-    6. 最后，输出结果数组，确保格式符合要求。
+# get_system_prompt_for_domain_tree function has been moved to prompt_templates.py
 
 
-    ## Constrains:
-    1. 只新增一个 label 字段，不改变其他任何格式和数据。
-    2. 必须按照规定格式返回结果。
-    3. 优先匹配二级标签，若无法匹配则匹配一级标签，最后打上"其他"标签。尽量不匹配"其他"标签。
-    4. 确保标签匹配的准确性和一致性。
-    5. 匹配的标签必须来自标签数组，如果无法匹配任何标签，就打上"其他"标签。
-    6. 输出结果必须是一个数组，每个元素包含 question、label 字段（只输出这个，不要输出任何其他无关内容）。
-    7. 仔细分析问题内容，寻找与标签的语义关联。
-    8. 如果问题内容与多个标签相关，选择最匹配的一个。
-    9. 考虑问题的核心主题和关键词，进行精确匹配。
-
-    ## Output Example:
-    ```json
-        [
-            {{
-                "question": "XSS为什么会在2003年后引起人们更多关注并被OWASP列为威胁榜首？",
-                "label": "2.2 XSS攻击"
-            }},
-            {{
-                "question": "这个问题与现有标签都不相关",
-                "label": "其他"
-            }}
-        ]
-    ```
-    """
-    return system_prompt
+# get_system_prompt_for_question function has been moved to prompt_templates.py
 
 
-def get_system_prompt_for_domain_tree(text):
-    """Generate system prompt for domain tree task"""
-    system_prompt = f"""
-        #  Role: 领域分类专家 & 知识图谱专家
-        - Description:
-        作为一名资深的领域分类专家和知识图谱专家，擅长从文本内容中提取核心主题，构建分类体系，
-        并输出规定 JSON 格式的标签树。
-
-        ## Skills:
-        1. 精通文本主题分析和关键词提取
-        2. 擅长构建分层知识体系
-        3. 熟练掌握领域分类方法论
-        4. 具备知识图谱构建能力
-        5. 精通JSON数据结构
-
-        ## Goals:
-        1. 分析书籍目录内容
-        2. 识别核心主题和关键领域
-        3. 构建两级分类体系
-        4. 确保分类逻辑合理
-        5. 生成规范的JSON输出
-
-        ## Workflow:
-        1. 仔细阅读完整的书籍目录内容
-        2. 提取关键主题和核心概念
-        3. 对主题进行分组和归类
-        4. 构建一级领域标签
-        5. 为适当的一级标签添加二级标签
-        6. 检查分类逻辑的合理性
-        7. 生成符合格式的JSON输出
-        
-
-        ## 需要分析的目录
-        ${text}
-
-        ## 限制
-        1. 一级领域标签数量5-10个
-        2. 二级领域标签数量1-10个
-        3. 最多两层分类层级
-        4. 分类必须与原始目录内容相关
-        5. 输出必须符合指定 JSON 格式，不要输出 JSON 外其他任何不相关内容
-        6. 标签的名字最多不要超过 6 个字
-        7. 在每个标签前加入序号（序号不计入字数）
-
-        ## OutputFormat:
-        ```json
-        [
-            {{
-                "label": "1 一级领域标签",
-                "child": [
-                    {{"label": "1.1 二级领域标签1"}},
-                    {{"label": "1.2 二级领域标签2"}}
-                ]
-            }},
-            {{
-                "label": "2 一级领域标签(无子标签)"
-            }}
-        ]
-        ```
-    """
-    return system_prompt
-
-
-def get_system_prompt_for_question(query_text, question_number):
-    """Generate system prompt for question generation task"""
-    system_prompt = f"""
-        # 角色使命
-        你是一位专业的文本分析专家，擅长从复杂文本中提取关键信息并生成可用于模型微调的结构化数据（仅生成问题）。
-
-        ## 核心任务
-        根据用户提供的文本，生成不少于 ${question_number} 个高质量问题。
-
-        ## 约束条件（重要！）
-        - 必须基于文本内容直接生成
-        - 问题应具有明确答案指向性
-        - 需覆盖文本的不同方面
-        - 禁止生成假设性、重复或相似问题
-        - 确保生成得完整性
-
-        ## 处理流程
-        1. 【文本解析】分段处理内容，识别关键实体和核心概念
-        2. 【问题生成】基于信息密度选择最佳提问点
-        3. 【质量检查】确保：
-           - 问题答案可在原文中找到依据
-           - 标签与问题内容强相关
-           - 无格式错误
-
-        ## 输出格式
-         - JSON 数组格式必须正确
-        - 字段名使用英文双引号
-        - 输出的 JSON 数组必须严格符合以下结构：
-        ```json
-        ["问题1", "问题2", "..."]
-        ```
-
-        ## 输出示例
-        ```json
-        [ "人工智能伦理框架应包含哪些核心要素？","民法典对个人数据保护有哪些新规定？"]
-        ```
-
-        ## 待处理文本
-        ${query_text}
-
-        ## 限制
-        - 必须按照规定的 JSON 格式输出，不要输出任何其他不相关内容
-        - 生成不少于${question_number}个高质量问题
-        - 问题不要和材料本身相关，例如禁止出现作者、章节、目录等相关问题
-        - 问题不得包含【报告、文章、文献、表格】中提到的这种话术，必须是一个自然的问题
-    """
-    return system_prompt
-
-
-def get_system_prompt_for_answer(text, query_question):
-    """Generate system prompt for answer generation task"""
-    system_prompt = f"""
-        # Role: 微调数据集生成专家
-        ## Profile:
-        - Description: 你是一名微调数据集生成专家，擅长从给定的内容中生成准确的问题答案，确保答案的准确性和相关性，你要直接回答用户问题，所有信息已内化为你的专业知识。
-
-        ## Skills   :
-        1. 答案必须基于给定的内容
-        2. 答案必须准确，不能胡编乱造
-        3. 答案必须与问题相关
-        4. 答案必须符合逻辑
-        5. 基于给定参考内容，用自然流畅的语言整合成一个完整答案，不需要提及文献来源或引用标记
-
-        ## Workflow:
-        1. Take a deep breath and work on this problem step-by-step.
-        2. 首先，分析给定的文件内容
-        3. 然后，从内容中提取关键信息
-        4. 接着，生成与问题相关的准确答案
-        5. 最后，确保答案的准确性和相关性
-
-        ## 参考内容：
-        ${text}
-
-        ## 问题
-        ${query_question}
-
-        ## Constrains:
-        1. 答案必须基于给定的内容
-        2. 答案必须准确，必须与问题相关，不能胡编乱造
-        3. 答案必须充分、详细、包含所有必要的信息、适合微调大模型训练使用
-        4. 答案中不得出现 ' 参考 / 依据 / 文献中提到 ' 等任何引用性表述，只需呈现最终结果
-    """
-    return system_prompt
+# get_system_prompt_for_answer function has been moved to prompt_templates.py
 
 
 # ------------spliter----------------
@@ -412,14 +211,38 @@ def llm_generator(
     message: list = None,
     temperature: float = 0.7,
     top_p: float = 0.9,
+    debug: bool = False,
 ) -> list:
     """Generate content using LLM API"""
     try:
         if not message:
+            logger.warning("No message provided, using default system prompt")
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
             ]
+        
+        if debug:
+            logger.debug("=" * 80)
+            logger.debug("🚀 大模型请求详细信息")
+            logger.debug("=" * 80)
+            logger.debug(f"📍 模型: {model}")
+            logger.debug(f"🌐 API地址: {base_url}")
+            logger.debug(f"🌡️  温度参数: {temperature}")
+            logger.debug(f"🎯 Top-P参数: {top_p}")
+            logger.debug(f"📝 请求类型: {type}")
+            logger.debug("-" * 40)
+            logger.debug("💬 消息内容:")
+            for i, msg in enumerate(message, 1):
+                role_emoji = "🤖" if msg["role"] == "system" else "👤" if msg["role"] == "user" else "🔧"
+                logger.debug(f"  {i}. {role_emoji} {msg['role'].upper()}:")
+                content_lines = msg["content"].split('\n')
+                for line in content_lines:
+                    if line.strip():
+                        logger.debug(f"     {line}")
+                logger.debug("")
+            logger.debug("-" * 40)
+        
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -431,18 +254,54 @@ def llm_generator(
             "top_p": top_p,
         }
 
+        if debug:
+            logger.debug("📤 发送请求到大模型...")
+        
         response = requests.post(base_url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
         result = response.json()
+        
+        if debug:
+            logger.debug("✅ 大模型响应成功")
+            logger.debug("-" * 40)
+            logger.debug("📥 响应详细信息:")
+            logger.debug(f"  📊 状态码: {response.status_code}")
+            if "usage" in result:
+                usage = result["usage"]
+                logger.debug(f"  🔢 Token使用情况:")
+                logger.debug(f"     输入Token: {usage.get('prompt_tokens', 'N/A')}")
+                logger.debug(f"     输出Token: {usage.get('completion_tokens', 'N/A')}")
+                logger.debug(f"     总Token: {usage.get('total_tokens', 'N/A')}")
+            logger.debug("-" * 40)
 
         # Parse LLM response
         if "choices" in result and len(result["choices"]) > 0:
             output = result["choices"][0]["message"]["content"]
+            
+            if debug:
+                logger.debug("📋 大模型原始回答:")
+                output_lines = output.split('\n')
+                for line in output_lines:
+                    if line.strip():
+                        logger.debug(f"  {line}")
+                logger.debug("-" * 40)
+            
             if type == "question":
                 fmt_output = extract_json_from_llm_output(output)
+                if debug:
+                    logger.debug(f"🔄 解析后的问题列表: {fmt_output}")
+                    logger.debug(f"📈 解析出 {len(fmt_output) if fmt_output else 0} 个问题")
+                    logger.debug("=" * 80)
                 return fmt_output if fmt_output is not None else []
             else:
+                if debug:
+                    logger.debug(f"📝 返回原始内容 (长度: {len(output) if output else 0} 字符)")
+                    logger.debug("=" * 80)
                 return [output] if output else []
+        
+        if debug:
+            logger.debug("⚠️  响应中没有有效的choices内容")
+            logger.debug("=" * 80)
         return []
 
     except Exception as e:
@@ -462,6 +321,7 @@ def process_match_tags(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_workers: int = 3,
+    debug: bool = False,
 ):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     logger.info(f"Starting concurrent question-tag matching... (max_workers={max_workers})")
@@ -475,6 +335,7 @@ def process_match_tags(
             base_url=base_url,
             prompt=prompt,
             type="question",
+            debug=debug,
         )
         # llm_generator return a list, only one question is passed, take the first one
         return match[0] if match else {"question": q, "label": "其他"}
@@ -497,9 +358,22 @@ def process_domain_tree(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
     logger.info(f"Domain tree generation started...")
+    
+    if debug:
+        logger.debug("=" * 80)
+        logger.debug("🌳 DOMAIN TREE GENERATION DEBUG INFO")
+        logger.debug("=" * 80)
+        logger.debug(f"📝 System Prompt: {prompt[:200]}...")
+        logger.debug(f"🔧 Model: {model}")
+        logger.debug(f"🌐 API URL: {base_url}")
+        logger.debug(f"🌡️ Temperature: {temperature}")
+        logger.debug(f"🎯 Top-P: {top_p}")
+        logger.debug(f"🔄 Max Retries: {max_retries}")
+        logger.debug("=" * 80)
     
     for attempt in range(max_retries):
         try:
@@ -520,15 +394,26 @@ def process_domain_tree(
             response = requests.post(base_url, headers=headers, json=data)
             response.raise_for_status()
             result = response.json()
+            
+            if debug:
+                logger.debug(f"📡 API Response Status: {response.status_code}")
+                if "usage" in result:
+                    logger.debug(f"🔢 Token Usage: {result['usage']}")
 
             # Parse LLM response
             if "choices" in result and len(result["choices"]) > 0:
                 output = result["choices"][0]["message"]["content"]
+                if debug:
+                    logger.debug(f"📄 Raw Response: {output[:500]}...")
                 if output:
                     json_output = extract_json_from_llm_output(output)
+                    if debug:
+                        logger.debug(f"🔍 Parsed JSON: {json_output}")
                     if json_output is not None:
                         domain_tree = DomainTree()
                         domain_tree.from_json(json_output)
+                        if debug:
+                            logger.debug(f"🌳 Generated Domain Tree: {domain_tree.visualize()}")
                         logger.info(f"Domain tree generated successfully, created {len(json_output)} main tags")
                         return domain_tree
                     else:
@@ -568,6 +453,7 @@ def process_questions(
     max_workers: int = 5,
     message: list = None,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> list:
     """Generate questions using multi-threading with retry mechanism"""
     total_questions = []
@@ -586,6 +472,7 @@ def process_questions(
                     message=message,
                     prompt=prompt,
                     type="question",
+                    debug=debug,
                 )
                 if questions:
                     return [
@@ -609,13 +496,21 @@ def process_questions(
     logger.info(f"Starting question generation (threads: {max_workers}, retries: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_generate_questions_with_retry, page) for page in page_content]
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating questions") as pbar:
-            for future in pbar:
+        if debug:
+            # Debug模式下禁用进度条，避免与debug日志冲突
+            for future in as_completed(futures):
                 result = future.result()
                 if result:
                     with lock:
                         total_questions.extend(result)
-                    pbar.set_postfix({"Generated questions": len(total_questions)})
+        else:
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating questions") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result:
+                        with lock:
+                            total_questions.extend(result)
+                        pbar.set_postfix({"Generated questions": len(total_questions)})
     return total_questions
 
 
@@ -627,6 +522,7 @@ def process_answers(
     message: list | None = None,
     max_workers=5,
     max_retries: int = 3,
+    debug: bool = False,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
@@ -645,6 +541,7 @@ def process_answers(
                     prompt=prompt,
                     message=message,
                     type="answer",
+                    debug=debug,
                 )
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]  # llm_generator returns a list
@@ -673,14 +570,23 @@ def process_answers(
             for item in question_items
         }
 
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating answers") as pbar:
-            for future in pbar:
+        if debug:
+            # Debug模式下禁用进度条，避免与debug日志冲突
+            for future in as_completed(futures):
                 result = future.result()
                 if result is not None:  # only add question with answer
                     question, answer = result
                     with lock:
                         qa_pairs[question] = answer
-                    pbar.set_postfix({"Generated answers": len(qa_pairs)})
+        else:
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating answers") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result is not None:  # only add question with answer
+                        question, answer = result
+                        with lock:
+                            qa_pairs[question] = answer
+                        pbar.set_postfix({"Generated answers": len(qa_pairs)})
     return qa_pairs
 
 
@@ -700,11 +606,12 @@ def generatr_qa_pairs(
     message: list = None,
     max_workers: int = 5,
     domain_tree: DomainTree = None,
+    debug: bool = False,
 ) -> list:
     if message is None:
         message = []
     if domain_tree is None:
-        from datamax.utils.domain_tree import DomainTree
+        from datamax.generator.domain_tree import DomainTree
         domain_tree = DomainTree([])
     qa_pairs = process_answers(
         question_items=question_info,
@@ -713,6 +620,7 @@ def generatr_qa_pairs(
         api_key=api_key,
         base_url=base_url,
         model=model_name,
+        debug=debug,
     )
     logger.success(
         f"Completed! Generated {len(qa_pairs)} QA pairs in total"
@@ -720,7 +628,6 @@ def generatr_qa_pairs(
     res_list = []
     for question_item in question_info:
         question = question_item["question"]
-        relative_chuck = question_item["page"]
         # only add question with answer
         if question in qa_pairs:
             label = question_item.get("label", "")
@@ -732,9 +639,9 @@ def generatr_qa_pairs(
                 "instruction": question,
                 "input": "",
                 "output": answer,
-                "relative_chuck": relative_chuck,
                 "label": label,
                 "tag-path": tag_path,
+                
             }
             res_list.append(qa_entry)
     return res_list
@@ -839,6 +746,7 @@ def full_qa_labeling_process(
     interactive_tree: bool = True,
     custom_domain_tree: list = None,
     use_mineru: bool = False,  # Add use_mineru parameter
+    debug: bool = False,
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction, 
@@ -846,7 +754,7 @@ def full_qa_labeling_process(
     """
     import uuid
 
-    from datamax.utils.qa_generator import (
+    from datamax.generator.qa_generator import (
         generatr_qa_pairs,
         process_domain_tree,
         process_match_tags,
@@ -909,7 +817,7 @@ def full_qa_labeling_process(
     # 2. domain tree generation
     domain_tree = None
     if use_tree_label:
-        from datamax.utils.domain_tree import DomainTree
+        from datamax.generator.domain_tree import DomainTree
 
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
@@ -925,6 +833,7 @@ def full_qa_labeling_process(
                 text="\n".join(page_content),
                 temperature=0.7,
                 top_p=0.9,
+                debug=debug,
             )
             if domain_tree is None:
                 # tree generation failed, use text generation strategy
@@ -951,6 +860,7 @@ def full_qa_labeling_process(
         question_number=question_number,
         max_workers=max_workers,
         message=messages,
+        debug=debug,
     )
     for question_item in question_info:
         if "qid" not in question_item:
@@ -964,6 +874,7 @@ def full_qa_labeling_process(
             tags_json=domain_tree.to_json(),
             questions=[q["question"] for q in question_info],
             max_workers=max_workers,
+            debug=debug,
         )
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
         for question_item in question_info:
@@ -971,8 +882,6 @@ def full_qa_labeling_process(
     else:
         for question_item in question_info:
             question_item["label"] = ""
-    
-    
     # 5. generate answers
     qa_list = generatr_qa_pairs(
         question_info=question_info,
@@ -982,5 +891,11 @@ def full_qa_labeling_process(
         question_number=question_number,
         max_workers=max_workers,
         domain_tree=domain_tree if use_tree_label else None,
+        debug=debug,
     )
-    return qa_list
+    
+    # Return both qa_list and domain_tree
+    return {
+        'qa_pairs': qa_list,
+        'domain_tree': domain_tree
+    }

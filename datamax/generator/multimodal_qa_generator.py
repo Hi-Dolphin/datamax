@@ -14,57 +14,7 @@ from tqdm import tqdm
 
 lock = threading.Lock()
 
-def get_instruction_prompt(question_number: int) -> str:
-    """
-    Generate a general instruction to tell the model what to do.
-    """
-    prompt = f"""
-        # 角色
-        你是一位顶尖的多模态数据标注专家，专门从包含文本和图片的内容中创建高质量的视觉问答（VQA）训练数据。
-
-        # 任务
-        根据用户提供的上下文文本和图片，生成 {question_number} 组高质量、多样化且富有想象力的问答对话。
-
-        ## 核心要求
-        1.  **强视觉关联**：问题必须与图片内容紧密相关，需要用户仔细观察图片才能回答。
-        2.  **对话形式**：每个问答对需以多轮对话格式呈现，至少包含一个用户问题和一个助手回答。
-        3.  **多样性**：
-            -   **问题类型**：涵盖细节识别（"图片右下角是什么？"）、比较分析（"两张图片有何不同？"）、概念推理（"这张图片中的事物具有什么功能？"）、逻辑分析（"使用图片和公式可以解决什么问题？"）等。
-            -   **创意性**：提出一些非常规、需要深度思考或想象力才能回答的问题。
-        4.  **忠于原文**：回答应基于上下文文本和合理的图片内容推断，避免捏造信息。
-        5. 问题应具有明确答案指向性，覆盖内容的不同方面。
-        6. 禁止生成假设性、重复或相似问题，确保生成的完整性。
-
-        ## 处理流程
-        1. 【内容解析】分段处理内容，识别关键实体和核心概念
-        2. 【问题生成】基于信息密度选择最佳提问点
-        3. 【质量检查】确保：
-           - 问题答案可在原文中找到依据
-           - 标签与问题内容强相关
-           - 无格式错误
-        
-        ## 输出格式
-        - **必须**以一个JSON数组的形式输出，数组中包含 {question_number} 个独立的问答对象。
-        - 每个对象都必须严格遵循以下结构，不要添加任何额外的解释或文字。
-        
-        ```json
-        [
-          {{
-            "user": "用户的第一个问题",
-            "assistant": "助手的第一个回答"
-          }},
-          {{
-            "user": "用户的第二个问题",
-            "assistant": "助手的第二个回答"
-          }}
-        ]
-        ```
-
-        ## 约束
-        - 严格按照要求的JSON格式输出，不要输出任何其他内容。
-        - 生成的JSON数组必须正好包含 {question_number} 个元素。
-    """
-    return prompt
+from .prompt_templates import get_instruction_prompt
 
 
 def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_overlap: int) -> List[Dict[str, Any]]:
@@ -218,18 +168,35 @@ def generatr_qa_pairs(
     chunk_overlap=300,
     question_number=2,
     max_workers=5,
+    debug: bool = False,
     **kwargs,
 ):
     """
     The main function for generating multimodal question-answer pairs from a Markdown file containing images.
     """
+    if debug:
+        logger.debug(f"generatr_qa_pairs called with parameters:")
+        logger.debug(f"  file_path: {file_path}")
+        logger.debug(f"  api_key: {'***' if api_key else None}")
+        logger.debug(f"  model_name: {model_name}")
+        logger.debug(f"  chunk_size: {chunk_size}")
+        logger.debug(f"  chunk_overlap: {chunk_overlap}")
+        logger.debug(f"  question_number: {question_number}")
+        logger.debug(f"  max_workers: {max_workers}")
+        logger.debug(f"  kwargs: {kwargs}")
+    
     chunks_with_images = parse_markdown_and_associate_images(
         file_path, chunk_size, chunk_overlap
     )
 
     if not chunks_with_images:
         logger.warning("Failed to parse any text blocks containing images from the file.")
+        if debug:
+            logger.debug("No chunks with images found, returning empty list")
         return []
+    
+    if debug:
+        logger.debug(f"Found {len(chunks_with_images)} chunks with images")
 
     final_qa_list = []
 
@@ -237,7 +204,13 @@ def generatr_qa_pairs(
         context_text = chunk_data["text"]
         images = chunk_data["images"]
         
+        if debug:
+            logger.debug(f"Processing chunk with text length: {len(context_text)}, images: {len(images)}")
+        
         instruction_prompt = get_instruction_prompt(question_number)
+        
+        if debug:
+            logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
         
         generated_dialogs = generate_multimodal_qa_with_dashscope(
             api_key=api_key,
@@ -249,6 +222,8 @@ def generatr_qa_pairs(
 
         chunk_qas = []
         if generated_dialogs and isinstance(generated_dialogs, list):
+            if debug:
+                logger.debug(f"Generated {len(generated_dialogs)} dialogs for chunk")
             for dialog in generated_dialogs:
                 if isinstance(dialog, dict) and "user" in dialog and "assistant" in dialog:
                     formatted_qa = {
@@ -265,17 +240,41 @@ def generatr_qa_pairs(
                         "images": images,
                     }
                     chunk_qas.append(formatted_qa)
+        elif debug:
+            logger.debug(f"No valid dialogs generated for chunk")
+        
+        if debug:
+            logger.debug(f"Chunk processing completed, generated {len(chunk_qas)} QA pairs")
         return chunk_qas
     logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
+    if debug:
+        logger.debug(f"Using ThreadPoolExecutor with {max_workers} workers")
+    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
 
-        with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
-            for future in pbar:
+        # 在debug模式下禁用tqdm进度条以避免与日志输出冲突
+        if debug:
+            # debug模式下不使用进度条，直接处理futures
+            for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
                     with lock:
                         final_qa_list.extend(result)
-                    pbar.set_postfix({"Generated QA": len(final_qa_list)})
+                        logger.debug(f"Processed chunk {i}/{len(futures)}: Added {len(result)} QA pairs, total: {len(final_qa_list)}")
+                else:
+                    logger.debug(f"Processed chunk {i}/{len(futures)}: Future returned empty result")
+        else:
+            # 非debug模式下使用进度条
+            with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
+                for future in pbar:
+                    result = future.result()
+                    if result:
+                        with lock:
+                            final_qa_list.extend(result)
+                        pbar.set_postfix({"Generated QA": len(final_qa_list)})
+    
     logger.success(f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs.")
+    if debug:
+        logger.debug(f"Returning {len(final_qa_list)} multimodal QA pairs")
     return final_qa_list

@@ -1,0 +1,127 @@
+# MANIFEST.in - Specify additional files to include in the distribution
+
+# Include documentation files
+include README.md
+include README_zh.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+
+# Include configuration files
+include *.ini
+include *.cfg
+include *.toml
+include *.yaml
+include *.yml
+include *.json
+include pyproject.toml
+include pytest.ini
+include setup.cfg
+include tox.ini
+include .pre-commit-config.yaml
+
+# Include requirements files
+include requirements*.txt
+include dev-requirements.txt
+include test-requirements.txt
+
+# Include package data
+recursive-include datamax *.py
+recursive-include datamax *.json
+recursive-include datamax *.yaml
+recursive-include datamax *.yml
+recursive-include datamax *.txt
+recursive-include datamax *.md
+recursive-include datamax py.typed
+
+# Include test files
+recursive-include tests *.py
+recursive-include tests *.json
+recursive-include tests *.yaml
+recursive-include tests *.yml
+recursive-include tests *.txt
+recursive-include tests *.md
+recursive-include tests fixtures/*
+recursive-include tests data/*
+
+# Include documentation
+recursive-include docs *.py
+recursive-include docs *.rst
+recursive-include docs *.md
+recursive-include docs *.txt
+recursive-include docs *.png
+recursive-include docs *.jpg
+recursive-include docs *.svg
+recursive-include docs Makefile
+recursive-include docs make.bat
+
+# Include examples
+recursive-include examples *.py
+recursive-include examples *.json
+recursive-include examples *.yaml
+recursive-include examples *.yml
+recursive-include examples *.md
+recursive-include examples *.txt
+
+# Include scripts
+recursive-include scripts *.py
+recursive-include scripts *.sh
+recursive-include scripts *.bat
+
+# Include type stubs
+recursive-include datamax *.pyi
+include datamax/py.typed
+
+# Exclude unwanted files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .git*
+global-exclude .DS_Store
+global-exclude .coverage
+global-exclude .pytest_cache
+global-exclude .mypy_cache
+global-exclude .tox
+global-exclude .venv
+global-exclude venv
+global-exclude env
+global-exclude .env
+global-exclude node_modules
+global-exclude *.egg-info
+global-exclude build
+global-exclude dist
+global-exclude .idea
+global-exclude .vscode
+global-exclude *.swp
+global-exclude *.swo
+global-exclude *~
+global-exclude .tasks
+
+# Exclude test artifacts
+prune tests/__pycache__
+prune tests/.pytest_cache
+exclude tests/.coverage
+exclude tests/htmlcov
+
+# Exclude development files
+exclude .gitignore
+exclude .gitattributes
+exclude .pre-commit-config.yaml
+exclude .github
+prune .github
+
+# Exclude IDE files
+exclude .idea
+prune .idea
+exclude .vscode
+prune .vscode
+
+# Exclude temporary files
+exclude *.tmp
+exclude *.temp
+exclude *.log
+
+# Exclude OS files
+exclude Thumbs.db
+exclude .DS_Store
