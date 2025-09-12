@@ -27,4 +27,14 @@ The Evaluator module provides a comprehensive toolkit for the quantitative asses
 `evaluator` 模块依赖一些额外的第三方库。您可以通过以下命令安装它们：
 
 ```bash
-pip install bert-score rouge-score sacrebleu pycocoevalcap torch torchvision transformers t2v-metrics
+https://pypi.tuna.tsinghua.edu.cn/simple
+git clone https://github.com/facebookresearch/detectron2.git
+cd detectron2
+python -m pip install -e .
+
+"module 'cv2' has no attribute 'imshow'"
+apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
+
+pip install bert-score rouge-score sacrebleu pycocoevalcap torch torchvision transformers t2v-metrics magic-pdf==1.2.1
+
+

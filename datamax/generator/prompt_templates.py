@@ -26,18 +26,18 @@ def get_instruction_prompt(question_number: int) -> str:
         请严格按照以下JSON格式输出，不要包含任何其他内容：
         ```json
         [
-            {
+            {{
                 "conversations": [
-                    {
+                    {{
                         "from": "user",
-                        "value": "<image>\n问题内容"
-                    },
-                    {
+                        "value": "<image>\\n问题内容"
+                    }},
+                    {{
                         "from": "assistant",
                         "value": "回答内容"
-                    }
+                    }}
                 ]
-            }
+            }}
         ]
         ```
     """

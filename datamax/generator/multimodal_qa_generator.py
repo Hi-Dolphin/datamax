@@ -1,10 +1,9 @@
-# datamax/utils/multimodal_qa_generator.py
-
 import json
 import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import List, Dict, Any
 
 import dashscope
@@ -18,22 +17,18 @@ from .prompt_templates import get_instruction_prompt
 
 
 def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_overlap: int) -> List[Dict[str, Any]]:
-    """
-    Parse Markdown files, extract images, and associate them with text blocks.
-    """
     logger.info(f"Starting to parse Markdown file: {md_path}")
-
     try:
         with open(md_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
         image_pattern = r'!\[[^\]]*\]\(([^)]+)\)'
         image_paths_original = re.findall(image_pattern, content)
-        
+
         if not image_paths_original:
             logger.warning(f"No Markdown format image links found in file {md_path}.")
             return []
-        
+
         logger.info(f"Found {len(image_paths_original)} image links in the file.")
 
         placeholder_template = "||image_placeholder_{}||"
@@ -54,7 +49,10 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
 
         processed_chunks = []
         placeholder_regex = re.compile(r"\|\|image_placeholder_(\d+)\|\|")
-        md_dir = os.path.dirname(os.path.abspath(os.sep.join(md_path.split(os.sep)[:-1])))
+        
+        md_file_path = Path(os.path.abspath(md_path))
+        md_dir = md_file_path.parent
+        pdf_stem = md_file_path.stem
 
         for chunk_text in chunks:
             found_indices = [int(idx) for idx in placeholder_regex.findall(chunk_text)]
@@ -64,21 +62,33 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
             clean_chunk_text = re.sub(placeholder_regex, '', chunk_text).strip()
             unique_indices = sorted(list(set(found_indices)))
             
-            chunk_image_paths = [
-                os.path.abspath(os.path.join(md_dir, image_paths_original[i]))
-                for i in unique_indices
-            ]
+            chunk_image_paths = []
+            for i in unique_indices:
+                img_path_relative = Path(image_paths_original[i])
+                
+                if img_path_relative.is_absolute() or str(img_path_relative).startswith(('http://', 'https://')):
+                    logger.warning(f"Skipping absolute or remote image URL: {img_path_relative}")
+                    continue
 
-            processed_chunks.append({
-                "text": clean_chunk_text,
-                "images": chunk_image_paths
-            })
+                # Construct the expected path based on the pipeline's logic
+                # md_dir / "images" / pdf_stem / image_filename
+                potential_path = md_dir / "images" / pdf_stem / img_path_relative.name
+                
+                if potential_path.exists():
+                    chunk_image_paths.append(str(potential_path))
+                else:
+                    logger.warning(f"Image file not found at expected path: {potential_path}")
+
+            if chunk_image_paths:
+                processed_chunks.append({
+                    "text": clean_chunk_text,
+                    "images": chunk_image_paths
+                })
         
         logger.info(f"Successfully parsed and associated {len(processed_chunks)} text blocks containing images.")
         return processed_chunks
     except Exception as e:
         logger.error(f"Failed to process Markdown file {md_path}: {e}")
-
         import traceback
         traceback.print_exc()
         return []
@@ -92,9 +102,6 @@ def generate_multimodal_qa_with_dashscope(
     image_paths: List[str],
     temperature: float = 0.7,
 ) -> List[Dict[str, str]]:
-    """
-    Generate content and parse JSON output using the DashScope multimodal dialogue API
-    """
     try:
         dashscope.api_key = api_key
         
@@ -120,21 +127,16 @@ def generate_multimodal_qa_with_dashscope(
         if response.status_code == 200:
             output_content = response.output.choices[0].get('message', {}).get('content')
 
-            # Check if returned content is a list or string
             if isinstance(output_content, list) and output_content:
-                # If it's a list, extract the 'text' content from the first element
                 text_content = output_content[0].get('text')
             elif isinstance(output_content, str):
-                # If it's a string, use directly
                 text_content = output_content
             else:
-                # Other unexpected cases, log error and return empty
                 logger.error(f"Unrecognized API return content format: {type(output_content)}: {output_content}")
                 return []
 
             if not text_content:
                 logger.error("Failed to extract valid text from API return content.")
-
                 return []
 
             json_match = re.search(r"```json\n([\s\S]*?)\n```", text_content, re.DOTALL)
@@ -144,9 +146,14 @@ def generate_multimodal_qa_with_dashscope(
                 json_str = text_content
 
             try:
-                return json.loads(json_str)
+                parsed_json = json.loads(json_str)
+                # Ensure the result is a list of conversations as expected
+                if isinstance(parsed_json, list) and all("conversations" in item for item in parsed_json):
+                     return parsed_json
+                else:
+                     logger.error(f"Parsed JSON is not in the expected format: {json_str}")
+                     return []
             except json.JSONDecodeError as e:
-
                 logger.error(f"JSON parsing failed: {e}\nOriginal output: {json_str}")
                 return []
         else:
@@ -155,7 +162,6 @@ def generate_multimodal_qa_with_dashscope(
 
     except Exception as e:
         logger.error(f"Exception occurred during LLM API call: {e}")
-
         import traceback
         traceback.print_exc()
         return []
@@ -171,9 +177,6 @@ def generatr_qa_pairs(
     debug: bool = False,
     **kwargs,
 ):
-    """
-    The main function for generating multimodal question-answer pairs from a Markdown file containing images.
-    """
     if debug:
         logger.debug(f"generatr_qa_pairs called with parameters:")
         logger.debug(f"  file_path: {file_path}")
@@ -225,27 +228,17 @@ def generatr_qa_pairs(
             if debug:
                 logger.debug(f"Generated {len(generated_dialogs)} dialogs for chunk")
             for dialog in generated_dialogs:
-                if isinstance(dialog, dict) and "user" in dialog and "assistant" in dialog:
-                    formatted_qa = {
-                        "messages": [
-                            {
-                                "role": "user", 
-                                "content": "<image>"*len(images) + dialog["user"]
-                            },
-                            {
-                                "role": "assistant", 
-                                "content": dialog["assistant"]
-                            },
-                        ],
-                        "images": images,
-                    }
-                    chunk_qas.append(formatted_qa)
+                if isinstance(dialog, dict) and "conversations" in dialog:
+                    # Add image paths to each generated qa pair for downstream use
+                    dialog["images"] = images
+                    chunk_qas.append(dialog)
         elif debug:
             logger.debug(f"No valid dialogs generated for chunk")
         
         if debug:
             logger.debug(f"Chunk processing completed, generated {len(chunk_qas)} QA pairs")
         return chunk_qas
+    
     logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
     if debug:
         logger.debug(f"Using ThreadPoolExecutor with {max_workers} workers")
@@ -253,9 +246,7 @@ def generatr_qa_pairs(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
 
-        # 在debug模式下禁用tqdm进度条以避免与日志输出冲突
         if debug:
-            # debug模式下不使用进度条，直接处理futures
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
@@ -265,7 +256,6 @@ def generatr_qa_pairs(
                 else:
                     logger.debug(f"Processed chunk {i}/{len(futures)}: Future returned empty result")
         else:
-            # 非debug模式下使用进度条
             with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
                 for future in pbar:
                     result = future.result()
