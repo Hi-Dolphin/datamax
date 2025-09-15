@@ -1,7 +1,6 @@
 import sacrebleu
 import numpy as np
 
-from loguru import logger
 from bert_score import score as bert_scorer
 from rouge_score import rouge_scorer
 from pycocoevalcap.cider.cider import Cider
@@ -11,7 +10,7 @@ class TextQualityEvaluator:
     Evaluates the quality of text using various metrics like BERTScore, ROUGE, BLEU, and Self-CIDEr.
     """
 
-    def __init__(self, lang: str = "en"):
+    def __init__(self, lang: str = "zh"):
         """
         Initializes the text quality evaluator.
 

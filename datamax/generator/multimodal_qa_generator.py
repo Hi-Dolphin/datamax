@@ -211,8 +211,8 @@ def generatr_qa_pairs(
         
         if debug:
             logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
-        print('------------------------------  ',images)
-        print('------------------------------  ',context_text)
+        # print('------------------------------  ',images)
+        # print('------------------------------  ',context_text)
         generated_dialogs = generate_multimodal_qa_with_dashscope(
             api_key=api_key,
             model=model_name,

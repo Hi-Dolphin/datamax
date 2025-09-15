@@ -9,7 +9,6 @@ class MultimodalConsistencyEvaluator:
     """
     Evaluates the consistency between images and text using models like CLIP and VQA.
     """
-
     def __init__(self, clip_model_name: str = "openai/clip-vit-base-patch32", vqa_model_name: str = 'clip-flant5-xxl', device: str = None):
         """
         Initializes the multimodal consistency evaluator.
@@ -23,8 +22,8 @@ class MultimodalConsistencyEvaluator:
             raise ImportError("PyTorch is not installed. Please run 'pip install torch torchvision'.")
 
         self.device = device if device else "cuda" if torch.cuda.is_available() else "cpu"
-        self.clip_model_name = clip_model_name
-        self.vqa_model_name = vqa_model_name
+        self.clip_model_name  = clip_model_name
+        self.vqa_model_name   = vqa_model_name
 
         self._clip_model = None
         self._clip_processor = None
@@ -45,6 +44,7 @@ class MultimodalConsistencyEvaluator:
             if not t2v_metrics:
                 raise ImportError("t2v-metrics is not installed. Please run 'pip install t2v-metrics'.")
             logger.info(f"Loading VQAScore model '{self.vqa_model_name}'...")
+            # cache_dir [default]"./hf_cache/" if you wanna change this path, modify the file: t2v-metrics/constants.py --- HF_CACHE_DIR = "./hf_cache/"
             self._vqa_scorer = t2v_metrics.VQAScore(model=self.vqa_model_name)
 
     def _truncate_text(self, text: str, max_length: int) -> str:

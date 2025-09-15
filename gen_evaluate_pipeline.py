@@ -4,7 +4,6 @@ import sys
 import json
 import asyncio
 import requests
-import tempfile
 from pathlib import Path
 from loguru import logger
 from PIL import Image
@@ -24,20 +23,23 @@ class PipelineConfig:
     SEARCH_QUERY = "intermodality shipping"
     MAX_PAPERS_TO_CRAWL = 1
 
-    DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "Your own api key")
-    DASHSCOPE_BASE_URL = "https://xxxxxxx"
-    QA_MODEL_NAME = "qwen-vl-plus" # Must be a VLLM model
+    DASHSCOPE_API_KEY  = os.getenv("DASHSCOPE_API_KEY", "sk-61139bb843e543d9b261c0b366f80c9e")
+    DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    QA_MODEL_NAME      = "qwen-vl-plus" # Must be a VLLM model
+
+    CLIP_MODEL_NAME = Path(r"C:\Users\leeha\.cache\modelscope\hub\models\openai-mirror\clip-vit-base-patch32") # model name or local model path
+    VQA_MODEL_NAME  = 'clip-flant5-xl'
 
     QUESTIONS_PER_CHUNK = 2
-    MAX_WORKERS = 4
+    MAX_WORKERS         = 4
 
     CLIP_SCORE_THRESHOLD = 0.2
 
-    OUTPUT_BASE_DIR = Path("intermodality/eva_multimodal")
-    RAW_DATA_DIR = OUTPUT_BASE_DIR / "01_raw_data"
-    PARSED_MD_DIR = OUTPUT_BASE_DIR / "02_parsed_markdown"
-    IMAGES_DIR = OUTPUT_BASE_DIR / "03_images"
-    GENERATED_QA_DIR = OUTPUT_BASE_DIR / "04_generated_qa"
+    OUTPUT_BASE_DIR    = Path("intermodality/eva_multimodal")
+    RAW_DATA_DIR       = OUTPUT_BASE_DIR / "01_raw_data"
+    PARSED_MD_DIR      = OUTPUT_BASE_DIR / "02_parsed_markdown"
+    IMAGES_DIR         = OUTPUT_BASE_DIR / "03_images"
+    GENERATED_QA_DIR   = OUTPUT_BASE_DIR / "04_generated_qa"
     EVALUATED_DATA_DIR = OUTPUT_BASE_DIR / "05_evaluated_data"
 
 class IntermodalityPipeline:
@@ -47,7 +49,11 @@ class IntermodalityPipeline:
     """
     def __init__(self, config: PipelineConfig):
         self.config = config
-        self.evaluator = MultimodalConsistencyEvaluator()
+        # Pass model paths during initialization
+        self.evaluator = MultimodalConsistencyEvaluator(
+            clip_model_name   = str(self.config.CLIP_MODEL_NAME),
+            vqa_model_name    = str(self.config.VQA_MODEL_NAME),
+        )
         self.text_evaluator = TextQualityEvaluator() # Initialize TextQualityEvaluator
         self._setup_directories()
 
@@ -102,7 +108,7 @@ class IntermodalityPipeline:
         for pdf_path in pdf_paths:
             try:
                 logger.info(f"Parsing: {pdf_path.name}")
-                dm = DataMax(file_path=str(pdf_path), use_mineru=True)
+                dm = DataMax(file_path=str(pdf_path), use_mineru=True) # use MinerU to parse
                 parsed_result = dm.get_data()
                 if not parsed_result or not parsed_result.get('content'):
                     logger.warning(f"Parsing failed or content is empty for: {pdf_path.name}")
@@ -189,6 +195,17 @@ class IntermodalityPipeline:
 
         logger.info(f"Evaluation threshold (CLIP Score) > {self.config.CLIP_SCORE_THRESHOLD}")
 
+        # --- Corrected Self-CIDEr Usage ---
+        # Calculate diversity over all generated answers for a more meaningful score
+        # all_answers = [
+        #     item['conversations'][1].get('value', '')
+        #     for item in generated_qa
+        #     if 'conversations' in item and len(item['conversations']) > 1
+        # ]
+        # overall_self_cider = self.text_evaluator.calculate_self_cider_diversity(all_answers)
+        # logger.info(f"Overall Self-CIDEr diversity for all answers: {overall_self_cider:.4f}")
+
+
         for i, qa_item in enumerate(generated_qa):
             conversation = qa_item.get('conversations', [])
             if not conversation or len(conversation) < 2:
@@ -208,19 +225,18 @@ class IntermodalityPipeline:
                 question_text = user_message.replace("<image>", "").strip()
 
                 # Multimodal consistency evaluation
-                clip_score_q = self.evaluator.evaluate_clip_score(image_path, question_text)
-                clip_score_a = self.evaluator.evaluate_clip_score(image_path, assistant_message)
+                # clip_score_q = self.evaluator.evaluate_clip_score(image_path, question_text)
+                # clip_score_a = self.evaluator.evaluate_clip_score(image_path, assistant_message)
                 vqa_scores = self.evaluator.evaluate_vqa_score(image_path, [question_text, assistant_message])
 
                 # Text quality evaluation
-                rouge_scores = self.text_evaluator.evaluate_rouge(assistant_message, question_text) # reference, candidate
-                bleu_score = self.text_evaluator.evaluate_bleu(assistant_message, [question_text]) # candidate, [reference]
+                rouge_scores = self.text_evaluator.evaluate_rouge(assistant_message, question_text)
+                bleu_score = self.text_evaluator.evaluate_bleu(assistant_message, [question_text])
                 bert_scores = self.text_evaluator.evaluate_bertscore([assistant_message], [question_text])
 
-
-                similarity_q = clip_score_q.get("cosine_similarity", 0)
-                similarity_a = clip_score_a.get("cosine_similarity", 0)
-                avg_similarity = (similarity_q + similarity_a) / 2
+                # similarity_q = clip_score_q.get("cosine_similarity", 0)
+                # similarity_a = clip_score_a.get("cosine_similarity", 0)
+                # avg_similarity = (similarity_q + similarity_a) / 2
 
                 report_entry = {
                     "qa_index": i + 1,
@@ -228,33 +244,33 @@ class IntermodalityPipeline:
                     "image": image_path,
                     "question": question_text,
                     "answer": assistant_message,
-                    "question_clip_score": similarity_q,
-                    "answer_clip_score": similarity_a,
-                    "average_clip_score": avg_similarity,
-                    "vqa_score_question": vqa_scores[0] if vqa_scores else 'N/A',
-                    "vqa_score_answer": vqa_scores[1] if len(vqa_scores) > 1 else 'N/A',
+                    # "question_clip_score": similarity_q,
+                    # "answer_clip_score": similarity_a,
+                    # "average_clip_score": avg_similarity,
+                    # "vqa_score_question": vqa_scores[0] if vqa_scores else 'N/A',
+                    # "vqa_score_answer": vqa_scores[1] if len(vqa_scores) > 1 else 'N/A',
                     "rouge_scores": rouge_scores,
                     "bleu_score": bleu_score,
                     "bert_score_f1": bert_scores.get('f1'),
-                    "passed": avg_similarity > self.config.CLIP_SCORE_THRESHOLD
+                    # "passed": avg_similarity > self.config.CLIP_SCORE_THRESHOLD
                 }
                 evaluation_report.append(report_entry)
 
                 if report_entry["passed"]:
                     qa_item['evaluation_scores'] = {
-                        "question_clip_score": similarity_q,
-                        "answer_clip_score": similarity_a,
-                        "average_clip_score": avg_similarity,
-                        "vqa_score_question": vqa_scores[0] if vqa_scores else 'N/A',
-                        "vqa_score_answer": vqa_scores[1] if len(vqa_scores) > 1 else 'N/A',
+                        # "question_clip_score": similarity_q,
+                        # "answer_clip_score": similarity_a,
+                        # "average_clip_score": avg_similarity,
+                        # "vqa_score_question": vqa_scores[0] if vqa_scores else 'N/A',
+                        # "vqa_score_answer": vqa_scores[1] if len(vqa_scores) > 1 else 'N/A',
                         "rouge_scores": rouge_scores,
                         "bleu_score": bleu_score,
                         "bert_score_f1": bert_scores.get('f1'),
                     }
                     high_quality_data.append(qa_item)
-                    logger.debug(f"QA #{i+1} PASSED evaluation, average score: {avg_similarity:.4f}")
-                else:
-                    logger.debug(f"QA #{i+1} FAILED evaluation, average score: {avg_similarity:.4f}")
+                    # logger.debug(f"QA #{i+1} PASSED evaluation, average score: {avg_similarity:.4f}")
+                # else:
+                    # logger.debug(f"QA #{i+1} FAILED evaluation, average score: {avg_similarity:.4f}")
 
             except Exception as e:
                 logger.error(f"Error evaluating QA pair #{i+1}: {e}", exc_info=True)
