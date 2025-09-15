@@ -241,3 +241,6 @@ DEPLOYMENT_GUIDE.md
 *.txt
 *.csv
 
+# Hugging Face cache
+hf_cache/
+
