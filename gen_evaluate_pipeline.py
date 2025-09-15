@@ -23,8 +23,8 @@ class PipelineConfig:
     SEARCH_QUERY = "intermodality shipping"
     MAX_PAPERS_TO_CRAWL = 1
 
-    DASHSCOPE_API_KEY  = os.getenv("DASHSCOPE_API_KEY", "sk-61139bb843e543d9b261c0b366f80c9e")
-    DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    DASHSCOPE_API_KEY  = os.getenv("DASHSCOPE_API_KEY", "your own key")
+    DASHSCOPE_BASE_URL = "https://xxxxxx"
     QA_MODEL_NAME      = "qwen-vl-plus" # Must be a VLLM model
 
     CLIP_MODEL_NAME = Path(r"C:\Users\leeha\.cache\modelscope\hub\models\openai-mirror\clip-vit-base-patch32") # model name or local model path
