@@ -96,13 +96,17 @@ class TextQualityEvaluator:
             return 0.0
 
         num_captions = len(captions)
-        gts = {i: [captions[i]] for i in range(num_captions)}
-        res = {i: [captions[j] for j in range(num_captions)] for i in range(num_captions)}
-
         cider_scorer = Cider()
-        _, individual_scores = cider_scorer.compute_score(gts, res)
+        
+        similarity_matrix = np.zeros((num_captions, num_captions))
+        
+        for i in range(num_captions):
+            for j in range(num_captions):
+                res = {0: [captions[j]]}
+                gts = {0: [captions[i]]}
+                _, individual_scores = cider_scorer.compute_score(gts, res)
+                similarity_matrix[i, j] = individual_scores[0]
 
-        similarity_matrix = np.array(individual_scores)
         eigenvalues, _ = np.linalg.eigh(similarity_matrix)
         eigenvalues = np.maximum(eigenvalues, 0)
         sqrt_eigenvalues = np.sqrt(eigenvalues)

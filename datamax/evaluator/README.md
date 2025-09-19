@@ -13,7 +13,6 @@ The Evaluator module provides a comprehensive toolkit for the quantitative asses
 -   **文本质量评估**:
     -   `BERTScore`: 基于 BERT 嵌入的语义相似度评估，关注精确率、召回率和 F1 分数。
     -   `ROUGE` & `BLEU`: 经典的 n-gram 文本相似度指标，分别侧重于召回率和精确率。
-    -   `Self-CIDEr`: 评估一组文本（如多个图像描述）的语义多样性，避免生成内容单一的数据。
 
 -   **多模态一致性评估**:
     -   `CLIPScore`: 利用 CLIP 模型计算图像和文本的相似度得分，是筛选图文对质量的核心指标。
@@ -27,14 +26,7 @@ The Evaluator module provides a comprehensive toolkit for the quantitative asses
 `evaluator` 模块依赖一些额外的第三方库。您可以通过以下命令安装它们：
 
 ```bash
-https://pypi.tuna.tsinghua.edu.cn/simple
-git clone https://github.com/facebookresearch/detectron2.git
-cd detectron2
-python -m pip install -e .
-
 "module 'cv2' has no attribute 'imshow'"
 apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
 
-pip install bert-score rouge-score sacrebleu pycocoevalcap torch torchvision transformers t2v-metrics magic-pdf==1.2.1
-
-
+pip install bert-score rouge-score sacrebleu pycocoevalcap torch torchvision transformers magic-pdf==1.2.1
