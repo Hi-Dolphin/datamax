@@ -54,6 +54,10 @@ qa_list = client.get_pre_label(
 client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 ```
 
+## 📚 Documentation
+
+- See docs: `docs/README.md`
+- Sections: Getting Started, Parsing, Cleaning, Labeling, Crawling, Evaluation, CLI, API, Extending, FAQ
 
 ## 🤝 Contributing
 

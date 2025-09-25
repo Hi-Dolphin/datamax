@@ -1,0 +1,48 @@
+site_name: DataMax Docs
+site_description: Official documentation for DataMax
+site_url: https://hi-dolphin.github.io/datamax
+repo_url: https://github.com/Hi-Dolphin/datamax
+repo_name: Hi-Dolphin/datamax
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+  language: zh
+
+nav:
+  - 首页: index.md
+  - 入门: getting-started.md
+  - 解析: parsing.md
+  - 清洗: cleaning.md
+  - 标注: labeling.md
+  - 爬虫: crawling.md
+  - 评估: evaluation.md
+  - CLI 参考: cli.md
+  - API 参考: api.md
+  - 扩展指南: extend.md
+  - FAQ: faq.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - footnotes
+  - codehilite
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: .
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Hi-Dolphin/datamax
