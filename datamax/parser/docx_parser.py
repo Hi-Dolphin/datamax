@@ -50,7 +50,9 @@ class DocxParser(BaseLife):
         # Prioritize UNO usage (unless explicitly disabled)
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info(f"🚀 DocxParser initialized - Using UNO API for single-threaded efficient processing")
+            logger.info(
+                f"🚀 DocxParser initialized - Using UNO API for single-threaded efficient processing"
+            )
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
@@ -60,7 +62,9 @@ class DocxParser(BaseLife):
                     f"📖 Please refer to the installation guide in the error message above"
                 )
             else:
-                logger.info(f"🚀 DocxParser initialized - Using traditional command line method")
+                logger.info(
+                    f"🚀 DocxParser initialized - Using traditional command line method"
+                )
 
         logger.info(f"📄 File path: {file_path}, Convert to markdown: {to_markdown}")
 
@@ -78,9 +82,13 @@ class DocxParser(BaseLife):
 
                 if not os.path.exists(txt_path):
                     logger.error(f"❌ Converted TXT file does not exist: {txt_path}")
-                    raise Exception(f"File conversion failed {docx_path} ==> {txt_path}")
+                    raise Exception(
+                        f"File conversion failed {docx_path} ==> {txt_path}"
+                    )
                 else:
-                    logger.info(f"🎉 TXT file conversion successful, file path: {txt_path}")
+                    logger.info(
+                        f"🎉 TXT file conversion successful, file path: {txt_path}"
+                    )
                     return txt_path
 
             except Exception as e:
@@ -98,7 +106,9 @@ class DocxParser(BaseLife):
                     f"   3. Check file permissions and paths\n"
                     f'   4. Try manual execution: soffice --headless --convert-to txt "{docx_path}"'
                 )
-                logger.warning("⚠️ Automatically falling back to traditional command line method...")
+                logger.warning(
+                    "⚠️ Automatically falling back to traditional command line method..."
+                )
                 return self._docx_to_txt_subprocess(docx_path, dir_path)
         else:
             # Use traditional subprocess method
@@ -117,7 +127,9 @@ class DocxParser(BaseLife):
             exit_code = process.returncode
 
             if exit_code == 0:
-                logger.info(f"✅ DOCX to TXT conversion successful - Exit code: {exit_code}")
+                logger.info(
+                    f"✅ DOCX to TXT conversion successful - Exit code: {exit_code}"
+                )
                 if stdout:
                     logger.debug(
                         f"📄 Conversion output: {stdout.decode('utf-8', errors='replace')}"
@@ -146,9 +158,13 @@ class DocxParser(BaseLife):
 
         except subprocess.SubprocessError as e:
             logger.error(f"💥 Subprocess execution failed: {str(e)}")
-            raise Exception(f"Error occurred while executing conversion command: {str(e)}")
+            raise Exception(
+                f"Error occurred while executing conversion command: {str(e)}"
+            )
         except Exception as e:
-            logger.error(f"💥 Unknown error occurred during DOCX to TXT conversion: {str(e)}")
+            logger.error(
+                f"💥 Unknown error occurred during DOCX to TXT conversion: {str(e)}"
+            )
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
@@ -168,7 +184,9 @@ class DocxParser(BaseLife):
             with open(txt_path, "r", encoding=encoding, errors="replace") as f:
                 content = f.read()
 
-            logger.info(f"📄 TXT file reading completed - Content length: {len(content)} characters")
+            logger.info(
+                f"📄 TXT file reading completed - Content length: {len(content)} characters"
+            )
             logger.debug(f"👀 First 100 characters preview: {content[:100]}...")
 
             return content
@@ -228,8 +246,12 @@ class DocxParser(BaseLife):
         # Combine all content
         if all_content:
             combined_content = self._combine_extracted_content(all_content)
-            logger.info(f"✅ Comprehensive extraction completed, total content length: {len(combined_content)} characters")
-            logger.debug(f"📊 Extracted content types: {[item[0] for item in all_content]}")
+            logger.info(
+                f"✅ Comprehensive extraction completed, total content length: {len(combined_content)} characters"
+            )
+            logger.debug(
+                f"📊 Extracted content types: {[item[0] for item in all_content]}"
+            )
             return combined_content
 
         return ""
@@ -331,7 +353,9 @@ class DocxParser(BaseLife):
                     content = re.sub(r"\s+", " ", content)
                     content = content.strip()
 
-                    logger.info(f"📝 Extracted plain text from document.xml: {len(content)} characters")
+                    logger.info(
+                        f"📝 Extracted plain text from document.xml: {len(content)} characters"
+                    )
                     return content
             return ""
         except Exception as e:
@@ -394,7 +418,9 @@ class DocxParser(BaseLife):
                                 header_footer_content.append(header_footer_text)
 
             if header_footer_content:
-                logger.info(f"📑 Extracted header/footer plain text: {len(header_footer_content)} items")
+                logger.info(
+                    f"📑 Extracted header/footer plain text: {len(header_footer_content)} items"
+                )
 
             return "\n".join(header_footer_content) if header_footer_content else ""
         except Exception as e:
@@ -429,7 +455,9 @@ class DocxParser(BaseLife):
                     if cleaned_texts:
                         comments_text = " ".join(cleaned_texts)
                         comments_text = re.sub(r"\s+", " ", comments_text.strip())
-                        logger.info(f"💬 Extracted comments plain text: {len(comments_text)} characters")
+                        logger.info(
+                            f"💬 Extracted comments plain text: {len(comments_text)} characters"
+                        )
                         return comments_text
 
             return ""
@@ -479,7 +507,9 @@ class DocxParser(BaseLife):
                                     textbox_content.append(textbox_text)
 
             if textbox_content:
-                logger.info(f"📦 Extracted text box plain text: {len(textbox_content)} items")
+                logger.info(
+                    f"📦 Extracted text box plain text: {len(textbox_content)} items"
+                )
 
             return "\n".join(textbox_content) if textbox_content else ""
         except Exception as e:
@@ -593,7 +623,9 @@ class DocxParser(BaseLife):
                 except Exception as e:
                     logger.warning(f"⚠️ Quoted-printable decoding failed: {str(e)}")
 
-            logger.debug(f"📄 Extracted HTML content length: {len(html_content)} characters")
+            logger.debug(
+                f"📄 Extracted HTML content length: {len(html_content)} characters"
+            )
 
             # Convert to clean text
             return self._html_to_clean_text(html_content)
@@ -707,7 +739,9 @@ class DocxParser(BaseLife):
             main_content = re.sub(r"\n{3,}", "\n\n", main_content)
             main_content = main_content.strip()
 
-            logger.info(f"📝 HTML content converted to clean text: {len(main_content)} characters")
+            logger.info(
+                f"📝 HTML content converted to clean text: {len(main_content)} characters"
+            )
 
             return main_content
 
@@ -746,7 +780,9 @@ class DocxParser(BaseLife):
                 return comprehensive_content
 
             # If comprehensive extraction fails, use traditional conversion method
-            logger.info("🔄 Comprehensive extraction failed or content empty, using traditional conversion method")
+            logger.info(
+                "🔄 Comprehensive extraction failed or content empty, using traditional conversion method"
+            )
 
             with tempfile.TemporaryDirectory() as temp_path:
                 logger.debug(f"📁 Created temporary directory: {temp_path}")
@@ -755,7 +791,9 @@ class DocxParser(BaseLife):
 
                 file_path = temp_dir / "tmp.docx"
                 shutil.copy(docx_path, file_path)
-                logger.debug(f"📋 Copied file to temporary directory: {docx_path} -> {file_path}")
+                logger.debug(
+                    f"📋 Copied file to temporary directory: {docx_path} -> {file_path}"
+                )
 
                 # Convert DOCX to TXT
                 txt_file_path = self.docx_to_txt(str(file_path), str(temp_path))
@@ -763,7 +801,9 @@ class DocxParser(BaseLife):
 
                 # Read TXT file content
                 content = self.read_txt_file(txt_file_path)
-                logger.info(f"✨ TXT file content reading completed, content length: {len(content)} characters")
+                logger.info(
+                    f"✨ TXT file content reading completed, content length: {len(content)} characters"
+                )
 
                 return content
 
@@ -821,7 +861,9 @@ class DocxParser(BaseLife):
                 mk_content = content
                 logger.info("📝 Maintaining original text format")
 
-            logger.info(f"🎊 File content parsing completed, final content length: {len(mk_content)} characters")
+            logger.info(
+                f"🎊 File content parsing completed, final content length: {len(mk_content)} characters"
+            )
 
             # Check if content is empty
             if not mk_content.strip():

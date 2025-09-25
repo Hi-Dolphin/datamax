@@ -1,40 +1,40 @@
+import base64
 import os
 import pathlib
-
-from datamax.utils import setup_environment
-import openai
-import base64
 from mimetypes import guess_type
 from typing import Optional
 
+import openai
+from loguru import logger
 from PIL import Image
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.parser.pdf_parser import PdfParser
+from datamax.utils import setup_environment
 from datamax.utils.lifecycle_types import LifeType
 
-from loguru import logger
 
 class ImageParser(BaseLife):
     """ImageParser class for parsing images using Vision model or traditional PDF conversion method.
 
-        ## Using Vision Model
-        ```python
-        parser = ImageParser(
-            "image.jpg",
-            api_key="your_api_key",
-            use_mllm=True,
-            model_name="gpt-4o",
-            system_prompt="Describe the image in detail, focusing on objects, colors, and spatial relationships."
-        )
-        result = parser.parse("image.jpg", "What is in this image?")
-        ```
-        ## Using Traditional Method
-        ```python
-        parser = ImageParser("image.jpg")
-        result = parser.parse("image.jpg")
-        ```
+    ## Using Vision Model
+    ```python
+    parser = ImageParser(
+        "image.jpg",
+        api_key="your_api_key",
+        use_mllm=True,
+        model_name="gpt-4o",
+        system_prompt="Describe the image in detail, focusing on objects, colors, and spatial relationships."
+    )
+    result = parser.parse("image.jpg", "What is in this image?")
+    ```
+    ## Using Traditional Method
+    ```python
+    parser = ImageParser("image.jpg")
+    result = parser.parse("image.jpg")
+    ```
     """
+
     def __init__(
         self,
         file_path: str,
@@ -44,7 +44,7 @@ class ImageParser(BaseLife):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: Optional[str] = "gpt-4o",
-        use_mllm: bool = False
+        use_mllm: bool = False,
     ):
         # Initialize BaseLife, record domain
         super().__init__(domain=domain)
@@ -70,11 +70,13 @@ class ImageParser(BaseLife):
         self.model_name = model_name
         self.system_prompt = system_prompt
         self.use_mllm = use_mllm
-        
+
         if self.use_mllm:
             if not self.api_key:
                 raise ValueError("API key is required when use_mllm is True")
-            self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url if self.base_url else None)
+            self.client = openai.OpenAI(
+                api_key=self.api_key, base_url=self.base_url if self.base_url else None
+            )
 
     def _parse_with_mllm(self, query: str) -> str:
         """
@@ -98,29 +100,30 @@ class ImageParser(BaseLife):
             """
 
         with open(self.file_path, "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
 
         mime_type, _ = guess_type(self.file_path)
         if not mime_type:
-            mime_type = 'image/jpeg'  # default
+            mime_type = "image/jpeg"  # default
 
         messages = [
+            {"role": "system", "content": self.system_prompt},
             {
-                'role': 'system',
-                'content': self.system_prompt
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": query},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{encoded_string}"
+                        },
+                    },
+                ],
             },
-            {
-                'role': 'user',
-                'content': [
-                    {'type': 'text', 'text': query},
-                    {'type': 'image_url', 'image_url': {'url': f"data:{mime_type};base64,{encoded_string}"}}
-                ]
-            }
         ]
 
         response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages
+            model=self.model_name, messages=messages
         )
 
         return response.choices[0].message.content
@@ -164,7 +167,7 @@ class ImageParser(BaseLife):
                 output_vo.add_lifecycle(lc_start)
                 output_vo.add_lifecycle(lc_end)
                 return output_vo.to_dict()
-            
+
             # Fall back to traditional method if not using Vision
             base_name = pathlib.Path(file_path).stem
 

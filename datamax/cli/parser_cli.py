@@ -3,13 +3,13 @@
 Provides object-oriented interface for parser operations.
 """
 
+import json
 import os
 import sys
-import json
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import click
 from loguru import logger
@@ -37,24 +37,26 @@ class ParserCLI:
         if verbose:
             logger.remove()
             logger.add(
-                lambda msg: print(msg, end=''),
+                lambda msg: print(msg, end=""),
                 level="DEBUG",
-                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n"
+                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n",
             )
 
-    def parse_file(self,
-                  input_file: str,
-                  output_file: Optional[str] = None,
-                  format: str = 'markdown',
-                  domain: str = 'Technology',
-                  use_mineru: bool = False,
-                  use_qwen_vl_ocr: bool = False,
-                  use_mllm: bool = False,
-                  mllm_system_prompt: str = "描述图片内容，包括图片中的文字、图片中的对象、图片中的场景等。输出一份专业的中文markdown报告",
-                  api_key: Optional[str] = None,
-                  base_url: Optional[str] = None,
-                  model_name: Optional[str] = None,
-                  to_markdown: bool = False) -> Dict[str, Any]:
+    def parse_file(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        format: str = "markdown",
+        domain: str = "Technology",
+        use_mineru: bool = False,
+        use_qwen_vl_ocr: bool = False,
+        use_mllm: bool = False,
+        mllm_system_prompt: str = "描述图片内容，包括图片中的文字、图片中的对象、图片中的场景等。输出一份专业的中文markdown报告",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        to_markdown: bool = False,
+    ) -> Dict[str, Any]:
         """Parse a single file using DataMax parser.
 
         Args:
@@ -87,23 +89,28 @@ class ParserCLI:
             if use_qwen_vl_ocr or use_mllm:
                 if not api_key:
                     if use_mllm:
-                        api_key = os.getenv('OPENAI_API_KEY')
+                        api_key = os.getenv("OPENAI_API_KEY")
                     elif use_qwen_vl_ocr:
-                        api_key = os.getenv('DASHSCOPE_API_KEY')
+                        api_key = os.getenv("DASHSCOPE_API_KEY")
                     if not api_key:
                         raise ValueError("API key is required for OCR/MLLM features")
 
                 if not base_url:
                     if use_mllm:
-                        base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
+                        base_url = os.getenv(
+                            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+                        )
                     elif use_qwen_vl_ocr:
-                        base_url = os.getenv('DASHSCOPE_BASE_URL', 'https://dashscope.aliyuncs.com/api/v1')
+                        base_url = os.getenv(
+                            "DASHSCOPE_BASE_URL",
+                            "https://dashscope.aliyuncs.com/api/v1",
+                        )
 
                 if not model_name:
                     if use_mllm:
-                        model_name = 'gpt-4o'
+                        model_name = "gpt-4o"
                     elif use_qwen_vl_ocr:
-                        model_name = 'qwen-vl-max-latest'
+                        model_name = "qwen-vl-max-latest"
 
             # Initialize DataMax parser
             datamax = DataMax(
@@ -116,7 +123,7 @@ class ParserCLI:
                 to_markdown=to_markdown,
                 api_key=api_key,
                 base_url=base_url,
-                model_name=model_name
+                model_name=model_name,
             )
 
             # Parse the file
@@ -135,15 +142,17 @@ class ParserCLI:
             logger.error(f"Parsing failed: {str(e)}")
             raise
 
-    def parse_batch(self,
-                   input_dir: str,
-                   output_dir: str,
-                   format: str = 'markdown',
-                   pattern: str = '*.*',
-                   recursive: bool = False,
-                   max_workers: int = 4,
-                   continue_on_error: bool = True,
-                   **parse_options) -> List[Dict[str, Any]]:
+    def parse_batch(
+        self,
+        input_dir: str,
+        output_dir: str,
+        format: str = "markdown",
+        pattern: str = "*.*",
+        recursive: bool = False,
+        max_workers: int = 4,
+        continue_on_error: bool = True,
+        **parse_options,
+    ) -> List[Dict[str, Any]]:
         """Parse multiple files in batch mode.
 
         Args:
@@ -166,7 +175,9 @@ class ParserCLI:
             # Validate input directory
             input_path = Path(input_dir)
             if not input_path.exists() or not input_path.is_dir():
-                raise ValueError(f"Input directory '{input_dir}' does not exist or is not a directory")
+                raise ValueError(
+                    f"Input directory '{input_dir}' does not exist or is not a directory"
+                )
 
             # Create output directory
             output_path = Path(output_dir)
@@ -182,7 +193,9 @@ class ParserCLI:
             files = [f for f in files if f.is_file()]
 
             if not files:
-                logger.warning(f"No files found matching pattern '{pattern}' in {input_dir}")
+                logger.warning(
+                    f"No files found matching pattern '{pattern}' in {input_dir}"
+                )
                 return []
 
             if self.verbose:
@@ -197,7 +210,14 @@ class ParserCLI:
                 with tqdm(total=len(files), desc="Parsing files") as pbar:
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         future_to_file = {
-                            executor.submit(self._parse_single_file, file_path, output_path, format, parse_options, continue_on_error): file_path
+                            executor.submit(
+                                self._parse_single_file,
+                                file_path,
+                                output_path,
+                                format,
+                                parse_options,
+                                continue_on_error,
+                            ): file_path
                             for file_path in files
                         }
 
@@ -208,22 +228,33 @@ class ParserCLI:
                                 results.append(result)
                             except Exception as e:
                                 error_result = {
-                                    'success': False,
-                                    'file': str(file_path),
-                                    'error': str(e)
+                                    "success": False,
+                                    "file": str(file_path),
+                                    "error": str(e),
                                 }
                                 results.append(error_result)
 
                             pbar.update(1)
-                            pbar.set_postfix({
-                                'processed': len(results),
-                                'successful': len([r for r in results if r.get('success', False)])
-                            })
+                            pbar.set_postfix(
+                                {
+                                    "processed": len(results),
+                                    "successful": len(
+                                        [r for r in results if r.get("success", False)]
+                                    ),
+                                }
+                            )
             else:
                 # Process without progress bar
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_to_file = {
-                        executor.submit(self._parse_single_file, file_path, output_path, format, parse_options, continue_on_error): file_path
+                        executor.submit(
+                            self._parse_single_file,
+                            file_path,
+                            output_path,
+                            format,
+                            parse_options,
+                            continue_on_error,
+                        ): file_path
                         for file_path in files
                     }
 
@@ -234,15 +265,15 @@ class ParserCLI:
                             results.append(result)
                         except Exception as e:
                             error_result = {
-                                'success': False,
-                                'file': str(file_path),
-                                'error': str(e)
+                                "success": False,
+                                "file": str(file_path),
+                                "error": str(e),
                             }
                             results.append(error_result)
 
             # Show summary
             total_time = time.time() - start_time
-            successful = len([r for r in results if r.get('success', True)])
+            successful = len([r for r in results if r.get("success", True)])
             failed = len(results) - successful
 
             if self.verbose or not continue_on_error:
@@ -251,7 +282,9 @@ class ParserCLI:
                 click.echo(f"   ✅ Successful: {successful}")
                 click.echo(f"   ❌ Failed: {failed}")
                 click.echo(f"   ⏱️  Total time: {total_time:.2f}s")
-                click.echo(f"   📈 Average speed: {len(results)/total_time:.2f} files/s")
+                click.echo(
+                    f"   📈 Average speed: {len(results)/total_time:.2f} files/s"
+                )
 
             return results
 
@@ -259,13 +292,26 @@ class ParserCLI:
             logger.error(f"Batch parsing failed: {str(e)}")
             raise
 
-    def _parse_single_file(self, file_path: Path, output_dir: Path, format: str,
-                          parse_options: dict, continue_on_error: bool) -> Dict[str, Any]:
+    def _parse_single_file(
+        self,
+        file_path: Path,
+        output_dir: Path,
+        format: str,
+        parse_options: dict,
+        continue_on_error: bool,
+    ) -> Dict[str, Any]:
         """Parse a single file in batch mode."""
         try:
             # Determine output file path
-            relative_path = file_path.relative_to(file_path.parents[-2]) if len(file_path.parents) > 1 else file_path.name
-            output_file = output_dir / f"{relative_path.stem}_parsed.{self._get_extension(format)}"
+            relative_path = (
+                file_path.relative_to(file_path.parents[-2])
+                if len(file_path.parents) > 1
+                else file_path.name
+            )
+            output_file = (
+                output_dir
+                / f"{relative_path.stem}_parsed.{self._get_extension(format)}"
+            )
 
             # Ensure output subdirectory exists
             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -275,15 +321,15 @@ class ParserCLI:
                 input_file=str(file_path),
                 output_file=str(output_file),
                 format=format,
-                **parse_options
+                **parse_options,
             )
 
             # Add metadata
             result_with_meta = {
-                'success': True,
-                'input_file': str(file_path),
-                'output_file': str(output_file),
-                'result': result
+                "success": True,
+                "input_file": str(file_path),
+                "output_file": str(output_file),
+                "result": result,
             }
 
             return result_with_meta
@@ -291,11 +337,7 @@ class ParserCLI:
         except Exception as e:
             if continue_on_error:
                 logger.warning(f"Failed to parse {file_path}: {str(e)}")
-                return {
-                    'success': False,
-                    'input_file': str(file_path),
-                    'error': str(e)
-                }
+                return {"success": False, "input_file": str(file_path), "error": str(e)}
             else:
                 raise
 
@@ -314,20 +356,20 @@ class ParserCLI:
             output_path = Path(output_file)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            if format == 'json':
-                with open(output_path, 'w', encoding='utf-8') as f:
+            if format == "json":
+                with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(result, f, indent=2, ensure_ascii=False, default=str)
-            elif format == 'markdown':
-                with open(output_path, 'w', encoding='utf-8') as f:
+            elif format == "markdown":
+                with open(output_path, "w", encoding="utf-8") as f:
                     if isinstance(result, dict):
-                        content = result.get('content', str(result))
+                        content = result.get("content", str(result))
                     else:
                         content = str(result)
                     f.write(content)
-            elif format == 'text':
-                with open(output_path, 'w', encoding='utf-8') as f:
+            elif format == "text":
+                with open(output_path, "w", encoding="utf-8") as f:
                     if isinstance(result, dict):
-                        content = result.get('content', str(result))
+                        content = result.get("content", str(result))
                     else:
                         content = str(result)
                     f.write(content)
@@ -345,12 +387,8 @@ class ParserCLI:
 
     def _get_extension(self, format: str) -> str:
         """Get file extension for format."""
-        extensions = {
-            'markdown': 'md',
-            'json': 'json',
-            'text': 'txt'
-        }
-        return extensions.get(format, 'txt')
+        extensions = {"markdown": "md", "json": "json", "text": "txt"}
+        return extensions.get(format, "txt")
 
     def list_supported_formats(self) -> Dict[str, str]:
         """List all supported file formats with descriptions.
@@ -360,42 +398,36 @@ class ParserCLI:
         """
         return {
             # Document formats
-            '.pdf': 'PDF documents (supports OCR with MinerU/Qwen-VL)',
-            '.docx': 'Microsoft Word documents (can convert to Markdown)',
-            '.doc': 'Legacy Microsoft Word documents',
-            '.wps': 'WPS Office documents',
-            '.epub': 'EPUB e-book files',
-            '.md': 'Markdown files',
-
+            ".pdf": "PDF documents (supports OCR with MinerU/Qwen-VL)",
+            ".docx": "Microsoft Word documents (can convert to Markdown)",
+            ".doc": "Legacy Microsoft Word documents",
+            ".wps": "WPS Office documents",
+            ".epub": "EPUB e-book files",
+            ".md": "Markdown files",
             # Spreadsheet formats
-            '.xlsx': 'Microsoft Excel spreadsheets',
-            '.xls': 'Legacy Excel spreadsheets',
-            '.csv': 'Comma-separated values files',
-
+            ".xlsx": "Microsoft Excel spreadsheets",
+            ".xls": "Legacy Excel spreadsheets",
+            ".csv": "Comma-separated values files",
             # Presentation formats
-            '.pptx': 'Microsoft PowerPoint presentations',
-            '.ppt': 'Legacy PowerPoint presentations',
-
+            ".pptx": "Microsoft PowerPoint presentations",
+            ".ppt": "Legacy PowerPoint presentations",
             # Web formats
-            '.html': 'HTML web pages',
-
+            ".html": "HTML web pages",
             # Text formats
-            '.txt': 'Plain text files',
-
+            ".txt": "Plain text files",
             # Image formats
-            '.jpg': 'JPEG images (supports Vision model analysis)',
-            '.jpeg': 'JPEG images (supports Vision model analysis)',
-            '.png': 'PNG images (supports Vision model analysis)',
-            '.webp': 'WebP images (supports Vision model analysis)',
-
+            ".jpg": "JPEG images (supports Vision model analysis)",
+            ".jpeg": "JPEG images (supports Vision model analysis)",
+            ".png": "PNG images (supports Vision model analysis)",
+            ".webp": "WebP images (supports Vision model analysis)",
             # Code formats
-            '.py': 'Python source code',
-            '.js': 'JavaScript source code',
-            '.java': 'Java source code',
-            '.cpp': 'C++ source code',
-            '.c': 'C source code',
-            '.go': 'Go source code',
-            '.rs': 'Rust source code',
+            ".py": "Python source code",
+            ".js": "JavaScript source code",
+            ".java": "Java source code",
+            ".cpp": "C++ source code",
+            ".c": "C source code",
+            ".go": "Go source code",
+            ".rs": "Rust source code",
         }
 
     def get_parse_options_help(self) -> str:

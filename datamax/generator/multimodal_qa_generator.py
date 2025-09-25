@@ -7,11 +7,11 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
+from openai import OpenAI
 from tqdm import tqdm
 
 lock = threading.Lock()
@@ -24,36 +24,40 @@ def encode_image_to_base64(image_path: str) -> str:
     Encode an image file to base64 string.
     """
     with open(image_path, "rb") as image_file:
-        encoded = base64.b64encode(image_file.read()).decode('utf-8')
+        encoded = base64.b64encode(image_file.read()).decode("utf-8")
     return encoded
 
 
-def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_overlap: int) -> List[Dict[str, Any]]:
+def parse_markdown_and_associate_images(
+    md_path: str, chunk_size: int, chunk_overlap: int
+) -> List[Dict[str, Any]]:
     """
     Parse Markdown files, extract images, and associate them with text blocks.
     """
     logger.info(f"Starting to parse Markdown file: {md_path}")
 
     try:
-        with open(md_path, 'r', encoding='utf-8') as f:
+        with open(md_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        image_pattern = r'!\[[^\]]*\]\(([^)]+)\)'
+        image_pattern = r"!\[[^\]]*\]\(([^)]+)\)"
         image_paths_original = re.findall(image_pattern, content)
-        
+
         if not image_paths_original:
             logger.warning(f"No Markdown format image links found in file {md_path}.")
             return []
-        
+
         logger.info(f"Found {len(image_paths_original)} image links in the file.")
 
         placeholder_template = "||image_placeholder_{}||"
         path_iter = iter(range(len(image_paths_original)))
-        
+
         def unique_replacer(match):
             return placeholder_template.format(next(path_iter))
 
-        content_with_unique_placeholders = re.sub(image_pattern, unique_replacer, content)
+        content_with_unique_placeholders = re.sub(
+            image_pattern, unique_replacer, content
+        )
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -65,32 +69,36 @@ def parse_markdown_and_associate_images(md_path: str, chunk_size: int, chunk_ove
 
         processed_chunks = []
         placeholder_regex = re.compile(r"\|\|image_placeholder_(\d+)\|\|")
-        md_dir = os.path.dirname(os.path.abspath(os.sep.join(md_path.split(os.sep)[:-1])))
+        md_dir = os.path.dirname(
+            os.path.abspath(os.sep.join(md_path.split(os.sep)[:-1]))
+        )
 
         for chunk_text in chunks:
             found_indices = [int(idx) for idx in placeholder_regex.findall(chunk_text)]
             if not found_indices:
                 continue
-            
-            clean_chunk_text = re.sub(placeholder_regex, '', chunk_text).strip()
+
+            clean_chunk_text = re.sub(placeholder_regex, "", chunk_text).strip()
             unique_indices = sorted(list(set(found_indices)))
-            
+
             chunk_image_paths = [
                 os.path.abspath(os.path.join(md_dir, image_paths_original[i]))
                 for i in unique_indices
             ]
 
-            processed_chunks.append({
-                "text": clean_chunk_text,
-                "images": chunk_image_paths
-            })
-        
-        logger.info(f"Successfully parsed and associated {len(processed_chunks)} text blocks containing images.")
+            processed_chunks.append(
+                {"text": clean_chunk_text, "images": chunk_image_paths}
+            )
+
+        logger.info(
+            f"Successfully parsed and associated {len(processed_chunks)} text blocks containing images."
+        )
         return processed_chunks
     except Exception as e:
         logger.error(f"Failed to process Markdown file {md_path}: {e}")
 
         import traceback
+
         traceback.print_exc()
         return []
 
@@ -118,11 +126,16 @@ def generate_multimodal_qa_with_openai(
             image_url = f"data:{mime_type};base64,{base64_image}"
             user_content.append({"type": "image_url", "image_url": {"url": image_url}})
 
-        user_content.append({"type": "text", "text": f"This is the context text you need to process:\n\n---\n{context_text}\n---"})
+        user_content.append(
+            {
+                "type": "text",
+                "text": f"This is the context text you need to process:\n\n---\n{context_text}\n---",
+            }
+        )
 
         messages = [
             {"role": "system", "content": instruction_prompt},
-            {"role": "user", "content": user_content}
+            {"role": "user", "content": user_content},
         ]
 
         response = client.chat.completions.create(
@@ -153,8 +166,10 @@ def generate_multimodal_qa_with_openai(
     except Exception as e:
         logger.error(f"Exception occurred during LLM API call: {e}")
         import traceback
+
         traceback.print_exc()
         return []
+
 
 def generatr_qa_pairs(
     file_path: str,
@@ -180,17 +195,19 @@ def generatr_qa_pairs(
         logger.debug(f"  question_number: {question_number}")
         logger.debug(f"  max_workers: {max_workers}")
         logger.debug(f"  kwargs: {kwargs}")
-    
+
     chunks_with_images = parse_markdown_and_associate_images(
         file_path, chunk_size, chunk_overlap
     )
 
     if not chunks_with_images:
-        logger.warning("Failed to parse any text blocks containing images from the file.")
+        logger.warning(
+            "Failed to parse any text blocks containing images from the file."
+        )
         if debug:
             logger.debug("No chunks with images found, returning empty list")
         return []
-    
+
     if debug:
         logger.debug(f"Found {len(chunks_with_images)} chunks with images")
 
@@ -199,15 +216,17 @@ def generatr_qa_pairs(
     def _process_chunk(chunk_data):
         context_text = chunk_data["text"]
         images = chunk_data["images"]
-        
+
         if debug:
-            logger.debug(f"Processing chunk with text length: {len(context_text)}, images: {len(images)}")
-        
+            logger.debug(
+                f"Processing chunk with text length: {len(context_text)}, images: {len(images)}"
+            )
+
         instruction_prompt = get_instruction_prompt(question_number)
-        
+
         if debug:
             logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
-        
+
         generated_dialogs = generate_multimodal_qa_with_openai(
             api_key=api_key,
             model=model_name,
@@ -221,33 +240,41 @@ def generatr_qa_pairs(
             if debug:
                 logger.debug(f"Generated {len(generated_dialogs)} dialogs for chunk")
             for dialog in generated_dialogs:
-                if isinstance(dialog, dict) and "user" in dialog and "assistant" in dialog:
+                if (
+                    isinstance(dialog, dict)
+                    and "user" in dialog
+                    and "assistant" in dialog
+                ):
                     formatted_qa = {
                         "messages": [
                             {
-                                "role": "user", 
-                                "content": "<image>"*len(images) + dialog["user"]
+                                "role": "user",
+                                "content": "<image>" * len(images) + dialog["user"],
                             },
-                            {
-                                "role": "assistant", 
-                                "content": dialog["assistant"]
-                            },
+                            {"role": "assistant", "content": dialog["assistant"]},
                         ],
                         "images": images,
                     }
                     chunk_qas.append(formatted_qa)
         elif debug:
             logger.debug(f"No valid dialogs generated for chunk")
-        
+
         if debug:
-            logger.debug(f"Chunk processing completed, generated {len(chunk_qas)} QA pairs")
+            logger.debug(
+                f"Chunk processing completed, generated {len(chunk_qas)} QA pairs"
+            )
         return chunk_qas
-    logger.info(f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})...")
+
+    logger.info(
+        f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})..."
+    )
     if debug:
         logger.debug(f"Using ThreadPoolExecutor with {max_workers} workers")
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_process_chunk, chunk) for chunk in chunks_with_images]
+        futures = [
+            executor.submit(_process_chunk, chunk) for chunk in chunks_with_images
+        ]
 
         # Disable tqdm progress bar in debug mode to avoid conflict with log output
         if debug:
@@ -257,20 +284,30 @@ def generatr_qa_pairs(
                 if result:
                     with lock:
                         final_qa_list.extend(result)
-                        logger.debug(f"Processed chunk {i}/{len(futures)}: Added {len(result)} QA pairs, total: {len(final_qa_list)}")
+                        logger.debug(
+                            f"Processed chunk {i}/{len(futures)}: Added {len(result)} QA pairs, total: {len(final_qa_list)}"
+                        )
                 else:
-                    logger.debug(f"Processed chunk {i}/{len(futures)}: Future returned empty result")
+                    logger.debug(
+                        f"Processed chunk {i}/{len(futures)}: Future returned empty result"
+                    )
         else:
             # Use progress bar in non-debug mode
-            with tqdm(as_completed(futures), total=len(futures), desc="Generating multimodal QA") as pbar:
+            with tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Generating multimodal QA",
+            ) as pbar:
                 for future in pbar:
                     result = future.result()
                     if result:
                         with lock:
                             final_qa_list.extend(result)
                         pbar.set_postfix({"Generated QA": len(final_qa_list)})
-    
-    logger.success(f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs.")
+
+    logger.success(
+        f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs."
+    )
     if debug:
         logger.debug(f"Returning {len(final_qa_list)} multimodal QA pairs")
     return final_qa_list

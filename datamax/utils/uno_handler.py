@@ -7,7 +7,6 @@ from pathlib import Path
 
 from loguru import logger
 
-
 # Delayed import flags and lock
 _uno_imported = False
 _import_error = None
@@ -98,7 +97,9 @@ class UnoManager:
         self._ctx = None
         self._soffice_process = None
         self._connected = False
-        logger.info(f"UnoManager initialized - Host: {host}, Port: {port} (single-threaded mode)")
+        logger.info(
+            f"UnoManager initialized - Host: {host}, Port: {port} (single-threaded mode)"
+        )
 
     def _start_soffice_service(self):
         """Start LibreOffice service"""
@@ -136,7 +137,9 @@ class UnoManager:
             while time.time() - start_time < max_wait_time:
                 if self._check_soffice_running():
                     elapsed = time.time() - start_time
-                    logger.info(f"LibreOffice service started successfully ({elapsed:.1f}s)")
+                    logger.info(
+                        f"LibreOffice service started successfully ({elapsed:.1f}s)"
+                    )
                     return
 
                 logger.debug(
@@ -145,7 +148,9 @@ class UnoManager:
                 time.sleep(check_interval)
 
             # Timeout
-            raise Exception(f"LibreOffice service startup timed out (waited {max_wait_time}s)")
+            raise Exception(
+                f"LibreOffice service startup timed out (waited {max_wait_time}s)"
+            )
 
         except Exception as e:
             logger.error(f"Failed to start LibreOffice service: {e}")
@@ -204,7 +209,9 @@ class UnoManager:
                     logger.error(f"Connection failed: {e}")
                     time.sleep(1)
 
-            raise TimeoutError(f"Connection to LibreOffice service timed out ({self.timeout}s)")
+            raise TimeoutError(
+                f"Connection to LibreOffice service timed out ({self.timeout}s)"
+            )
 
     def disconnect(self):
         """Disconnect from LibreOffice service"""
@@ -283,7 +290,9 @@ class UnoManager:
             output_format: Output format (e.g., 'txt', 'pdf', 'docx', etc.)
             filter_name: Filter name (optional)
         """
-        logger.info(f"Converting document: {input_path} -> {output_path} ({output_format})")
+        logger.info(
+            f"Converting document: {input_path} -> {output_path} ({output_format})"
+        )
 
         with self.get_document(input_path) as document:
             if document is None:
@@ -390,7 +399,9 @@ def get_uno_manager() -> UnoManager:
         with _manager_lock:
             if _global_uno_manager is None:
                 _global_uno_manager = UnoManager()
-                logger.info("Global singleton UnoManager created (single-threaded mode)")
+                logger.info(
+                    "Global singleton UnoManager created (single-threaded mode)"
+                )
 
     return _global_uno_manager
 

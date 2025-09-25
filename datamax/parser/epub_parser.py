@@ -1,4 +1,3 @@
-
 import ebooklib
 import loguru
 from bs4 import BeautifulSoup

@@ -1,2 +1,2 @@
-from .parser import DataMax
 from .crawler import crawl
+from .parser import DataMax

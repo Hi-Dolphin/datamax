@@ -21,7 +21,7 @@ class RecursiveCharacterTextSplitter:
     ):
         """
         Initialize text splitter
-        
+
         Args:
             separators: List of separators, defaults to generic separators
             chunk_size: Maximum size of chunks
@@ -52,7 +52,7 @@ class RecursiveCharacterTextSplitter:
                 break
             if re.search(_separator, text):
                 separator = _s
-                new_separators = separators[i + 1:]
+                new_separators = separators[i + 1 :]
                 break
 
         _separator = separator if self._is_separator_regex else re.escape(separator)
@@ -100,13 +100,17 @@ class RecursiveCharacterTextSplitter:
 
         for d in splits:
             _len = self._length_function(d)
-            if total + _len + (separator_len if len(current_doc) > 0 else 0) > self._chunk_size:
+            if (
+                total + _len + (separator_len if len(current_doc) > 0 else 0)
+                > self._chunk_size
+            ):
                 if current_doc:
                     doc = self._join_docs(current_doc, separator)
                     if doc is not None:
                         docs.append(doc)
                     while total > self._chunk_overlap or (
-                        total + _len + (separator_len if len(current_doc) > 0 else 0) > self._chunk_size
+                        total + _len + (separator_len if len(current_doc) > 0 else 0)
+                        > self._chunk_size
                         and total > 0
                     ):
                         total -= self._length_function(current_doc[0]) + (
@@ -322,18 +326,18 @@ class CodeParser(BaseLife):
     def detect_language(file_path: str, content: str = None) -> str:
         """
         Detect programming language type
-        
+
         Args:
             file_path: File path
             content: File content (optional)
-            
+
         Returns:
             Detected programming language type
         """
         # Detection based on file extension
         extension_map = {
             ".py": "python",
-            ".js": "javascript", 
+            ".js": "javascript",
             ".jsx": "javascript",
             ".ts": "javascript",
             ".tsx": "javascript",
@@ -353,14 +357,14 @@ class CodeParser(BaseLife):
             ".kt": "kotlin",
             ".scala": "scala",
         }
-        
+
         # Get file extension
         extension = ""
         if "." in file_path:
             extension = "." + file_path.split(".")[-1].lower()
-        
+
         detected_lang = extension_map.get(extension, "generic")
-        
+
         # If extension-based detection fails, further detect based on content
         if detected_lang == "generic" and content:
             if "def " in content and "import " in content:
@@ -375,63 +379,66 @@ class CodeParser(BaseLife):
                 return "go"
             elif "fn " in content and "let " in content:
                 return "rust"
-        
+
         return detected_lang
 
     @staticmethod
     def read_code_file(file_path: str) -> str:
         """
         Read code file content
-        
+
         Args:
             file_path: Code file path
-            
+
         Returns:
             File content string
         """
         try:
             # Try common encoding formats
             encodings = ["utf-8", "utf-8-sig", "gbk", "gb2312", "latin-1"]
-            
+
             for encoding in encodings:
                 try:
                     with open(file_path, "r", encoding=encoding) as file:
                         return file.read()
                 except UnicodeDecodeError:
                     continue
-                    
+
             # If all encodings fail, use binary mode and try to decode
             with open(file_path, "rb") as file:
                 raw_data = file.read()
                 # Try to detect encoding using chardet
                 try:
                     import chardet
+
                     detected = chardet.detect(raw_data)
                     if detected["encoding"]:
                         return raw_data.decode(detected["encoding"])
                 except ImportError:
                     pass
-                
+
                 # Finally try utf-8 and ignore errors
                 return raw_data.decode("utf-8", errors="ignore")
-                
+
         except Exception as e:
             raise Exception(f"Cannot read file {file_path}: {str(e)}")
 
-    def get_splitter_for_language(self, language: str, chunk_size: int = 4000, chunk_overlap: int = 200) -> RecursiveCharacterTextSplitter:
+    def get_splitter_for_language(
+        self, language: str, chunk_size: int = 4000, chunk_overlap: int = 200
+    ) -> RecursiveCharacterTextSplitter:
         """
         Get corresponding text splitter based on programming language
-        
+
         Args:
             language: Programming language type
             chunk_size: Chunk size
             chunk_overlap: Overlap size
-            
+
         Returns:
             Configured text splitter
         """
         separators = self.LANGUAGE_SEPARATORS.get(language, ["\n\n", "\n", " ", ""])
-        
+
         return RecursiveCharacterTextSplitter(
             separators=separators,
             chunk_size=chunk_size,
@@ -440,67 +447,77 @@ class CodeParser(BaseLife):
             is_separator_regex=False,
         )
 
-    def split_code(self, content: str, language: str, chunk_size: int = 4000, chunk_overlap: int = 200) -> List[str]:
+    def split_code(
+        self,
+        content: str,
+        language: str,
+        chunk_size: int = 4000,
+        chunk_overlap: int = 200,
+    ) -> List[str]:
         """
         Split code content
-        
+
         Args:
             content: Code content
             language: Programming language type
             chunk_size: Chunk size
             chunk_overlap: Overlap size
-            
+
         Returns:
             List of split code chunks
         """
         splitter = self.get_splitter_for_language(language, chunk_size, chunk_overlap)
         return splitter.split_text(content)
 
-    def format_code_chunks_to_markdown(self, chunks: List[str], language: str, file_path: str) -> str:
+    def format_code_chunks_to_markdown(
+        self, chunks: List[str], language: str, file_path: str
+    ) -> str:
         """
         Format code chunks to Markdown format
-        
+
         Args:
             chunks: List of code chunks
             language: Programming language type
             file_path: Source file path
-            
+
         Returns:
             Formatted Markdown content
         """
         markdown_content = f"# Code Analysis: {file_path}\n\n"
         markdown_content += f"**Language:** {language}\n"
         markdown_content += f"**Total Chunks:** {len(chunks)}\n\n"
-        
+
         for i, chunk in enumerate(chunks, 1):
             markdown_content += f"## Chunk {i}\n\n"
             markdown_content += f"```{language}\n"
             markdown_content += chunk
             markdown_content += "\n```\n\n"
-            
+
             # Add chunk statistics
-            lines = chunk.count('\n') + 1
+            lines = chunk.count("\n") + 1
             chars = len(chunk)
             markdown_content += f"*Lines: {lines}, Characters: {chars}*\n\n"
             markdown_content += "---\n\n"
-        
+
         return markdown_content
 
-    def parse(self, file_path: str, chunk_size: int = 4000, chunk_overlap: int = 200) -> Dict:
+    def parse(
+        self, file_path: str, chunk_size: int = 4000, chunk_overlap: int = 200
+    ) -> Dict:
         """
         Parse code file
-        
+
         Args:
             file_path: Code file path
             chunk_size: Chunk size
             chunk_overlap: Chunk overlap size
-            
+
         Returns:
             Parse result dictionary
         """
         try:
             extension = self.get_file_extension(file_path)
-            
+
             # 1) Start processing
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
@@ -508,23 +525,25 @@ class CodeParser(BaseLife):
                 usage_purpose="Code Analysis",
                 life_type=LifeType.DATA_PROCESSING,
             )
-            
+
             # 2) Read code file content
             content = self.read_code_file(file_path)
-            
+
             # 3) Detect programming language
             language = self.detect_language(file_path, content)
-            
+
             # 4) Split code
             chunks = self.split_code(content, language, chunk_size, chunk_overlap)
-            
+
             # 5) Format to Markdown
-            markdown_content = self.format_code_chunks_to_markdown(chunks, language, file_path)
-            
+            markdown_content = self.format_code_chunks_to_markdown(
+                chunks, language, file_path
+            )
+
             # 6) Construct output object and add start lifecycle
             output_vo = MarkdownOutputVo(extension, markdown_content)
             output_vo.add_lifecycle(lc_start)
-            
+
             # 7) Processing completed
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
@@ -533,9 +552,9 @@ class CodeParser(BaseLife):
                 life_type=LifeType.DATA_PROCESSED,
             )
             output_vo.add_lifecycle(lc_end)
-            
+
             return output_vo.to_dict()
-            
+
         except Exception as e:
             # 8) Processing failed
             lc_fail = self.generate_lifecycle(
@@ -547,25 +566,27 @@ class CodeParser(BaseLife):
             # Optional: Construct output object for failure case
             output_vo = MarkdownOutputVo(
                 extension=self.get_file_extension(file_path),
-                content=f"# Code Parsing Error\n\nFailed to parse {file_path}:\n\n```\n{str(e)}\n```"
+                content=f"# Code Parsing Error\n\nFailed to parse {file_path}:\n\n```\n{str(e)}\n```",
             )
             output_vo.add_lifecycle(lc_fail)
             raise Exception(f"Code parsing failed: {str(e)}")
 
-    def parse_multiple_files(self, file_paths: List[str], chunk_size: int = 4000, chunk_overlap: int = 200) -> List[Dict]:
+    def parse_multiple_files(
+        self, file_paths: List[str], chunk_size: int = 4000, chunk_overlap: int = 200
+    ) -> List[Dict]:
         """
         Batch parse multiple code files
-        
+
         Args:
             file_paths: List of code file paths
             chunk_size: Chunk size
             chunk_overlap: Chunk overlap size
-            
+
         Returns:
             List of parse results
         """
         results = []
-        
+
         for file_path in file_paths:
             try:
                 result = self.parse(file_path, chunk_size, chunk_overlap)
@@ -574,5 +595,5 @@ class CodeParser(BaseLife):
                 # Log failed files but continue processing other files
                 print(f"Warning: Failed to parse file {file_path}: {str(e)}")
                 continue
-                
-        return results 
+
+        return results

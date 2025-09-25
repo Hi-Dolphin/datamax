@@ -1,9 +1,9 @@
-import sacrebleu
 import numpy as np
-
+import sacrebleu
 from bert_score import score as bert_scorer
-from rouge_score import rouge_scorer
 from pycocoevalcap.cider.cider import Cider
+from rouge_score import rouge_scorer
+
 
 class TextQualityEvaluator:
     """
@@ -19,7 +19,9 @@ class TextQualityEvaluator:
         """
         self.lang = lang
         if rouge_scorer:
-            self.rouge_scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+            self.rouge_scorer = rouge_scorer.RougeScorer(
+                ["rouge1", "rouge2", "rougeL"], use_stemmer=True
+            )
         else:
             self.rouge_scorer = None
 
@@ -35,13 +37,17 @@ class TextQualityEvaluator:
             dict: A dictionary containing precision, recall, and F1 scores.
         """
         if not bert_scorer:
-            raise ImportError("BERT-Score is not installed. Please run 'pip install bert-score'.")
+            raise ImportError(
+                "BERT-Score is not installed. Please run 'pip install bert-score'."
+            )
 
-        P, R, F1 = bert_scorer(cands=candidates, refs=references, lang=self.lang, verbose=True)
+        P, R, F1 = bert_scorer(
+            cands=candidates, refs=references, lang=self.lang, verbose=True
+        )
         return {
             "precision": P.mean().item(),
             "recall": R.mean().item(),
-            "f1": F1.mean().item()
+            "f1": F1.mean().item(),
         }
 
     def evaluate_rouge(self, candidate: str, reference: str) -> dict:
@@ -56,10 +62,19 @@ class TextQualityEvaluator:
             dict: A dictionary containing ROUGE-1, ROUGE-2, and ROUGE-L scores.
         """
         if not self.rouge_scorer:
-            raise ImportError("ROUGE-Score is not installed. Please run 'pip install rouge-score'.")
+            raise ImportError(
+                "ROUGE-Score is not installed. Please run 'pip install rouge-score'."
+            )
 
         scores = self.rouge_scorer.score(reference, candidate)
-        return {key: {"precision": value.precision, "recall": value.recall, "f1": value.fmeasure} for key, value in scores.items()}
+        return {
+            key: {
+                "precision": value.precision,
+                "recall": value.recall,
+                "f1": value.fmeasure,
+            }
+            for key, value in scores.items()
+        }
 
     def evaluate_bleu(self, candidate: str, references: list[str]) -> float:
         """
@@ -73,7 +88,9 @@ class TextQualityEvaluator:
             float: The BLEU score.
         """
         if not sacrebleu:
-            raise ImportError("sacrebleu is not installed. Please run 'pip install sacrebleu'.")
+            raise ImportError(
+                "sacrebleu is not installed. Please run 'pip install sacrebleu'."
+            )
 
         bleu = sacrebleu.corpus_bleu([candidate], [references])
         return bleu.score
@@ -90,16 +107,18 @@ class TextQualityEvaluator:
             float: The Self-CIDEr diversity score.
         """
         if not Cider:
-            raise ImportError("pycocoevalcap is not installed. Please run 'pip install pycocoevalcap'.")
+            raise ImportError(
+                "pycocoevalcap is not installed. Please run 'pip install pycocoevalcap'."
+            )
 
         if not captions or len(captions) < 2:
             return 0.0
 
         num_captions = len(captions)
         cider_scorer = Cider()
-        
+
         similarity_matrix = np.zeros((num_captions, num_captions))
-        
+
         for i in range(num_captions):
             for j in range(num_captions):
                 res = {0: [captions[j]]}
@@ -117,6 +136,8 @@ class TextQualityEvaluator:
         ratio = np.max(sqrt_eigenvalues) / np.sum(sqrt_eigenvalues)
         ratio = max(ratio, 1e-9)
 
-        diversity_score = -np.log(ratio) / np.log(num_captions) if num_captions > 1 else 0.0
+        diversity_score = (
+            -np.log(ratio) / np.log(num_captions) if num_captions > 1 else 0.0
+        )
 
         return diversity_score

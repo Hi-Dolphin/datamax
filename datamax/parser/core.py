@@ -10,9 +10,8 @@ from loguru import logger
 from openai import OpenAI
 
 import datamax.generator.qa_generator as qa_generator
-
-from datamax.parser.base import BaseLife
 from datamax.cleaner import data_cleaner
+from datamax.parser.base import BaseLife
 from datamax.utils.lifecycle_types import LifeType
 
 
@@ -68,9 +67,26 @@ class ParserFactory:
         # Define extension groups
         image_extensions = [".jpg", ".jpeg", ".png", ".webp"]
         code_extensions = [
-            ".py", ".js", ".jsx", ".ts", ".tsx", ".java",
-            ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
-            ".go", ".rs", ".php", ".rb", ".cs", ".swift", ".kt", ".scala"
+            ".py",
+            ".js",
+            ".jsx",
+            ".ts",
+            ".tsx",
+            ".java",
+            ".cpp",
+            ".cc",
+            ".cxx",
+            ".c",
+            ".h",
+            ".hpp",
+            ".go",
+            ".rs",
+            ".php",
+            ".rb",
+            ".cs",
+            ".swift",
+            ".kt",
+            ".scala",
         ]
 
         # Mapping of extensions to (class_name, module_name)
@@ -108,13 +124,19 @@ class ParserFactory:
 
         try:
             if use_mineru and use_mllm:
-                raise ValueError("You must choose between the Mineru and MLLM solutions - they cannot be used at the same time!")
+                raise ValueError(
+                    "You must choose between the Mineru and MLLM solutions - they cannot be used at the same time!"
+                )
             # use_mineru & use_qwen_vl_ocr can't be used at the same time
             if use_mineru and use_qwen_vl_ocr:
-                raise ValueError("You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!")
-            
+                raise ValueError(
+                    "You must choose between the Mineru and Qwen-VL-OCR solutions - they cannot be used at the same time!"
+                )
+
             if mllm_system_prompt and use_mllm and parser_class_name != "ImageParser":
-                raise ValueError("MLLM can only be used with Image type temporarily, try to use Mineru or Qwen-VL-OCR instead, ``use_mineru=True`` or ``use_qwen_vl_ocr=True``")
+                raise ValueError(
+                    "MLLM can only be used with Image type temporarily, try to use Mineru or Qwen-VL-OCR instead, ``use_mineru=True`` or ``use_qwen_vl_ocr=True``"
+                )
 
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
@@ -129,13 +151,11 @@ class ParserFactory:
                     api_key=api_key,
                     base_url=base_url,
                     model_name=model_name,
-                    **common_kwargs
+                    **common_kwargs,
                 )
             elif parser_class_name in ["DocxParser", "DocParser", "WpsParser"]:
                 return parser_class(
-                    to_markdown=to_markdown,
-                    use_uno=True,
-                    **common_kwargs
+                    to_markdown=to_markdown, use_uno=True, **common_kwargs
                 )
             elif parser_class_name == "ImageParser":
                 return parser_class(
@@ -144,7 +164,7 @@ class ParserFactory:
                     base_url=base_url,
                     model_name=model_name,
                     system_prompt=mllm_system_prompt,
-                    **common_kwargs
+                    **common_kwargs,
                 )
             else:
                 return parser_class(**common_kwargs)
@@ -477,10 +497,12 @@ class DataMax(BaseLife):
         :return: List of QA pairs
         """
         import datamax.generator.qa_generator as qa_generator
-        
+
         if debug:
             logger.debug(f"get_pre_label called with parameters:")
-            logger.debug(f"  content: {content is not None} (length: {len(content) if content else 0})")
+            logger.debug(
+                f"  content: {content is not None} (length: {len(content) if content else 0})"
+            )
             logger.debug(f"  use_mllm: {use_mllm}")
             logger.debug(f"  api_key: {'***' if api_key else None}")
             logger.debug(f"  base_url: {base_url}")
@@ -491,13 +513,15 @@ class DataMax(BaseLife):
             logger.debug(f"  max_workers: {max_workers}")
             logger.debug(f"  language: {language}")
             logger.debug(f"  use_tree_label: {use_tree_label}")
-            logger.debug(f"  messages: {messages is not None} (count: {len(messages) if messages else 0})")
+            logger.debug(
+                f"  messages: {messages is not None} (count: {len(messages) if messages else 0})"
+            )
             logger.debug(f"  interactive_tree: {interactive_tree}")
             logger.debug(f"  custom_domain_tree: {custom_domain_tree is not None}")
             logger.debug(f"  self.file_path: {self.file_path}")
             logger.debug(f"  self.use_mineru: {self.use_mineru}")
             logger.debug(f"  self.domain: {self.domain}")
-        
+
         # If content is passed externally, use it directly; otherwise go through parse/clean process
         data = []
         if content is not None:
@@ -509,25 +533,31 @@ class DataMax(BaseLife):
                 logger.debug("No external content provided, calling self.get_data()")
             processed = self.get_data()
             if debug:
-                logger.debug(f"get_data() returned type: {type(processed)}, value: {processed if not isinstance(processed, str) or len(processed) < 200 else processed[:200] + '...'}")
-            
+                logger.debug(
+                    f"get_data() returned type: {type(processed)}, value: {processed if not isinstance(processed, str) or len(processed) < 200 else processed[:200] + '...'}"
+                )
+
             # Consistent with original logic, convert multiple files or dict/str to a single string
             if isinstance(processed, list):
                 parts = [d["content"] if isinstance(d, dict) else d for d in processed]
                 text = "\n\n".join(parts)
                 if debug:
-                    logger.debug(f"Processed list with {len(parts)} parts, final text length: {len(text)}")
+                    logger.debug(
+                        f"Processed list with {len(parts)} parts, final text length: {len(text)}"
+                    )
             elif isinstance(processed, dict):
                 text = processed.get("content", "")
                 if debug:
-                    logger.debug(f"Processed dict, extracted content length: {len(text)}")
+                    logger.debug(
+                        f"Processed dict, extracted content length: {len(text)}"
+                    )
             else:
                 text = processed
                 if debug:
                     logger.debug(f"Processed as string, text length: {len(text)}")
             print(text)
             file_path = self.file_path
-        
+
         # Mark: start DATA_LABELLING
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
             if debug:
@@ -544,37 +574,68 @@ class DataMax(BaseLife):
             base_url = qa_generator.complete_api_url(base_url)
             if debug:
                 logger.debug(f"Completed API URL: {base_url}")
-                logger.debug(f"Condition check - use_mllm: {use_mllm}, self.use_mineru: {self.use_mineru}")
-            
+                logger.debug(
+                    f"Condition check - use_mllm: {use_mllm}, self.use_mineru: {self.use_mineru}"
+                )
+
             if use_mllm and self.use_mineru:
                 logger.info("Using multimodal QA generator...")
                 if debug:
-                    logger.debug(f"Processing file_path for multimodal: {self.file_path} (type: {type(self.file_path)})")
-                
+                    logger.debug(
+                        f"Processing file_path for multimodal: {self.file_path} (type: {type(self.file_path)})"
+                    )
+
                 if isinstance(self.file_path, list):
-                    file_names = [os.path.basename(f).replace('.pdf', '.md') for f in self.file_path]
-                    if debug:
-                        logger.debug(f"File path is list, generated file_names: {file_names}")
-                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                    file_names = [os.path.basename(self.file_path).replace('.pdf', '.md')]
-                    if debug:
-                        logger.debug(f"File path is file, generated file_names: {file_names}")
-                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
                     file_names = [
-                        os.path.basename(file).replace('.pdf', '.md') for file in list(Path(self.file_path).rglob("*.*"))
+                        os.path.basename(f).replace(".pdf", ".md")
+                        for f in self.file_path
                     ]
                     if debug:
-                        logger.debug(f"File path is directory, found {len(file_names)} files: {file_names[:5]}{'...' if len(file_names) > 5 else ''}")
-                
-                file_names = [os.path.join(Path(__file__).parent.parent.parent.resolve(),'__temp__', 'markdown', f) for f in file_names]
+                        logger.debug(
+                            f"File path is list, generated file_names: {file_names}"
+                        )
+                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                    file_names = [
+                        os.path.basename(self.file_path).replace(".pdf", ".md")
+                    ]
+                    if debug:
+                        logger.debug(
+                            f"File path is file, generated file_names: {file_names}"
+                        )
+                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                    file_names = [
+                        os.path.basename(file).replace(".pdf", ".md")
+                        for file in list(Path(self.file_path).rglob("*.*"))
+                    ]
+                    if debug:
+                        logger.debug(
+                            f"File path is directory, found {len(file_names)} files: {file_names[:5]}{'...' if len(file_names) > 5 else ''}"
+                        )
+
+                file_names = [
+                    os.path.join(
+                        Path(__file__).parent.parent.parent.resolve(),
+                        "__temp__",
+                        "markdown",
+                        f,
+                    )
+                    for f in file_names
+                ]
                 if debug:
                     logger.debug(f"Final file_names with full paths: {file_names}")
-                
+
                 from datamax.utils import multimodal_qa_generator as generator_module
-                multimodal_file_path = os.path.join('__temp__', 'markdown', os.path.basename(self.file_path).replace('.pdf','.md'))
+
+                multimodal_file_path = os.path.join(
+                    "__temp__",
+                    "markdown",
+                    os.path.basename(self.file_path).replace(".pdf", ".md"),
+                )
                 if debug:
-                    logger.debug(f"Calling multimodal QA generator with file_path: {multimodal_file_path}")
-                
+                    logger.debug(
+                        f"Calling multimodal QA generator with file_path: {multimodal_file_path}"
+                    )
+
                 data = generator_module.generatr_qa_pairs(
                     file_path=multimodal_file_path,
                     api_key=api_key,
@@ -586,11 +647,19 @@ class DataMax(BaseLife):
             else:
                 logger.info("Using standard QA generator...")
                 if debug:
-                    logger.debug(f"Calling standard QA generator with text length: {len(text)}")
-                    logger.debug(f"QA generator parameters - chunk_size: {chunk_size}, chunk_overlap: {chunk_overlap}")
-                    logger.debug(f"QA generator parameters - question_number: {question_number}, max_workers: {max_workers}")
-                    logger.debug(f"QA generator parameters - use_tree_label: {use_tree_label}, use_mineru: {self.use_mineru}")
-                
+                    logger.debug(
+                        f"Calling standard QA generator with text length: {len(text)}"
+                    )
+                    logger.debug(
+                        f"QA generator parameters - chunk_size: {chunk_size}, chunk_overlap: {chunk_overlap}"
+                    )
+                    logger.debug(
+                        f"QA generator parameters - question_number: {question_number}, max_workers: {max_workers}"
+                    )
+                    logger.debug(
+                        f"QA generator parameters - use_tree_label: {use_tree_label}, use_mineru: {self.use_mineru}"
+                    )
+
                 data = qa_generator.full_qa_labeling_process(
                     content=text,
                     api_key=api_key,
@@ -606,11 +675,13 @@ class DataMax(BaseLife):
                     custom_domain_tree=custom_domain_tree,
                     use_mineru=self.use_mineru,  # Pass use_mineru parameter
                     debug=debug,
-            )
+                )
             if debug:
-                data_length = len(data) if hasattr(data, '__len__') else 'N/A'
-                logger.debug(f"QA generation completed, data type: {type(data)}, length: {data_length}")
-            
+                data_length = len(data) if hasattr(data, "__len__") else "N/A"
+                logger.debug(
+                    f"QA generation completed, data type: {type(data)}, length: {data_length}"
+                )
+
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 # Mark: success DATA_LABELLED
                 if debug:
@@ -626,38 +697,46 @@ class DataMax(BaseLife):
                 )
             # show preview of the first 10 qa pairs
             qa_pairs_to_preview = []
-            
+
             # Extract QA pairs from different data structures
             if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                 qa_pairs_to_preview = data
             elif isinstance(data, dict):
                 # Handle dict type data - extract QA pairs
-                if 'qa_pairs' in data:
-                    qa_pairs_to_preview = data['qa_pairs']
-                elif 'data' in data:
-                    qa_pairs_to_preview = data['data']
+                if "qa_pairs" in data:
+                    qa_pairs_to_preview = data["qa_pairs"]
+                elif "data" in data:
+                    qa_pairs_to_preview = data["data"]
                 else:
                     # If dict doesn't contain expected keys, treat as single QA pair
                     qa_pairs_to_preview = [data]
-            
+
             # Display preview if we have QA pairs
             if qa_pairs_to_preview and len(qa_pairs_to_preview) > 0:
                 if debug:
-                    logger.debug(f"Showing preview of first 10 QA pairs from {len(qa_pairs_to_preview)} total pairs")
+                    logger.debug(
+                        f"Showing preview of first 10 QA pairs from {len(qa_pairs_to_preview)} total pairs"
+                    )
                 print("\n===== Preview of first 10 QA pairs =====")
                 for i, qa in enumerate(qa_pairs_to_preview[:10]):
                     print(f"\n--- QA pair {i+1} ---")
-                    print(f"Question: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(
+                        f"Question: {qa.get('instruction', qa.get('question', 'N/A'))}"
+                    )
                     print(f"Answer: {qa.get('output', 'N/A')}")
                     print(f"Label: {qa.get('label', 'N/A')}")
                 print("========================\n")
             elif debug:
-                data_length = len(data) if hasattr(data, '__len__') else 'N/A'
-                logger.debug(f"No preview to show - data type: {type(data)}, length: {data_length}")
-            
+                data_length = len(data) if hasattr(data, "__len__") else "N/A"
+                logger.debug(
+                    f"No preview to show - data type: {type(data)}, length: {data_length}"
+                )
+
             if debug:
-                data_length = len(data) if hasattr(data, '__len__') else 'N/A'
-                logger.debug(f"Returning data with type: {type(data)}, length: {data_length}")
+                data_length = len(data) if hasattr(data, "__len__") else "N/A"
+                logger.debug(
+                    f"Returning data with type: {type(data)}, length: {data_length}"
+                )
             return data
         except ImportError as e:
             logger.error(f"Cannot import generator module: {e}")
@@ -668,11 +747,14 @@ class DataMax(BaseLife):
             if debug:
                 logger.debug(f"Exception details: {str(e)}")
             import traceback
+
             traceback.print_exc()
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
             # Mark: failure DATA_LABEL_FAILED
             if debug:
-                logger.debug("Adding DATA_LABEL_FAILED lifecycle entry due to exception")
+                logger.debug(
+                    "Adding DATA_LABEL_FAILED lifecycle entry due to exception"
+                )
             self.parsed_data["lifecycle"].append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
@@ -683,7 +765,9 @@ class DataMax(BaseLife):
             )
             raise
 
-    def save_label_data(self, label_data: list | dict, save_file_name: str = "qa_pairs"):
+    def save_label_data(
+        self, label_data: list | dict, save_file_name: str = "qa_pairs"
+    ):
         """
         Save label data to file.
         :param label_data: Label data to be saved (list or dict).
@@ -696,7 +780,7 @@ class DataMax(BaseLife):
                 save_file_name = os.path.splitext(os.path.basename(self.file_path))[0]
             else:
                 save_file_name = "label_data"
-        
+
         # Handle list type data
         if isinstance(label_data, list):
             with open(save_file_name + ".jsonl", "w", encoding="utf-8") as f:
@@ -709,14 +793,14 @@ class DataMax(BaseLife):
         elif isinstance(label_data, dict):
             # Extract QA pairs from dict structure
             qa_pairs = []
-            if 'qa_pairs' in label_data:
-                qa_pairs = label_data['qa_pairs']
-            elif 'data' in label_data:
-                qa_pairs = label_data['data']
+            if "qa_pairs" in label_data:
+                qa_pairs = label_data["qa_pairs"]
+            elif "data" in label_data:
+                qa_pairs = label_data["data"]
             else:
                 # If dict doesn't contain expected keys, save the entire dict
                 qa_pairs = [label_data]
-            
+
             with open(save_file_name + ".jsonl", "w", encoding="utf-8") as f:
                 for qa_entry in qa_pairs:
                     f.write(json.dumps(qa_entry, ensure_ascii=False) + "\n")
@@ -724,7 +808,9 @@ class DataMax(BaseLife):
                 f"✅ [Label Data Saved] Label data saved to {save_file_name}.jsonl (extracted {len(qa_pairs)} QA pairs from dict)"
             )
         else:
-            raise ValueError(f"Unsupported data type: {type(label_data)}. Expected list or dict.")
+            raise ValueError(
+                f"Unsupported data type: {type(label_data)}. Expected list or dict."
+            )
 
     @staticmethod
     def split_text_into_paragraphs(

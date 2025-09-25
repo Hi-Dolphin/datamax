@@ -18,15 +18,24 @@ from paddle.utils import try_import
 from paddleocr import PPStructure, save_structure_res
 
 try:
-    from ppstructure.recovery.recovery_to_doc import convert_info_docx, sorted_layout_boxes
+    from ppstructure.recovery.recovery_to_doc import (
+        convert_info_docx,
+        sorted_layout_boxes,
+    )
 except ImportError:
     import sysconfig
-    lib_path = sysconfig.get_path('purelib')
+
+    lib_path = sysconfig.get_path("purelib")
     sys.path.insert(0, os.path.join(lib_path, "paddleocr"))
     try:
-        from ppstructure.recovery.recovery_to_doc import convert_info_docx, sorted_layout_boxes
+        from ppstructure.recovery.recovery_to_doc import (
+            convert_info_docx,
+            sorted_layout_boxes,
+        )
     except ImportError as e:
-        raise ImportError("Failed to import paddleocr modules. Ensure paddleocr and ppstructure are installed.") from e
+        raise ImportError(
+            "Failed to import paddleocr modules. Ensure paddleocr and ppstructure are installed."
+        ) from e
 
 
 def recovery(img_path, output, use_gpu, gpu_id):
@@ -73,8 +82,12 @@ def recovery(img_path, output, use_gpu, gpu_id):
         gpu_id=gpu_id,
         det_model_dir=str(ROOT_DIR / "ocr_model_dir/det/en/en_PP-OCRv3_det_infer"),
         rec_model_dir=str(ROOT_DIR / "ocr_model_dir/rec/ch/ch_PP-OCRv4_rec_infer"),
-        table_model_dir=str(ROOT_DIR / "ocr_model_dir/table/en_ppstructure_mobile_v2.0_SLANet_infer"),
-        layout_model_dir=str(ROOT_DIR / "ocr_model_dir/layout/picodet_lcnet_x1_0_fgd_layout_infer"),
+        table_model_dir=str(
+            ROOT_DIR / "ocr_model_dir/table/en_ppstructure_mobile_v2.0_SLANet_infer"
+        ),
+        layout_model_dir=str(
+            ROOT_DIR / "ocr_model_dir/layout/picodet_lcnet_x1_0_fgd_layout_infer"
+        ),
         formula_model_dir=str(ROOT_DIR / "ocr_model_dir/formula/rec_latex_ocr_infer"),
     )
     for index, (img_path, img) in enumerate(img_paths):

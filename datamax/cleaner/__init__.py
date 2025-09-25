@@ -1,7 +1,3 @@
-from .data_cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
+from .data_cleaner import AbnormalCleaner, PrivacyDesensitization, TextFilter
 
-__all__ = [
-    "AbnormalCleaner",
-    "TextFilter", 
-    "PrivacyDesensitization"
-]
+__all__ = ["AbnormalCleaner", "TextFilter", "PrivacyDesensitization"]

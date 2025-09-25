@@ -1,4 +1,3 @@
-
 import chardet
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo

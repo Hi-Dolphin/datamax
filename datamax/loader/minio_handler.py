@@ -8,7 +8,6 @@ from minio import Minio
 from minio.commonconfig import Tags
 from minio.error import S3Error
 
-
 load_dotenv()
 
 

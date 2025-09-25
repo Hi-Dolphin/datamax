@@ -10,7 +10,6 @@ from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
-
 # Try to import UNO processor
 try:
     from datamax.utils.uno_handler import HAS_UNO, convert_with_uno

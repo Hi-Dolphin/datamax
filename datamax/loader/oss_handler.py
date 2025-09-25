@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from loguru import logger
 from tqdm import tqdm
 
-
 load_dotenv()
 
 
@@ -100,9 +99,7 @@ class OssClient:
                 self.bucket.put_object_from_file(
                     object_name, file_path, progress_callback=progress_callback
                 )
-                logger.info(
-                    f"object name: {object_name}, file path: {file_path}"
-                )
+                logger.info(f"object name: {object_name}, file path: {file_path}")
 
     # Download a folder
     # Usage: ossBucket.get_object_to_folder("my-object-folder", "path/to/local/output-folder")

@@ -18,29 +18,30 @@ _pptx_presentation = None
 def _safe_import_pptx():
     """Safely import pptx library to avoid conflicts with UNO (thread-safe)"""
     global _pptx_imported, _pptx_import_error, _pptx_presentation
-    
+
     # Quick check to avoid unnecessary lock acquisition
     if _pptx_imported:
         return True
-    
+
     with _pptx_import_lock:
         # Double-checked locking pattern
         if _pptx_imported:
             return True
-        
+
         try:
             # Temporarily disable UNO's import hook
             original_import = None
-            uno_module = sys.modules.get('uno')
-            if uno_module and hasattr(uno_module, '_uno_import'):
+            uno_module = sys.modules.get("uno")
+            if uno_module and hasattr(uno_module, "_uno_import"):
                 # Save the original import function
                 original_import = builtins.__import__
                 # Temporarily restore Python's original import
                 builtins.__import__ = uno_module._builtin_import
-            
+
             try:
                 # Safely import pptx
                 from pptx import Presentation
+
                 _pptx_presentation = Presentation
                 _pptx_imported = True
                 logger.info("✅ PPTX module imported successfully")
@@ -49,7 +50,7 @@ def _safe_import_pptx():
                 # Restore UNO's import hook
                 if original_import is not None:
                     builtins.__import__ = original_import
-                    
+
         except ImportError as e:
             _pptx_import_error = e
             logger.error(f"❌ PPTX module import failed: {str(e)}")
@@ -75,7 +76,7 @@ class PptxParser(BaseLife):
         try:
             # Use safe import mechanism
             ensure_pptx_imported()
-            
+
             content = ""
             prs = _pptx_presentation(file_path)
             for slide in prs.slides:

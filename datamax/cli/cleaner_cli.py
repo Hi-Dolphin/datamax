@@ -3,13 +3,14 @@
 Provides object-oriented interface for cleaner operations.
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Any, Dict, Optional, Union
+
 from loguru import logger
 
-from datamax.cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
+from datamax.cleaner import AbnormalCleaner, PrivacyDesensitization, TextFilter
 
 
 class CleanerCLI:
@@ -31,9 +32,9 @@ class CleanerCLI:
         if verbose:
             logger.remove()
             logger.add(
-                lambda msg: print(msg, end=''),
+                lambda msg: print(msg, end=""),
                 level="DEBUG",
-                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n"
+                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n",
             )
 
     def clean_abnormal(self, text: str) -> Dict[str, Any]:
@@ -60,12 +61,14 @@ class CleanerCLI:
             logger.error(f"Abnormal cleaning failed: {str(e)}")
             raise
 
-    def clean_filter(self,
-                    text: str,
-                    filter_threshold: float = 0.6,
-                    min_chars: int = 30,
-                    max_chars: int = 500000,
-                    numeric_threshold: float = 0.6) -> Dict[str, Any]:
+    def clean_filter(
+        self,
+        text: str,
+        filter_threshold: float = 0.6,
+        min_chars: int = 30,
+        max_chars: int = 500000,
+        numeric_threshold: float = 0.6,
+    ) -> Dict[str, Any]:
         """Filter text by quality metrics.
 
         Args:
@@ -86,8 +89,8 @@ class CleanerCLI:
             cleaner = AbnormalCleaner(text)
             cleaned = cleaner.no_html_clean()
 
-            if isinstance(cleaned, dict) and 'text' in cleaned and cleaned['text']:
-                filter_obj = TextFilter(cleaned['text'])
+            if isinstance(cleaned, dict) and "text" in cleaned and cleaned["text"]:
+                filter_obj = TextFilter(cleaned["text"])
                 filter_obj.filter_by_word_repetition(filter_threshold)
                 filter_obj.filter_by_char_count(min_chars, max_chars)
                 filter_obj.filter_by_numeric_content(numeric_threshold)
@@ -142,27 +145,31 @@ class CleanerCLI:
                 logger.info("Performing full cleaning pipeline...")
 
             # Extract filtering parameters
-            filter_threshold = kwargs.get('filter_threshold', 0.6)
-            min_chars = kwargs.get('min_chars', 30)
-            max_chars = kwargs.get('max_chars', 500000)
-            numeric_threshold = kwargs.get('numeric_threshold', 0.6)
+            filter_threshold = kwargs.get("filter_threshold", 0.6)
+            min_chars = kwargs.get("min_chars", 30)
+            max_chars = kwargs.get("max_chars", 500000)
+            numeric_threshold = kwargs.get("numeric_threshold", 0.6)
 
             # Step 1: Abnormal cleaning
             cleaner = AbnormalCleaner(text)
             cleaned = cleaner.to_clean()
 
-            if not (isinstance(cleaned, dict) and 'text' in cleaned and cleaned['text']):
+            if not (
+                isinstance(cleaned, dict) and "text" in cleaned and cleaned["text"]
+            ):
                 return cleaned
 
             # Step 2: Filtering
-            filter_obj = TextFilter(cleaned['text'])
+            filter_obj = TextFilter(cleaned["text"])
             filtered = filter_obj.to_filter()
 
-            if not (isinstance(filtered, dict) and 'text' in filtered and filtered['text']):
+            if not (
+                isinstance(filtered, dict) and "text" in filtered and filtered["text"]
+            ):
                 return filtered
 
             # Step 3: Privacy desensitization
-            privacy = PrivacyDesensitization(filtered['text'])
+            privacy = PrivacyDesensitization(filtered["text"])
             result = privacy.to_private()
 
             if self.verbose:
@@ -197,11 +204,13 @@ class CleanerCLI:
             logger.error(f"No-HTML cleaning failed: {str(e)}")
             raise
 
-    def clean_file(self,
-                   input_file: Union[str, Path],
-                   output_file: Optional[Union[str, Path]] = None,
-                   mode: str = 'full',
-                   **kwargs) -> str:
+    def clean_file(
+        self,
+        input_file: Union[str, Path],
+        output_file: Optional[Union[str, Path]] = None,
+        mode: str = "full",
+        **kwargs,
+    ) -> str:
         """Clean text from file and save result.
 
         Args:
@@ -221,19 +230,19 @@ class CleanerCLI:
             if self.verbose:
                 logger.info(f"Reading input file: {input_file}")
 
-            with open(input_path, 'r', encoding='utf-8') as f:
+            with open(input_path, "r", encoding="utf-8") as f:
                 text = f.read()
 
             # Perform cleaning
-            if mode == 'full':
+            if mode == "full":
                 result = self.clean_full(text, **kwargs)
-            elif mode == 'abnormal':
+            elif mode == "abnormal":
                 result = self.clean_abnormal(text)
-            elif mode == 'filter':
+            elif mode == "filter":
                 result = self.clean_filter(text, **kwargs)
-            elif mode == 'privacy':
+            elif mode == "privacy":
                 result = self.clean_privacy(text)
-            elif mode == 'no_html':
+            elif mode == "no_html":
                 result = self.clean_no_html(text)
             else:
                 raise ValueError(f"Unknown cleaning mode: {mode}")
@@ -242,13 +251,15 @@ class CleanerCLI:
             if output_file:
                 output_path = Path(output_file)
             else:
-                output_path = input_path.parent / f"{input_path.stem}_cleaned{input_path.suffix}"
+                output_path = (
+                    input_path.parent / f"{input_path.stem}_cleaned{input_path.suffix}"
+                )
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            if isinstance(result, dict) and 'text' in result:
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(result['text'])
+            if isinstance(result, dict) and "text" in result:
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(result["text"])
 
                 if self.verbose:
                     logger.info(f"Cleaned text saved to: {output_path}")
@@ -261,7 +272,7 @@ class CleanerCLI:
             logger.error(f"File cleaning failed: {str(e)}")
             raise
 
-    def clean_stdin(self, mode: str = 'full', **kwargs) -> str:
+    def clean_stdin(self, mode: str = "full", **kwargs) -> str:
         """Clean text from standard input.
 
         Args:
@@ -280,23 +291,23 @@ class CleanerCLI:
                 raise ValueError("No input received from stdin")
 
             # Perform cleaning
-            if mode == 'full':
+            if mode == "full":
                 result = self.clean_full(text, **kwargs)
-            elif mode == 'abnormal':
+            elif mode == "abnormal":
                 result = self.clean_abnormal(text)
-            elif mode == 'filter':
+            elif mode == "filter":
                 result = self.clean_filter(text, **kwargs)
-            elif mode == 'privacy':
+            elif mode == "privacy":
                 result = self.clean_privacy(text)
-            elif mode == 'no_html':
+            elif mode == "no_html":
                 result = self.clean_no_html(text)
             else:
                 raise ValueError(f"Unknown cleaning mode: {mode}")
 
-            if isinstance(result, dict) and 'text' in result:
+            if isinstance(result, dict) and "text" in result:
                 if self.verbose:
                     logger.info("Cleaning completed successfully")
-                return result['text']
+                return result["text"]
             else:
                 raise ValueError("Cleaning returned empty result")
 
@@ -311,11 +322,11 @@ class CleanerCLI:
             Dictionary of mode names and descriptions
         """
         return {
-            'full': 'Complete cleaning pipeline (abnormal + filter + privacy)',
-            'abnormal': 'Remove abnormal characters, HTML, normalize text',
-            'filter': 'Filter by content quality (repetition, length, numeric content)',
-            'privacy': 'Remove sensitive information (emails, phones, IDs, etc.)',
-            'no_html': 'Basic cleaning without HTML removal'
+            "full": "Complete cleaning pipeline (abnormal + filter + privacy)",
+            "abnormal": "Remove abnormal characters, HTML, normalize text",
+            "filter": "Filter by content quality (repetition, length, numeric content)",
+            "privacy": "Remove sensitive information (emails, phones, IDs, etc.)",
+            "no_html": "Basic cleaning without HTML removal",
         }
 
     def get_cleaning_info(self, mode: str) -> Dict[str, Any]:
@@ -328,41 +339,74 @@ class CleanerCLI:
             Dictionary with mode information
         """
         modes_info = {
-            'full': {
-                'name': 'Full Cleaning',
-                'description': 'Complete text cleaning pipeline',
-                'steps': ['Abnormal cleaning', 'Content filtering', 'Privacy desensitization'],
-                'parameters': ['filter_threshold', 'min_chars', 'max_chars', 'numeric_threshold']
+            "full": {
+                "name": "Full Cleaning",
+                "description": "Complete text cleaning pipeline",
+                "steps": [
+                    "Abnormal cleaning",
+                    "Content filtering",
+                    "Privacy desensitization",
+                ],
+                "parameters": [
+                    "filter_threshold",
+                    "min_chars",
+                    "max_chars",
+                    "numeric_threshold",
+                ],
             },
-            'abnormal': {
-                'name': 'Abnormal Cleaning',
-                'description': 'Basic text normalization and character cleaning',
-                'steps': ['Remove abnormal chars', 'HTML removal', 'Text normalization'],
-                'parameters': []
+            "abnormal": {
+                "name": "Abnormal Cleaning",
+                "description": "Basic text normalization and character cleaning",
+                "steps": [
+                    "Remove abnormal chars",
+                    "HTML removal",
+                    "Text normalization",
+                ],
+                "parameters": [],
             },
-            'filter': {
-                'name': 'Content Filtering',
-                'description': 'Filter text based on quality metrics',
-                'steps': ['Word repetition check', 'Character count validation', 'Numeric content check'],
-                'parameters': ['filter_threshold', 'min_chars', 'max_chars', 'numeric_threshold']
+            "filter": {
+                "name": "Content Filtering",
+                "description": "Filter text based on quality metrics",
+                "steps": [
+                    "Word repetition check",
+                    "Character count validation",
+                    "Numeric content check",
+                ],
+                "parameters": [
+                    "filter_threshold",
+                    "min_chars",
+                    "max_chars",
+                    "numeric_threshold",
+                ],
             },
-            'privacy': {
-                'name': 'Privacy Desensitization',
-                'description': 'Remove sensitive personal information',
-                'steps': ['IP address removal', 'Email/phone masking', 'ID number replacement'],
-                'parameters': []
+            "privacy": {
+                "name": "Privacy Desensitization",
+                "description": "Remove sensitive personal information",
+                "steps": [
+                    "IP address removal",
+                    "Email/phone masking",
+                    "ID number replacement",
+                ],
+                "parameters": [],
             },
-            'no_html': {
-                'name': 'No-HTML Cleaning',
-                'description': 'Basic cleaning without HTML tag removal',
-                'steps': ['Character normalization', 'Text formatting', 'Encoding cleanup'],
-                'parameters': []
-            }
+            "no_html": {
+                "name": "No-HTML Cleaning",
+                "description": "Basic cleaning without HTML tag removal",
+                "steps": [
+                    "Character normalization",
+                    "Text formatting",
+                    "Encoding cleanup",
+                ],
+                "parameters": [],
+            },
         }
 
-        return modes_info.get(mode, {
-            'name': f'{mode.title()} Cleaning',
-            'description': 'Custom cleaning mode',
-            'steps': ['Custom operations'],
-            'parameters': []
-        })
+        return modes_info.get(
+            mode,
+            {
+                "name": f"{mode.title()} Cleaning",
+                "description": "Custom cleaning mode",
+                "steps": ["Custom operations"],
+                "parameters": [],
+            },
+        )

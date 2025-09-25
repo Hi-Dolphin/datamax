@@ -3,18 +3,15 @@
 Provides object-oriented interface for generator operations.
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 import click
 from loguru import logger
 
-from datamax.generator import (
-    full_qa_labeling_process,
-    generate_multimodal_qa_pairs
-)
+from datamax.generator import full_qa_labeling_process, generate_multimodal_qa_pairs
 
 
 class GeneratorCLI:
@@ -36,21 +33,23 @@ class GeneratorCLI:
         if verbose:
             logger.remove()
             logger.add(
-                lambda msg: print(msg, end=''),
+                lambda msg: print(msg, end=""),
                 level="DEBUG",
-                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n"
+                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>\n",
             )
 
-    def generate_qa(self,
-                   input_file: str,
-                   output_file: Optional[str] = None,
-                   api_key: str = None,
-                   base_url: str = None,
-                   model: str = None,
-                   chunk_size: int = 500,
-                   chunk_overlap: int = 100,
-                   question_number: int = 5,
-                   max_workers: int = 5) -> Dict[str, Any]:
+    def generate_qa(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        api_key: str = None,
+        base_url: str = None,
+        model: str = None,
+        chunk_size: int = 500,
+        chunk_overlap: int = 100,
+        question_number: int = 5,
+        max_workers: int = 5,
+    ) -> Dict[str, Any]:
         """Generate QA pairs from text files.
 
         Args:
@@ -76,7 +75,7 @@ class GeneratorCLI:
                 raise FileNotFoundError(f"Input file '{input_file}' not found")
 
             # Read input file
-            with open(input_path, 'r', encoding='utf-8') as f:
+            with open(input_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             if not content.strip():
@@ -84,13 +83,15 @@ class GeneratorCLI:
 
             # Get API credentials
             if not api_key:
-                api_key = self._get_api_key('DASHSCOPE_API_KEY')
+                api_key = self._get_api_key("DASHSCOPE_API_KEY")
 
             if not base_url:
-                base_url = self._get_api_key('DASHSCOPE_BASE_URL', 'https://dashscope.aliyuncs.com/api/v1')
+                base_url = self._get_api_key(
+                    "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/api/v1"
+                )
 
             if not model:
-                model = 'qwen-max'
+                model = "qwen-max"
 
             # Generate QA pairs
             result = full_qa_labeling_process(
@@ -104,11 +105,11 @@ class GeneratorCLI:
                 question_number=question_number,
                 max_workers=max_workers,
                 use_mineru=False,
-                debug=self.verbose
+                debug=self.verbose,
             )
 
             if self.verbose:
-                qa_count = len(result.get('qa_pairs', []))
+                qa_count = len(result.get("qa_pairs", []))
                 logger.info(f"Generated {qa_count} QA pairs successfully")
 
             return result
@@ -117,15 +118,17 @@ class GeneratorCLI:
             logger.error(f"QA generation failed: {str(e)}")
             raise
 
-    def generate_multimodal_qa(self,
-                              input_file: str,
-                              output_file: Optional[str] = None,
-                              api_key: str = None,
-                              model: str = 'gpt-4-vision-preview',
-                              chunk_size: int = 2000,
-                              chunk_overlap: int = 300,
-                              question_number: int = 2,
-                              max_workers: int = 5) -> List[Dict[str, Any]]:
+    def generate_multimodal_qa(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        api_key: str = None,
+        model: str = "gpt-4-vision-preview",
+        chunk_size: int = 2000,
+        chunk_overlap: int = 300,
+        question_number: int = 2,
+        max_workers: int = 5,
+    ) -> List[Dict[str, Any]]:
         """Generate multimodal QA pairs from markdown files with images.
 
         Args:
@@ -149,16 +152,18 @@ class GeneratorCLI:
             if not input_path.exists():
                 raise FileNotFoundError(f"Input file '{input_file}' not found")
 
-            if input_path.suffix.lower() != '.md':
+            if input_path.suffix.lower() != ".md":
                 raise ValueError("Multimodal QA generation requires markdown files")
 
             # Get API credentials
             if not api_key:
-                api_key = self._get_api_key('OPENAI_API_KEY')
+                api_key = self._get_api_key("OPENAI_API_KEY")
 
             if not api_key:
-                raise ValueError("OpenAI API key is required for multimodal generation. "
-                               "Set OPENAI_API_KEY environment variable or use --api-key option.")
+                raise ValueError(
+                    "OpenAI API key is required for multimodal generation. "
+                    "Set OPENAI_API_KEY environment variable or use --api-key option."
+                )
 
             # Generate multimodal QA pairs
             result = generate_multimodal_qa_pairs(
@@ -169,7 +174,7 @@ class GeneratorCLI:
                 chunk_overlap=chunk_overlap,
                 question_number=question_number,
                 max_workers=max_workers,
-                debug=self.verbose
+                debug=self.verbose,
             )
 
             if self.verbose:
@@ -182,7 +187,7 @@ class GeneratorCLI:
             logger.error(f"Multimodal QA generation failed: {str(e)}")
             raise
 
-    def save_result(self, result: Any, output_file: str, format: str = 'json') -> str:
+    def save_result(self, result: Any, output_file: str, format: str = "json") -> str:
         """Save generation result to file.
 
         Args:
@@ -196,8 +201,8 @@ class GeneratorCLI:
         try:
             output_path = Path(output_file)
 
-            if format == 'json':
-                with open(output_path, 'w', encoding='utf-8') as f:
+            if format == "json":
+                with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(result, f, indent=2, ensure_ascii=False, default=str)
             else:
                 raise ValueError(f"Unsupported format: {format}")
@@ -218,8 +223,8 @@ class GeneratorCLI:
             Dictionary of generator names and descriptions
         """
         return {
-            'qa': '纯文本问答对生成器 - 支持多种文档格式，生成结构化QA数据',
-            'multimodal': '多模态问答对生成器 - 从包含图片的Markdown生成视觉QA数据'
+            "qa": "纯文本问答对生成器 - 支持多种文档格式，生成结构化QA数据",
+            "multimodal": "多模态问答对生成器 - 从包含图片的Markdown生成视觉QA数据",
         }
 
     def _get_api_key(self, env_var: str, default: str = None) -> str:
@@ -233,4 +238,5 @@ class GeneratorCLI:
             API key value
         """
         import os
+
         return os.getenv(env_var, default)

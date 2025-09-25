@@ -58,7 +58,9 @@ class DocParser(BaseLife):
         # Prioritize UNO (unless explicitly disabled)
         if use_uno and HAS_UNO:
             self.use_uno = True
-            logger.info(f"🚀 DocParser initialized - using UNO API for single-threaded efficient processing")
+            logger.info(
+                f"🚀 DocParser initialized - using UNO API for single-threaded efficient processing"
+            )
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
@@ -68,7 +70,9 @@ class DocParser(BaseLife):
                     f"📖 Please refer to installation guide in error message above"
                 )
             else:
-                logger.info(f"🚀 DocParser initialized - using traditional command line approach")
+                logger.info(
+                    f"🚀 DocParser initialized - using traditional command line approach"
+                )
 
         logger.info(f"📄 File path: {file_path}, convert to markdown: {to_markdown}")
 
@@ -101,7 +105,9 @@ class DocParser(BaseLife):
             # Check content quality, especially for WPS files
             for content_type, content in all_content:
                 if content and self._check_content_quality(content):
-                    logger.info(f"✅ Successfully extracted content using {content_type}")
+                    logger.info(
+                        f"✅ Successfully extracted content using {content_type}"
+                    )
                     return content
 
             # If all content quality is poor, return empty
@@ -125,7 +131,9 @@ class DocParser(BaseLife):
             # Check if it's a WPS-generated file
             is_wps = any("WpsCustomData" in str(stream) for stream in streams)
             if is_wps:
-                logger.info("📝 Detected WPS DOC file, traditional conversion method recommended")
+                logger.info(
+                    "📝 Detected WPS DOC file, traditional conversion method recommended"
+                )
                 # For WPS files, OLE parsing may be unreliable, return empty to use traditional method
                 ole.close()
                 return ""
@@ -136,7 +144,9 @@ class DocParser(BaseLife):
             if ole.exists("WordDocument"):
                 try:
                     word_stream = ole.openstream("WordDocument").read()
-                    logger.info(f"📄 WordDocument stream size: {len(word_stream)} bytes")
+                    logger.info(
+                        f"📄 WordDocument stream size: {len(word_stream)} bytes"
+                    )
                     text = self._parse_word_stream(word_stream)
                     if text:
                         all_texts.append(text)
@@ -159,7 +169,9 @@ class DocParser(BaseLife):
 
             if text_content:
                 combined = "\n".join(text_content)
-                logger.info(f"📄 Extracted text from OLE streams: {len(combined)} characters")
+                logger.info(
+                    f"📄 Extracted text from OLE streams: {len(combined)} characters"
+                )
                 return self._clean_extracted_text(combined)
 
             ole.close()
@@ -398,7 +410,9 @@ class DocParser(BaseLife):
 
             # Check if still contains XML tags
             if re.search(r"<[^>]+>", result):
-                logger.warning("⚠️ Cleaned text still contains XML tags, performing second cleanup")
+                logger.warning(
+                    "⚠️ Cleaned text still contains XML tags, performing second cleanup"
+                )
                 result = re.sub(r"<[^>]+>", "", result)
 
             return result
@@ -442,7 +456,9 @@ class DocParser(BaseLife):
                     logger.error(f"❌ Converted TXT file does not exist: {txt_path}")
                     raise Exception(f"File conversion failed {doc_path} ==> {txt_path}")
                 else:
-                    logger.info(f"🎉 TXT file conversion successful, file path: {txt_path}")
+                    logger.info(
+                        f"🎉 TXT file conversion successful, file path: {txt_path}"
+                    )
                     return txt_path
 
             except Exception as e:
@@ -460,7 +476,9 @@ class DocParser(BaseLife):
                     f"   3. Check file permissions and paths\n"
                     f'   4. Try manual run: soffice --headless --convert-to txt "{doc_path}"'
                 )
-                logger.warning("⚠️ Automatically falling back to traditional command line method...")
+                logger.warning(
+                    "⚠️ Automatically falling back to traditional command line method..."
+                )
                 return self._doc_to_txt_subprocess(doc_path, dir_path)
         else:
             # Use traditional subprocess method
@@ -479,7 +497,9 @@ class DocParser(BaseLife):
             exit_code = process.returncode
 
             if exit_code == 0:
-                logger.info(f"✅ DOC to TXT conversion successful - exit code: {exit_code}")
+                logger.info(
+                    f"✅ DOC to TXT conversion successful - exit code: {exit_code}"
+                )
                 if stdout:
                     logger.debug(
                         f"📄 Conversion output: {stdout.decode('utf-8', errors='replace')}"
@@ -508,9 +528,13 @@ class DocParser(BaseLife):
 
         except subprocess.SubprocessError as e:
             logger.error(f"💥 subprocess execution failed: {str(e)}")
-            raise Exception(f"Error occurred while executing conversion command: {str(e)}")
+            raise Exception(
+                f"Error occurred while executing conversion command: {str(e)}"
+            )
         except Exception as e:
-            logger.error(f"💥 Unknown error occurred during DOC to TXT conversion: {str(e)}")
+            logger.error(
+                f"💥 Unknown error occurred during DOC to TXT conversion: {str(e)}"
+            )
             raise
 
     def read_txt_file(self, txt_path: str) -> str:
@@ -530,7 +554,9 @@ class DocParser(BaseLife):
             with open(txt_path, "r", encoding=encoding, errors="replace") as f:
                 content = f.read()
 
-            logger.info(f"📄 TXT file reading complete - content length: {len(content)} characters")
+            logger.info(
+                f"📄 TXT file reading complete - content length: {len(content)} characters"
+            )
             logger.debug(f"👀 First 100 characters preview: {content[:100]}...")
 
             return content
@@ -558,7 +584,9 @@ class DocParser(BaseLife):
                         )
                         return comprehensive_content
                     else:
-                        logger.warning("⚠️ Comprehensive extraction content quality poor, trying other methods")
+                        logger.warning(
+                            "⚠️ Comprehensive extraction content quality poor, trying other methods"
+                        )
 
             # Fallback to traditional conversion method
             logger.info("🔄 Using traditional conversion method")
@@ -570,7 +598,9 @@ class DocParser(BaseLife):
 
                 file_path = temp_dir / "tmp.doc"
                 shutil.copy(doc_path, file_path)
-                logger.debug(f"📋 Copied file to temporary directory: {doc_path} -> {file_path}")
+                logger.debug(
+                    f"📋 Copied file to temporary directory: {doc_path} -> {file_path}"
+                )
 
                 # Convert DOC to TXT
                 txt_file_path = self.doc_to_txt(str(file_path), str(temp_path))
@@ -578,7 +608,9 @@ class DocParser(BaseLife):
 
                 # Read TXT file content
                 content = self.read_txt_file(txt_file_path)
-                logger.info(f"✨ TXT file content reading complete, content length: {len(content)} characters")
+                logger.info(
+                    f"✨ TXT file content reading complete, content length: {len(content)} characters"
+                )
 
                 return content
 
@@ -677,7 +709,9 @@ class DocParser(BaseLife):
                 usage_purpose="Documentation",
             )
 
-            logger.info(f"🎊 File content parsing complete, final content length: {len(mk_content)} characters")
+            logger.info(
+                f"🎊 File content parsing complete, final content length: {len(mk_content)} characters"
+            )
 
             # Check if content is empty
             if not mk_content.strip():

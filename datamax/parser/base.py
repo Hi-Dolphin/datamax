@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import List
+
 from datamax.utils.lifecycle_types import LifeType
 
 
@@ -55,6 +56,7 @@ class MarkdownOutputVo:
         }
         return data_dict
 
+
 # ========== New: Predefined domain list ==========
 PREDEFINED_DOMAINS = [
     "Technology",
@@ -79,7 +81,9 @@ class BaseLife:
         # 1) Predefined list validation
         if domain not in PREDEFINED_DOMAINS:
             # You can also change to logger.warning
-            print(f"⚠️ Domain '{domain}' is not in the predefined list, will be handled as custom.")
+            print(
+                f"⚠️ Domain '{domain}' is not in the predefined list, will be handled as custom."
+            )
         # 2) Save domain
         self.domain = domain
 

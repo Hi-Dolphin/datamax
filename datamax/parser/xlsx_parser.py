@@ -10,7 +10,6 @@ from loguru import logger
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -50,7 +49,9 @@ class XlsxParser(BaseLife):
                 # Multiple worksheets
                 logger.info(f"📑 Detected multiple worksheets, total: {len(df)}")
                 for sheet_name, sheet_df in df.items():
-                    logger.debug(f"📋 Processing worksheet: {sheet_name}, shape: {sheet_df.shape}")
+                    logger.debug(
+                        f"📋 Processing worksheet: {sheet_name}, shape: {sheet_df.shape}"
+                    )
                     markdown_content += f"## Worksheet: {sheet_name}\n\n"
 
                     if not sheet_df.empty:
@@ -65,7 +66,9 @@ class XlsxParser(BaseLife):
                             )
                         else:
                             markdown_content += "*This worksheet has no valid data*\n\n"
-                            logger.warning(f"⚠️ Worksheet {sheet_name} has no valid data after cleaning")
+                            logger.warning(
+                                f"⚠️ Worksheet {sheet_name} has no valid data after cleaning"
+                            )
                     else:
                         markdown_content += "*This worksheet is empty*\n\n"
                         logger.warning(f"⚠️ Worksheet {sheet_name} is empty")
@@ -78,7 +81,9 @@ class XlsxParser(BaseLife):
 
                     if not df.empty:
                         markdown_content = df.to_markdown(index=False)
-                        logger.info(f"✅ Worksheet conversion complete, valid data shape: {df.shape}")
+                        logger.info(
+                            f"✅ Worksheet conversion complete, valid data shape: {df.shape}"
+                        )
                     else:
                         markdown_content = "*Worksheet has no valid data*"
                         logger.warning("⚠️ Worksheet has no valid data after cleaning")
@@ -89,7 +94,9 @@ class XlsxParser(BaseLife):
             logger.info(
                 f"🎊 Pandas conversion complete, markdown content length: {len(markdown_content)} characters"
             )
-            logger.debug(f"👀 First 200 characters preview: {markdown_content[:200]}...")
+            logger.debug(
+                f"👀 First 200 characters preview: {markdown_content[:200]}..."
+            )
 
             return markdown_content
 
@@ -129,7 +136,9 @@ class XlsxParser(BaseLife):
                 logger.warning(f"⚠️ Parsed content is empty: {file_path}")
                 mk_content = "*Unable to parse file content*"
 
-            logger.info(f"🎊 File content parsing complete, final content length: {len(mk_content)} characters")
+            logger.info(
+                f"🎊 File content parsing complete, final content length: {len(mk_content)} characters"
+            )
 
             # —— Lifecycle: Processing complete —— #
             lc_end = self.generate_lifecycle(
