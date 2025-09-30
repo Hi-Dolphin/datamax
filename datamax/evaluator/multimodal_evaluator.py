@@ -4,11 +4,8 @@ import math
 import mimetypes
 import re
 import time
-from http import HTTPStatus
 from pathlib import Path
 
-import dashscope
-import torch
 from loguru import logger
 from openai import OpenAI
 
@@ -17,86 +14,122 @@ logger.add(lambda msg: print(msg, end=""), format="{message}")
 
 class MultimodalConsistencyEvaluator:
     """
-    Evaluates the consistency between images and text using DashScope services.
+    Evaluates the consistency between images and text using OpenAI services.
     """
 
     def __init__(
         self,
         clip_model_name: str,
         vqa_model_name: str,
-        dashscope_api_key: str,
-        dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        device: str = None,
+        api_key: str,
+        base_url: str | None = None,
+        device: str | None = None,
     ):
         """
         Initializes the multimodal consistency evaluator.
 
         Args:
-            clip_model_name (str): The name of the DashScope multimodal embedding model.
-            vqa_model_name (str): The name of the VQA model to use.
-            dashscope_api_key (str): The API key for DashScope.
-            dashscope_base_url (str, optional): The base URL for the DashScope OpenAI-compatible API.
-            device (str, optional): The device to run PyTorch operations on ('cuda' or 'cpu'). Auto-detects if None.
+            clip_model_name (str): The OpenAI model used to judge image/text alignment.
+            vqa_model_name (str): The OpenAI vision model used for VQA scoring.
+            api_key (str): The API key for the OpenAI-compatible endpoint.
+            base_url (str, optional): Custom base URL for OpenAI-compatible deployments.
+            device (str, optional): Reserved for backward compatibility; no longer used for computation.
         """
-        if not torch:
-            raise ImportError(
-                "PyTorch is not installed. Please run 'pip install torch'."
-            )
-
-        dashscope.api_key = dashscope_api_key
-
-        self.device = (
-            device if device else "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = device or "cpu"
         self.clip_model_name = clip_model_name
         self.vqa_model_name = vqa_model_name
-        self.dashscope_base_url = dashscope_base_url
-        self.vqa_client = None
-        logger.info(f"Evaluator initialized to run on device: '{self.device}'")
+        self.api_key = api_key
+        self.base_url = base_url
+        self.client: OpenAI | None = None
+        logger.info("Evaluator initialized; OpenAI client will be created lazily.")
 
-    def _load_vqa_client(self):
-        """Initializes the OpenAI-compatible client for VQA tasks if not already present."""
-        if self.vqa_client is None:
-            self.vqa_client = OpenAI(
-                api_key=dashscope.api_key,
-                base_url=self.dashscope_base_url,
-            )
+    def _ensure_client(self):
+        """Initializes the OpenAI client if it has not been created yet."""
+        if self.client is None:
+            kwargs = {"api_key": self.api_key}
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            self.client = OpenAI(**kwargs)
 
-    def _get_embeddings_with_sdk(self, input_data: list) -> list[list[float]] | None:
-        """
-        Helper function to get a list of embeddings using the DashScope SDK.
+    def _extract_message_text(self, message_content) -> str:
+        """Normalizes message content into a plain string."""
+        if isinstance(message_content, list):
+            return ''.join(
+                part.get('text', '')
+                for part in message_content
+                if isinstance(part, dict)
+            ).strip()
+        return (message_content or '').strip()
 
-        Args:
-            input_data (list): A list containing image paths and text content.
-
-        Returns:
-            list[list[float]] | None: A list of embedding vectors or None on failure.
-        """
-        resp = dashscope.MultiModalEmbedding.call(
-            model=self.clip_model_name, input=input_data
+    def _request_alignment_score(self, image_path: str, text: str) -> float:
+        """Requests an OpenAI model to estimate image-text similarity as a cosine score."""
+        self._ensure_client()
+        image_reference = (
+            image_path
+            if image_path.startswith(("http://", "https://"))
+            else self.encode_image_to_base64(image_path)
         )
 
-        if (
-            resp.status_code == HTTPStatus.OK
-            and resp.output
-            and resp.output.get("embeddings")
-        ):
-            return [item["embedding"] for item in resp.output["embeddings"]]
-        else:
-            logger.error(
-                f"DashScope API SDK error: Status {resp.status_code}, Code {resp.code}, Message {resp.message}"
+        system_prompt = (
+            "You evaluate how well an image matches a caption. Respond only with a JSON "
+            "object containing a single key 'cosine_similarity' whose value is a number "
+            "between 0.0 and 1.0."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": image_reference}},
+                    {
+                        "type": "text",
+                        "text": (
+                            "Return the CLIP-style cosine similarity between the provided "
+                            f"image and caption: {text}"
+                        ),
+                    },
+                ],
+            },
+        ]
+
+        completion = self.client.chat.completions.create(
+            model=self.clip_model_name,
+            messages=messages,
+        )
+
+        response_text = self._extract_message_text(
+            completion.choices[0].message.content
+        )
+
+        json_match = re.search(
+            r"```json\s*({.*?})\s*```|({.*?})", response_text, re.DOTALL
+        )
+        if not json_match:
+            raise json.JSONDecodeError(
+                "No JSON object found in response", response_text, 0
             )
-            return None
+
+        json_str_to_parse = json_match.group(1) or json_match.group(2)
+        response_json = json.loads(json_str_to_parse)
+        similarity = response_json.get("cosine_similarity")
+
+        if not isinstance(similarity, (int, float)):
+            raise ValueError(
+                "'cosine_similarity' was not a numeric value in the OpenAI response."
+            )
+
+        return max(0.0, min(1.0, float(similarity)))
 
     def evaluate_clip_score(
         self, image_path: str, text: str, retries: int = 3, delay: int = 5
     ) -> dict:
         """
-        Calculates CLIPscore by computing the cosine similarity between image and text embeddings.
+        Estimates a CLIP-style cosine similarity by prompting an OpenAI vision model.
 
         Args:
-            image_path (str): The local path to the image file.
-            text (str): The text to compare with the image.
+            image_path (str): The local path or URL to the image file.
+            text (str): The caption or description to compare with the image.
             retries (int, optional): Number of retry attempts in case of API failure. Defaults to 3.
             delay (int, optional): Delay in seconds between retries. Defaults to 5.
 
@@ -105,30 +138,16 @@ class MultimodalConsistencyEvaluator:
         """
         for attempt in range(retries):
             try:
-                if not Path(image_path).exists():
+                if not (
+                    image_path.startswith(("http://", "https://"))
+                    or Path(image_path).exists()
+                ):
                     raise FileNotFoundError(
                         f"Image path '{image_path}' does not exist."
                     )
 
-                combined_input = [{"image": image_path}, {"text": text}]
-                embeddings = self._get_embeddings_with_sdk(combined_input)
-
-                if embeddings and len(embeddings) == 2:
-                    image_embedding = embeddings[0]
-                    text_embedding = embeddings[1]
-
-                    img_tensor = torch.tensor(image_embedding, device=self.device)
-                    txt_tensor = torch.tensor(text_embedding, device=self.device)
-
-                    cos_sim = torch.nn.functional.cosine_similarity(
-                        img_tensor, txt_tensor, dim=0
-                    ).item()
-
-                    return {"cosine_similarity": cos_sim}
-                else:
-                    raise ValueError(
-                        "Failed to retrieve a valid pair of embeddings from the API."
-                    )
+                cosine_similarity = self._request_alignment_score(image_path, text)
+                return {"cosine_similarity": cosine_similarity}
 
             except Exception as e:
                 logger.error(
@@ -140,7 +159,7 @@ class MultimodalConsistencyEvaluator:
                     return {"error": str(e), "cosine_similarity": 0.0}
 
         return {
-            "error": "Failed to get embeddings after all retries",
+            "error": "Failed to estimate similarity after all retries",
             "cosine_similarity": 0.0,
         }
 
@@ -179,7 +198,7 @@ class MultimodalConsistencyEvaluator:
         Returns:
             list[float]: A list of VQAScore values, normalized to the [0.0, 1.0] range.
         """
-        self._load_vqa_client()
+        self._ensure_client()
 
         SYSTEM_PROMPT = """
         You are a specialized VQA assistant. Your sole function is to implement VQAScore, an image-text alignment metric, as defined in the provided research paper.
@@ -222,10 +241,12 @@ class MultimodalConsistencyEvaluator:
             probability = 0.0
             response_text = ""
             try:
-                completion = self.vqa_client.chat.completions.create(
+                completion = self.client.chat.completions.create(
                     model=self.vqa_model_name, messages=messages
                 )
-                response_text = completion.choices[0].message.content
+                response_text = self._extract_message_text(
+                    completion.choices[0].message.content
+                )
 
                 json_match = re.search(
                     r"```json\s*({.*?})\s*```|({.*?})", response_text, re.DOTALL

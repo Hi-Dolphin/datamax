@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import shlex
 import tempfile
 from pathlib import Path
 
@@ -60,9 +61,20 @@ class PptParser(BaseLife):
 
     def _ppt_to_pptx_subprocess(self, ppt_path: str, dir_path: str) -> str:
         """Convert .ppt file to .pptx file using subprocess (traditional method)"""
-        cmd = f'soffice --headless --convert-to pptx "{ppt_path}" --outdir "{dir_path}"'
+        cmd = [
+            "soffice",
+            "--headless",
+            "--convert-to",
+            "pptx",
+            str(ppt_path),
+            "--outdir",
+            str(dir_path),
+        ]
+        cmd_display = " ".join(shlex.quote(part) for part in cmd)
+        logger.debug(f"⚡ Executing PPT conversion command: {cmd_display}")
+
         process = subprocess.Popen(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         stdout, stderr = process.communicate()
         exit_code = process.returncode

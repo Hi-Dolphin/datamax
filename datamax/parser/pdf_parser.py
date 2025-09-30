@@ -1,7 +1,6 @@
 import base64
 import os
 import re
-import subprocess
 import tempfile
 from contextlib import suppress
 from typing import List, Union

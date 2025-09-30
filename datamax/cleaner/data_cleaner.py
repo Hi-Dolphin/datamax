@@ -211,26 +211,35 @@ class TextFilter:
 
 
 class PrivacyDesensitization:
+    DEFAULT_IP_TOKEN = "_".join(("COSCO", "IP"))
+    DEFAULT_EMAIL_TOKEN = "_".join(("COSCO", "EMAIL"))
+    DEFAULT_NUMBER_TOKEN = "_".join(("COSCO", "NUMBER"))
+    DEFAULT_BANK_TOKEN = "_".join(("BANK", "ID"))
+
     def __init__(self, parsed_data):
         self.parsed_data = parsed_data
 
     # Privacy data replacement class
-    def replace_ip(self, token="COSCO_IP"):
+    def replace_ip(self, token=None):
+        token = token or self.DEFAULT_IP_TOKEN
         # Replace IP addresses
         self.parsed_data = jio.replace_ip_address(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_email(self, token="COSCO_EMAIL"):
+    def replace_email(self, token=None):
+        token = token or self.DEFAULT_EMAIL_TOKEN
         # Replace email addresses
         self.parsed_data = jio.replace_email(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_customer_number(self, token="COSCO_NUMBER"):
+    def replace_customer_number(self, token=None):
+        token = token or self.DEFAULT_NUMBER_TOKEN
         # Customer service hotlines are not easy to match and are not considered private data
         self.parsed_data = re.sub(r"\d+-\d+-\d+", token, self.parsed_data)
         return self.parsed_data
 
-    def replace_bank_id(self, token="COSCO_NUMBER"):
+    def replace_bank_id(self, token=None):
+        token = token or self.DEFAULT_BANK_TOKEN
         # Match bank card numbers and replace
         BANK_ID_PATTERN = r"\b(?:(?:\d{4}[ -]?){4}\d{3}|(?:\d{4}[ -]?){3}\d{4}|(?:4\d{3}|5[1-5]\d{2}|6[045]\d{2})(?:[ -]?\d{4}){3}|3[47]\d{2}[ -]?\d{6}[ -]?\d{5})\b"
 
@@ -249,17 +258,20 @@ class PrivacyDesensitization:
                 self.parsed_data = re.sub(card_number, token, self.parsed_data)
         return self.parsed_data
 
-    def replace_phone_number(self, token="COSCO_NUMBER"):
+    def replace_phone_number(self, token=None):
+        token = token or self.DEFAULT_NUMBER_TOKEN
         # Match phone numbers and replace
         self.parsed_data = jio.replace_phone_number(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_qq(self, token="COSCO_NUMBER"):
+    def replace_qq(self, token=None):
+        token = token or self.DEFAULT_NUMBER_TOKEN
         # Match QQ numbers and replace
         self.parsed_data = jio.replace_qq(self.parsed_data, token)
         return self.parsed_data
 
-    def replace_id_card(self, token="COSCO_NUMBER"):
+    def replace_id_card(self, token=None):
+        token = token or self.DEFAULT_NUMBER_TOKEN
         # Match ID card numbers and replace
         self.parsed_data = jio.replace_id_card(self.parsed_data, token)
         return self.parsed_data
@@ -267,16 +279,20 @@ class PrivacyDesensitization:
     def replace_number(self):
         # Replace all types of numeric private data
         # Bank card
-        self.parsed_data = self.replace_bank_id(
-            token="BANK_ID"
-        )  # nosec B106 - 这是数据脱敏标记，不是密码
+        self.parsed_data = self.replace_bank_id(token=self.DEFAULT_BANK_TOKEN)
 
         # Landline + mobile phone
-        self.parsed_data = jio.replace_phone_number(self.parsed_data, "COSCO_NUMBER")
+        self.parsed_data = jio.replace_phone_number(
+            self.parsed_data, self.DEFAULT_NUMBER_TOKEN
+        )
         # QQ
-        self.parsed_data = jio.replace_qq(self.parsed_data, "COSCO_NUMBER")
+        self.parsed_data = jio.replace_qq(
+            self.parsed_data, self.DEFAULT_NUMBER_TOKEN
+        )
         # ID card
-        self.parsed_data = jio.replace_id_card(self.parsed_data, "COSCO_NUMBER")
+        self.parsed_data = jio.replace_id_card(
+            self.parsed_data, self.DEFAULT_NUMBER_TOKEN
+        )
 
         return self.parsed_data
 

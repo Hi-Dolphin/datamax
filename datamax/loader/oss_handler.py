@@ -1,6 +1,6 @@
 import datetime
 import os
-import subprocess
+import shutil
 
 import oss2
 from dotenv import load_dotenv
@@ -15,7 +15,7 @@ def removing(path):
         for dir in dirs:
             if dir == "__pycache__":
                 pycache_path = os.path.join(root, dir)
-                subprocess.run(["rm", "-rf", pycache_path], check=False)
+                shutil.rmtree(pycache_path, ignore_errors=True)
 
 
 def format_size_adaptive(value):

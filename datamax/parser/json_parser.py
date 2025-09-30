@@ -1,6 +1,6 @@
 import json
 from typing import Any, Dict, List
-
+from loguru import logger
 from langchain_text_splitters import RecursiveJsonSplitter
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
@@ -61,14 +61,10 @@ class JsonParser(BaseLife):
         Returns:
             Formatted markdown string
         """
-        if len(chunks) == 1:
-            # Single chunk, format as one code block
-            return f"```json\n{chunks[0]}\n```"
-
         # Multiple chunks, format with headers
         markdown_content = []
-        for i, chunk in enumerate(chunks, 1):
-            markdown_content.append(f"## JSON Chunk {i}\n\n```json\n{chunk}\n```\n")
+        for i, chunk in enumerate(chunks):
+            markdown_content.append(chunk)
 
         return "\n".join(markdown_content)
 
@@ -88,21 +84,22 @@ class JsonParser(BaseLife):
 
             # Split JSON into manageable chunks
             json_chunks = self.split_json_content(json_data)
+            logger.warning(f"json_chunks length: {len(json_chunks)}")
 
             # Format chunks as markdown
             content = self.format_chunks_as_markdown(json_chunks)
+            
+            # # Add metadata about the splitting process
+            # chunk_info = f"\n\n---\n\n**JSON Processing Summary:**\n"
+            # chunk_info += f"- Total chunks: {len(json_chunks)}\n"
+            # chunk_info += f"- Max chunk size: {self.max_chunk_size} characters\n"
+            # chunk_info += f"- Convert lists to dicts: {self.convert_lists}\n"
 
-            # Add metadata about the splitting process
-            chunk_info = f"\n\n---\n\n**JSON Processing Summary:**\n"
-            chunk_info += f"- Total chunks: {len(json_chunks)}\n"
-            chunk_info += f"- Max chunk size: {self.max_chunk_size} characters\n"
-            chunk_info += f"- Convert lists to dicts: {self.convert_lists}\n"
+            # if len(json_chunks) > 1:
+            #     chunk_sizes = [len(chunk) for chunk in json_chunks]
+            #     chunk_info += f"- Chunk sizes: {chunk_sizes}\n"
 
-            if len(json_chunks) > 1:
-                chunk_sizes = [len(chunk) for chunk in json_chunks]
-                chunk_info += f"- Chunk sizes: {chunk_sizes}\n"
-
-            content += chunk_info
+            # content += chunk_info
 
             # 3) End processing: DATA_PROCESSED or DATA_PROCESS_FAILED
             lc_end = self.generate_lifecycle(

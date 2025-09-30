@@ -110,7 +110,27 @@ class XlsxParser(BaseLife):
             logger.error(f"📭 Excel file is empty: {str(e)}")
             raise Exception(f"Excel file is empty or cannot be read: {file_path}")
         except Exception as e:
-            logger.error(f"💥 Pandas Excel reading failed: {str(e)}")
+            lc_fail = None
+            try:
+                lc_fail = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    usage_purpose="Documentation",
+                    life_type=LifeType.DATA_PROCESS_FAILED,
+                )
+                logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
+            except Exception as lifecycle_error:
+                logger.debug(
+                    f"Failed to generate DATA_PROCESS_FAILED lifecycle: {lifecycle_error}"
+                )
+
+            logger.error(f"💀 Excel file parsing failed: {file_path}, error: {str(e)}")
+            error_result = {
+                "error": str(e),
+                "file_path": file_path,
+                "lifecycle": [lc_fail.to_dict()] if lc_fail else [],
+            }
+            result_queue.put(error_result)
             raise
 
     def _parse(self, file_path: str, result_queue: Queue) -> dict:
@@ -164,7 +184,7 @@ class XlsxParser(BaseLife):
             return result
 
         except Exception as e:
-            # —— Lifecycle: Processing failed —— #
+            lc_fail = None
             try:
                 lc_fail = self.generate_lifecycle(
                     source_file=file_path,
@@ -173,30 +193,16 @@ class XlsxParser(BaseLife):
                     life_type=LifeType.DATA_PROCESS_FAILED,
                 )
                 logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
-                # If needed, this can also be added to error_result:
-                # error_result = {"error": str(e), "file_path": file_path, "lifecycle":[lc_fail.to_dict()]}
-            except Exception:
-                pass
-
-            # —— Lifecycle: Processing failed —— #
-            try:
-                lc_fail = self.generate_lifecycle(
-                    source_file=file_path,
-                    domain=self.domain,
-                    usage_purpose="Documentation",
-                    life_type=LifeType.DATA_PROCESS_FAILED,
+            except Exception as lifecycle_error:
+                logger.debug(
+                    f"Failed to generate DATA_PROCESS_FAILED lifecycle: {lifecycle_error}"
                 )
-                logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
-            except Exception:
-                pass
 
             logger.error(f"💀 Excel file parsing failed: {file_path}, error: {str(e)}")
-            # Put error into queue as well
             error_result = {
                 "error": str(e),
                 "file_path": file_path,
-                # Also return the failed lifecycle for optional verification in tests
-                "lifecycle": [lc_fail.to_dict()] if "lc_fail" in locals() else [],
+                "lifecycle": [lc_fail.to_dict()] if lc_fail else [],
             }
             result_queue.put(error_result)
             raise

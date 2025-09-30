@@ -7,31 +7,12 @@ from typing import Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
-from openai import OpenAI
 
 import datamax.generator.qa_generator as qa_generator
 from datamax.cleaner import data_cleaner
 from datamax.parser.base import BaseLife
 from datamax.utils.lifecycle_types import LifeType
-
-
-class ModelInvoker:
-    def __init__(self):
-        self.client = None
-
-    def invoke_model(self, api_key, base_url, model_name, messages):
-        base_url = qa_generator.complete_api_url(base_url)
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-
-        completion = self.client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-        )
-        json_data = completion.model_dump()
-        return json_data.get("choices")[0].get("message").get("content", "")
+from datamax.utils.debug_logger import DebugContext
 
 
 class ParserFactory:
@@ -111,6 +92,7 @@ class ParserFactory:
             ".xlsx": "XlsxParser",
             ".xls": "XlsParser",
             ".csv": "CsvParser",
+            ".json": "JsonParser"
         }
         for ext, class_name in document_parsers.items():
             module_name = f"datamax.parser.{ext[1:]}_parser"
@@ -209,7 +191,6 @@ class DataMax(BaseLife):
         self.mllm_system_prompt = mllm_system_prompt
         self.to_markdown = to_markdown
         self.parsed_data = None
-        self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
         self.api_key = api_key
@@ -406,45 +387,8 @@ class DataMax(BaseLife):
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
         """
-        base_url = base_url.strip().rstrip("/")
-
-        def has_version(path_parts):
-            """Check if path contains a version number"""
-            return any(
-                part.startswith("v") and part[1:].isdigit() for part in path_parts
-            )
-
-        if not base_url.startswith("https://"):
-            if base_url.startswith("http://"):
-                base_url = base_url.replace("http://", "https://")
-            else:
-                base_url = f"https://{base_url}"
-
-        # Check if URL is complete with endpoint
-        if any(x in base_url for x in ["/completions"]):
-            return base_url
-
-        # Split URL into components
-        parts = base_url.split("/")
-        domain_part = parts[2]
-        path_parts = parts[3:] if len(parts) > 3 else []
-
-        # Check if path already has a version
-        if has_version(path_parts):
-            # Join path parts and clean trailing slash
-            path = "/".join(path_parts).rstrip("/")
-            # Remove any existing /chat or /completions parts
-            path = path.replace("/chat", "")
-            # Re-add single /chat/completions
-            return f"https://{domain_part}/{path}/chat/completions"
-        else:
-            # Add default version and endpoint (original logic)
-            path = "/".join(path_parts).rstrip("/")
-            return (
-                f"https://{domain_part}/{path}/v1/chat/completions"
-                if path
-                else f"https://{domain_part}/v1/chat/completions"
-            )
+        from datamax.generator.qa_generator import complete_api_url
+        return complete_api_url(base_url)
 
     def get_pre_label(
         self,
@@ -464,6 +408,8 @@ class DataMax(BaseLife):
         interactive_tree: bool = False,
         custom_domain_tree: list[dict[str, Any]] | None = None,
         debug: bool = False,
+        structured_data: bool = False,
+        auto_self_review_mode: bool = False
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -494,74 +440,66 @@ class DataMax(BaseLife):
                     "label": "2 一级领域标签(无子标签)"
                 }
             ]
+        :param debug: Enable debug logging
+        :param structured_data: Whether to use structured data format
+        :param auto_self_review_mode: Whether to activate review mode. When True, generated QA pairs will be 
+                           sent to LLM for review, and only pairs with scores >= 4 will be kept.
         :return: List of QA pairs
         """
         import datamax.generator.qa_generator as qa_generator
 
-        if debug:
-            logger.debug(f"get_pre_label called with parameters:")
-            logger.debug(
-                f"  content: {content is not None} (length: {len(content) if content else 0})"
-            )
-            logger.debug(f"  use_mllm: {use_mllm}")
-            logger.debug(f"  api_key: {'***' if api_key else None}")
-            logger.debug(f"  base_url: {base_url}")
-            logger.debug(f"  model_name: {model_name}")
-            logger.debug(f"  chunk_size: {chunk_size}")
-            logger.debug(f"  chunk_overlap: {chunk_overlap}")
-            logger.debug(f"  question_number: {question_number}")
-            logger.debug(f"  max_workers: {max_workers}")
-            logger.debug(f"  language: {language}")
-            logger.debug(f"  use_tree_label: {use_tree_label}")
-            logger.debug(
-                f"  messages: {messages is not None} (count: {len(messages) if messages else 0})"
-            )
-            logger.debug(f"  interactive_tree: {interactive_tree}")
-            logger.debug(f"  custom_domain_tree: {custom_domain_tree is not None}")
-            logger.debug(f"  self.file_path: {self.file_path}")
-            logger.debug(f"  self.use_mineru: {self.use_mineru}")
-            logger.debug(f"  self.domain: {self.domain}")
+        # Initialize debug context
+        dbg = DebugContext(enabled=debug, context_name="get_pre_label")
+        
+        # Log input parameters
+        dbg.log_params(
+            content_provided=content is not None,
+            content_length=len(content) if content else 0,
+            use_mllm=use_mllm,
+            api_key='***' if api_key else None,
+            base_url=base_url,
+            model_name=model_name,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            question_number=question_number,
+            max_workers=max_workers,
+            language=language,
+            use_tree_label=use_tree_label,
+            messages_provided=messages is not None,
+            interactive_tree=interactive_tree,
+            custom_domain_tree_provided=custom_domain_tree is not None,
+            file_path=self.file_path,
+            use_mineru=self.use_mineru,
+            domain=self.domain
+        )
 
-        # If content is passed externally, use it directly; otherwise go through parse/clean process
-        data = []
-        if content is not None:
-            text = content
-            if debug:
-                logger.debug(f"Using external content, text length: {len(text)}")
-        else:
-            if debug:
-                logger.debug("No external content provided, calling self.get_data()")
-            processed = self.get_data()
-            if debug:
-                logger.debug(
-                    f"get_data() returned type: {type(processed)}, value: {processed if not isinstance(processed, str) or len(processed) < 200 else processed[:200] + '...'}"
-                )
-
-            # Consistent with original logic, convert multiple files or dict/str to a single string
-            if isinstance(processed, list):
-                parts = [d["content"] if isinstance(d, dict) else d for d in processed]
-                text = "\n\n".join(parts)
-                if debug:
-                    logger.debug(
-                        f"Processed list with {len(parts)} parts, final text length: {len(text)}"
-                    )
-            elif isinstance(processed, dict):
-                text = processed.get("content", "")
-                if debug:
-                    logger.debug(
-                        f"Processed dict, extracted content length: {len(text)}"
-                    )
+        # Prepare content
+        with dbg.section("Content Preparation"):
+            if content is not None:
+                text = content
+                dbg.log(f"Using external content, length: {len(text)}")
             else:
-                text = processed
-                if debug:
-                    logger.debug(f"Processed as string, text length: {len(text)}")
-            print(text)
-            file_path = self.file_path
+                dbg.log("Fetching content via get_data()")
+                processed = self.get_data()
+                dbg.log_data_structure(processed, "processed_data")
 
-        # Mark: start DATA_LABELLING
+                # Convert to text
+                if isinstance(processed, list):
+                    parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                    text = "\n\n".join(parts)
+                    dbg.log(f"Merged {len(parts)} parts, total length: {len(text)}")
+                elif isinstance(processed, dict):
+                    text = processed.get("content", "")
+                    dbg.log(f"Extracted content from dict, length: {len(text)}")
+                else:
+                    text = processed
+                    dbg.log(f"Using content as-is, length: {len(text)}")
+                
+                print(text)
+
+        # Add lifecycle marker
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-            if debug:
-                logger.debug("Adding DATA_LABELLING lifecycle entry")
+            dbg.log("Adding DATA_LABELLING lifecycle entry")
             self.parsed_data.setdefault("lifecycle", []).append(
                 self.generate_lifecycle(
                     source_file=self.file_path,
@@ -570,123 +508,91 @@ class DataMax(BaseLife):
                     usage_purpose="Labeling",
                 ).to_dict()
             )
+
         try:
+            # Complete API URL
             base_url = qa_generator.complete_api_url(base_url)
-            if debug:
-                logger.debug(f"Completed API URL: {base_url}")
-                logger.debug(
-                    f"Condition check - use_mllm: {use_mllm}, self.use_mineru: {self.use_mineru}"
-                )
+            dbg.log(f"Completed API URL: {base_url}")
 
-            if use_mllm and self.use_mineru:
-                logger.info("Using multimodal QA generator...")
-                if debug:
-                    logger.debug(
-                        f"Processing file_path for multimodal: {self.file_path} (type: {type(self.file_path)})"
-                    )
+            # Generate QA pairs
+            with dbg.section("QA Generation"):
+                if use_mllm and self.use_mineru:
+                    logger.info("Using multimodal QA generator...")
+                    
+                    # Prepare file paths
+                    if isinstance(self.file_path, list):
+                        file_names = [os.path.basename(f).replace(".pdf", ".md") for f in self.file_path]
+                    elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                        file_names = [os.path.basename(self.file_path).replace(".pdf", ".md")]
+                    elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                        file_names = [
+                            os.path.basename(file).replace(".pdf", ".md")
+                            for file in list(Path(self.file_path).rglob("*.*"))
+                        ]
+                    
+                    dbg.log(f"Generated {len(file_names)} file names")
+                    
+                    file_names = [
+                        os.path.join(
+                            Path(__file__).parent.parent.parent.resolve(),
+                            "__temp__",
+                            "markdown",
+                            f,
+                        )
+                        for f in file_names
+                    ]
 
-                if isinstance(self.file_path, list):
-                    file_names = [
-                        os.path.basename(f).replace(".pdf", ".md")
-                        for f in self.file_path
-                    ]
-                    if debug:
-                        logger.debug(
-                            f"File path is list, generated file_names: {file_names}"
-                        )
-                elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                    file_names = [
-                        os.path.basename(self.file_path).replace(".pdf", ".md")
-                    ]
-                    if debug:
-                        logger.debug(
-                            f"File path is file, generated file_names: {file_names}"
-                        )
-                elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                    file_names = [
-                        os.path.basename(file).replace(".pdf", ".md")
-                        for file in list(Path(self.file_path).rglob("*.*"))
-                    ]
-                    if debug:
-                        logger.debug(
-                            f"File path is directory, found {len(file_names)} files: {file_names[:5]}{'...' if len(file_names) > 5 else ''}"
-                        )
+                    from datamax.utils import multimodal_qa_generator as generator_module
 
-                file_names = [
-                    os.path.join(
-                        Path(__file__).parent.parent.parent.resolve(),
+                    multimodal_file_path = os.path.join(
                         "__temp__",
                         "markdown",
-                        f,
+                        os.path.basename(self.file_path).replace(".pdf", ".md"),
                     )
-                    for f in file_names
-                ]
-                if debug:
-                    logger.debug(f"Final file_names with full paths: {file_names}")
+                    dbg.log(f"Multimodal file path: {multimodal_file_path}")
 
-                from datamax.utils import multimodal_qa_generator as generator_module
-
-                multimodal_file_path = os.path.join(
-                    "__temp__",
-                    "markdown",
-                    os.path.basename(self.file_path).replace(".pdf", ".md"),
-                )
-                if debug:
-                    logger.debug(
-                        f"Calling multimodal QA generator with file_path: {multimodal_file_path}"
+                    data = generator_module.generatr_qa_pairs(
+                        file_path=multimodal_file_path,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_name=model_name,
+                        question_number=question_number,
+                        max_workers=max_workers,
                     )
-
-                data = generator_module.generatr_qa_pairs(
-                    file_path=multimodal_file_path,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    question_number=question_number,
-                    max_workers=max_workers,
-                )
-            else:
-                logger.info("Using standard QA generator...")
-                if debug:
-                    logger.debug(
-                        f"Calling standard QA generator with text length: {len(text)}"
-                    )
-                    logger.debug(
-                        f"QA generator parameters - chunk_size: {chunk_size}, chunk_overlap: {chunk_overlap}"
-                    )
-                    logger.debug(
-                        f"QA generator parameters - question_number: {question_number}, max_workers: {max_workers}"
-                    )
-                    logger.debug(
-                        f"QA generator parameters - use_tree_label: {use_tree_label}, use_mineru: {self.use_mineru}"
+                else:
+                    logger.info("Using standard QA generator...")
+                    dbg.log(f"Text length: {len(text)}")
+                    dbg.log_params(
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        question_number=question_number,
+                        max_workers=max_workers,
+                        use_tree_label=use_tree_label
                     )
 
-                data = qa_generator.full_qa_labeling_process(
-                    content=text,
-                    api_key=api_key,
-                    base_url=base_url,
-                    model_name=model_name,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    question_number=question_number,
-                    max_workers=max_workers,
-                    use_tree_label=use_tree_label,
-                    messages=messages,
-                    interactive_tree=interactive_tree,
-                    custom_domain_tree=custom_domain_tree,
-                    use_mineru=self.use_mineru,  # Pass use_mineru parameter
-                    debug=debug,
-                )
-            if debug:
-                data_length = len(data) if hasattr(data, "__len__") else "N/A"
-                logger.debug(
-                    f"QA generation completed, data type: {type(data)}, length: {data_length}"
-                )
+                    data = qa_generator.full_qa_labeling_process(
+                        content=text,
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_name=model_name,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                        question_number=question_number,
+                        max_workers=max_workers,
+                        use_tree_label=use_tree_label,
+                        messages=messages,
+                        interactive_tree=interactive_tree,
+                        custom_domain_tree=custom_domain_tree,
+                        use_mineru=self.use_mineru,
+                        debug=debug,
+                        structured_data=structured_data
+                    )
+                
+                dbg.log_data_structure(data, "generated_data")
 
+            # Mark success
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-                # Mark: success DATA_LABELLED
-                if debug:
-                    logger.debug("Adding DATA_LABELLED lifecycle entry")
-
+                dbg.log("Adding DATA_LABELLED lifecycle entry")
                 self.parsed_data["lifecycle"].append(
                     self.generate_lifecycle(
                         source_file=self.file_path,
@@ -695,74 +601,117 @@ class DataMax(BaseLife):
                         usage_purpose="Labeling",
                     ).to_dict()
                 )
-            # show preview of the first 10 qa pairs
-            qa_pairs_to_preview = []
 
-            # Extract QA pairs from different data structures
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                qa_pairs_to_preview = data
-            elif isinstance(data, dict):
-                # Handle dict type data - extract QA pairs
-                if "qa_pairs" in data:
-                    qa_pairs_to_preview = data["qa_pairs"]
-                elif "data" in data:
-                    qa_pairs_to_preview = data["data"]
+            # Review mode processing
+            if auto_self_review_mode:
+                logger.info("🔍 Activating review mode: QA pairs will be reviewed by LLM")
+                dbg.log("Starting QA pair review process")
+                
+                # Extract QA pairs from data structure
+                qa_pairs = []
+                if isinstance(data, dict) and "qa_pairs" in data:
+                    qa_pairs = data["qa_pairs"]
+                elif isinstance(data, list):
+                    qa_pairs = data
                 else:
-                    # If dict doesn't contain expected keys, treat as single QA pair
-                    qa_pairs_to_preview = [data]
+                    logger.warning("Unexpected data format for review mode, skipping review")
+                    return data
+                
+                # Import review prompt template
+                from datamax.generator.prompt_templates import get_system_prompt_for_review
+                
+                reviewed_qa_pairs = []
+                rejected_count = 0
+                
+                for i, qa_pair in enumerate(qa_pairs):
+                    try:
+                        # Convert QA pair to JSON string for review
+                        qa_pair_json = json.dumps(qa_pair, ensure_ascii=False, indent=2)
+                        
+                        # Create review messages
+                        review_prompt = get_system_prompt_for_review(text, qa_pair_json)
+                        review_messages = [
+                            {"role": "system", "content": review_prompt},
+                            {"role": "user", "content": "请进行评分"}
+                        ]
+                        
+                        # Get review result from LLM using llm_generator
+                        from datamax.generator.qa_generator import llm_generator
+                        review_result_list = llm_generator(
+                            api_key=api_key,
+                            model=model_name,
+                            base_url=base_url,
+                            type="review",
+                            message=review_messages,
+                            debug=debug
+                        )
+                        review_result = review_result_list[0] if review_result_list else ""
 
-            # Display preview if we have QA pairs
-            if qa_pairs_to_preview and len(qa_pairs_to_preview) > 0:
-                if debug:
-                    logger.debug(
-                        f"Showing preview of first 10 QA pairs from {len(qa_pairs_to_preview)} total pairs"
-                    )
-                print("\n===== Preview of first 10 QA pairs =====")
-                for i, qa in enumerate(qa_pairs_to_preview[:10]):
-                    print(f"\n--- QA pair {i+1} ---")
-                    print(
-                        f"Question: {qa.get('instruction', qa.get('question', 'N/A'))}"
-                    )
-                    print(f"Answer: {qa.get('output', 'N/A')}")
-                    print(f"Label: {qa.get('label', 'N/A')}")
-                print("========================\n")
-            elif debug:
-                data_length = len(data) if hasattr(data, "__len__") else "N/A"
-                logger.debug(
-                    f"No preview to show - data type: {type(data)}, length: {data_length}"
-                )
-
-            if debug:
-                data_length = len(data) if hasattr(data, "__len__") else "N/A"
-                logger.debug(
-                    f"Returning data with type: {type(data)}, length: {data_length}"
-                )
+                        # Parse review result
+                        try:
+                            review_json = json.loads(review_result)
+                            score = review_json.get("score", 0)
+                            reason = review_json.get("reason", "No reason provided")
+                            
+                            if score >= 4:
+                                reviewed_qa_pairs.append(qa_pair)
+                                dbg.log(f"QA pair {i+1} passed review (score: {score}): {reason}")
+                            else:
+                                rejected_count += 1
+                                dbg.log(f"QA pair {i+1} rejected (score: {score}): {reason}")
+                                
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse review result for QA pair {i+1}, rejecting as low quality")
+                            rejected_count += 1
+                            continue
+                            
+                    except Exception as e:
+                        logger.error(f"Error reviewing QA pair {i+1}: {e}")
+                        rejected_count += 1
+                        continue
+                
+                logger.info(f"✅ Review completed: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
+                dbg.log(f"Review results: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
+                
+                # Update data structure with reviewed QA pairs
+                if isinstance(data, dict) and "qa_pairs" in data:
+                    data["qa_pairs"] = reviewed_qa_pairs
+                else:
+                    data = reviewed_qa_pairs
+                
+                # Preview reviewed QA pairs
+                dbg.preview_qa_pairs(data, max_preview=10)
+                
+                dbg.log("Returning reviewed data")
+                return data
+            
+            # Preview QA pairs
+            dbg.preview_qa_pairs(data, max_preview=10)
+            
+            dbg.log("Returning generated data")
             return data
+
         except ImportError as e:
             logger.error(f"Cannot import generator module: {e}")
-            if debug:
-                logger.debug(f"ImportError details: {str(e)}")
+            dbg.log(f"ImportError: {str(e)}")
+            raise
         except Exception as e:
             logger.error(f"Error occurred while generating pre-labeled data: {e}")
-            if debug:
-                logger.debug(f"Exception details: {str(e)}")
+            dbg.log(f"Exception: {type(e).__name__}: {str(e)}")
             import traceback
-
             traceback.print_exc()
-        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-            # Mark: failure DATA_LABEL_FAILED
-            if debug:
-                logger.debug(
-                    "Adding DATA_LABEL_FAILED lifecycle entry due to exception"
+            
+            # Mark failure
+            if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+                dbg.log("Adding DATA_LABEL_FAILED lifecycle entry")
+                self.parsed_data["lifecycle"].append(
+                    self.generate_lifecycle(
+                        source_file=self.file_path,
+                        domain=self.domain,
+                        life_type=LifeType.DATA_LABEL_FAILED,
+                        usage_purpose="Labeling",
+                    ).to_dict()
                 )
-            self.parsed_data["lifecycle"].append(
-                self.generate_lifecycle(
-                    source_file=self.file_path,
-                    domain=self.domain,
-                    life_type=LifeType.DATA_LABEL_FAILED,
-                    usage_purpose="Labeling",
-                ).to_dict()
-            )
             raise
 
     def save_label_data(

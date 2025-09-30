@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import shlex
 import tempfile
 import zipfile
 from pathlib import Path
@@ -117,11 +118,20 @@ class DocxParser(BaseLife):
     def _docx_to_txt_subprocess(self, docx_path: str, dir_path: str) -> str:
         """Convert .docx file to .txt file using subprocess (traditional method)"""
         try:
-            cmd = f'soffice --headless --convert-to txt "{docx_path}" --outdir "{dir_path}"'
-            logger.debug(f"⚡ Executing conversion command: {cmd}")
+            cmd = [
+                "soffice",
+                "--headless",
+                "--convert-to",
+                "txt",
+                str(docx_path),
+                "--outdir",
+                str(dir_path),
+            ]
+            cmd_display = " ".join(shlex.quote(part) for part in cmd)
+            logger.debug(f"⚡ Executing conversion command: {cmd_display}")
 
             process = subprocess.Popen(
-                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = process.communicate()
             exit_code = process.returncode

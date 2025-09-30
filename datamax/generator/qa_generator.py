@@ -5,10 +5,11 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-
+from typing import Union
 import requests
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveJsonSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from loguru import logger
 from pyexpat.errors import messages
@@ -23,6 +24,8 @@ from .prompt_templates import (
 )
 
 lock = threading.Lock()
+
+DEFAULT_REQUEST_TIMEOUT = 200
 
 # ====== API settings======
 # set your api key and base url in .env file
@@ -215,9 +218,9 @@ def llm_generator(
     api_key: str,
     model: str,
     base_url: str,
-    prompt: str,
-    type: str,
-    message: list = None,
+    prompt: Union[str, None] = None,
+    type: str = 'normal',
+    message: Union[list, None] = None,
     temperature: float = 0.7,
     top_p: float = 0.9,
     debug: bool = False,
@@ -225,7 +228,7 @@ def llm_generator(
     """Generate content using LLM API"""
     try:
         if not message:
-            logger.warning("No message provided, using default system prompt")
+            # logger.warning("No message provided, using default system prompt")
             message = [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": "请严格按照要求生成内容"},
@@ -270,7 +273,12 @@ def llm_generator(
         if debug:
             logger.debug("📤 发送请求到大模型...")
 
-        response = requests.post(base_url, headers=headers, json=data, timeout=120)
+        response = requests.post(
+            base_url,
+            headers=headers,
+            json=data,
+            timeout=DEFAULT_REQUEST_TIMEOUT,
+        )
         response.raise_for_status()
         result = response.json()
 
@@ -357,7 +365,6 @@ def process_match_tags(
             type="question",
             debug=debug,
         )
-        # llm_generator return a list, only one question is passed, take the first one
         return match[0] if match else {"question": q, "label": "其他"}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -379,7 +386,7 @@ def process_domain_tree(
     text: str,
     temperature: float = 0.7,
     top_p: float = 0.9,
-    max_retries: int = 3,
+    max_retries: int = 10,
     debug: bool = False,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
@@ -413,7 +420,12 @@ def process_domain_tree(
                 "temperature": temperature,
                 "top_p": top_p,
             }
-            response = requests.post(base_url, headers=headers, json=data)
+            response = requests.post(
+                base_url,
+                headers=headers,
+                json=data,
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            )
             response.raise_for_status()
             result = response.json()
 
@@ -491,7 +503,7 @@ def process_questions(
     question_number: int,
     max_workers: int = 5,
     message: list = None,
-    max_retries: int = 3,
+    max_retries: int = 10,
     debug: bool = False,
 ) -> list:
     """Generate questions using multi-threading with retry mechanism"""
@@ -503,7 +515,9 @@ def process_questions(
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
             try:
+                # logger.warning(f"page: {page}")
                 prompt = get_system_prompt_for_question(page, question_number)
+                # Step1 生成问题的大模型
                 questions = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -541,6 +555,7 @@ def process_questions(
         f"Starting question generation (threads: {max_workers}, retries: {max_retries})..."
     )
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # logger.warning(f"page_content: {page_content}")
         futures = [
             executor.submit(_generate_questions_with_retry, page)
             for page in page_content
@@ -571,8 +586,8 @@ def process_answers(
     base_url: str,
     question_items: list,
     message: list | None = None,
-    max_workers=5,
-    max_retries: int = 3,
+    max_workers: int = 5,
+    max_retries: int = 10,
     debug: bool = False,
 ) -> dict:
     """Generate answers using multi-threading"""
@@ -585,6 +600,7 @@ def process_answers(
         for attempt in range(max_retries):
             try:
                 prompt = get_system_prompt_for_answer(item["page"], item["question"])
+                # Step2 生成答案的大模型
                 answer = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -595,7 +611,7 @@ def process_answers(
                     debug=debug,
                 )
                 if answer and len(answer) > 0:
-                    return item["question"], answer[0]  # llm_generator returns a list
+                    return item["question"], answer[0]
                 else:
                     logger.warning(
                         f"Answer generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
@@ -828,12 +844,13 @@ def full_qa_labeling_process(
     chunk_overlap: int = 100,
     question_number: int = 5,
     max_workers: int = 5,
-    use_tree_label: bool = True,
+    use_tree_label: bool = False,
     messages: list = None,
-    interactive_tree: bool = True,
+    interactive_tree: bool = False,
     custom_domain_tree: list = None,
     use_mineru: bool = False,  # Add use_mineru parameter
     debug: bool = False,
+    structured_data: bool = False
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction,
@@ -871,44 +888,58 @@ def full_qa_labeling_process(
     logger.info("Using text content for splitting")
 
     # Try to detect content type
-    content_type = "Text"
-    if content.strip().startswith("#") or "**" in content or "```" in content:
-        content_type = "Markdown"
-        logger.info("📄 Detected Markdown format content")
-    elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
-        content_type = "PDF converted content"
-        logger.info("📄 Detected PDF converted content")
-        if use_mineru:
-            logger.info("📄 Using MinerU parsed PDF content")
-        else:
-            logger.info("📄 Using PyMuPDF parsed PDF content")
+    if structured_data == False:
+        content_type = "Text"
+        if content.strip().startswith("#") or "**" in content or "```" in content:
+            content_type = "Markdown"
+            logger.info("📄 Detected Markdown format content")
+        elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
+            content_type = "PDF converted content"
+            logger.info("📄 Detected PDF converted content")
+            if use_mineru:
+                logger.info("📄 Using MinerU parsed PDF content")
+            else:
+                logger.info("📄 Using PDF parsed PDF content")
+            
+        # Directly use LangChain's text splitter for chunking without creating temporary files
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-    # Directly use LangChain's text splitter for chunking without creating temporary files
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        is_separator_regex=False,
-    )
-    page_content = splitter.split_text(content)
-
-    # Add content chunking completion log
-    if content_type == "PDF converted content":
-        if use_mineru:
-            logger.info(
-                f"✅ MinerU parsed PDF content processing completed, generated {len(page_content)} text chunks"
-            )
-        else:
-            logger.info(
-                f"✅ PyMuPDF parsed PDF content processing completed, generated {len(page_content)} text chunks"
-            )
-    else:
-        logger.info(
-            f"✅ {content_type} content processing completed, generated {len(page_content)} text chunks"
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
         )
+        page_content = splitter.split_text(content)
 
+    elif structured_data == True:
+        content_type = "Dict"
+        logger.info("⛓ Detected Dict format content")
+        # logger.info(f"Befor RecursiveJsonSplitter: {type(content)}, {content}")
+        # TODO： 正则表达式分割 - 已完成
+        import re
+        import json
+        
+        # 使用正则表达式匹配完整的JSON对象
+        # 匹配以 { 开头，以 } 结尾，且中间内容平衡的JSON对象
+        json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
+        json_matches = re.findall(json_pattern, content)
+        
+        # 验证并解析每个匹配的JSON对象
+        valid_json_objects = []
+        for match in json_matches:
+            try:
+                # 尝试解析JSON验证有效性
+                json_obj = json.loads(match)
+                valid_json_objects.append(match)  # 或者可以存储解析后的对象 json_obj
+            except json.JSONDecodeError:
+                # 如果解析失败，跳过这个匹配项
+                continue
+        
+        # 确保我们只取前三个有效的JSON对象
+        page_content = valid_json_objects
+        
+        # logger.info(f"After RecursiveJsonSplitter: {page_content}")
     # 2. domain tree generation
     domain_tree = None
     if use_tree_label:
@@ -952,6 +983,9 @@ def full_qa_labeling_process(
                     "💡 You can modify the custom tree, or enter '结束树操作' to use it directly"
                 )
             domain_tree = _interactive_tree_modification(domain_tree)
+        #  --------------  split done  -------------------
+
+    # ----------- start generate -----------------
     # generate questions
     question_info = process_questions(
         api_key=api_key,

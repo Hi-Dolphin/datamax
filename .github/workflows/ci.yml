@@ -47,11 +47,11 @@ jobs:
 
     - name: Check code formatting with black
       run: |
-        black --check --diff datamax/
+        black --check datamax/
 
     - name: Check import sorting with isort
       run: |
-        isort --check-only --diff datamax/
+        isort --check-only datamax/
 
     - name: Type checking with mypy
       run: |

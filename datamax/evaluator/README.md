@@ -26,7 +26,15 @@ The Evaluator module provides a comprehensive toolkit for the quantitative asses
 `evaluator` 模块依赖一些额外的第三方库。您可以通过以下命令安装它们：
 
 ```bash
-"module 'cv2' has no attribute 'imshow'"
-apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
+pip install bert-score rouge-score sacrebleu pycocoevalcap \
+    torch torchvision transformers magic-pdf==1.2.1
 
-pip install bert-score rouge-score sacrebleu pycocoevalcap torch torchvision transformers magic-pdf==1.2.1
+# Optional: install OpenCV with GUI support if you need cv2.imshow
+pip install opencv-python
+```
+
+
+> 如果你在服务器或 CI 环境不方便安装系统级 GUI 依赖，可以：
+> 1. `pip install opencv-python-headless`，并改用保存图片或 matplotlib 显示，避免调用 `cv2.imshow`。
+> 2. 在本地开发机安装 `opencv-python`，调试需要 GUI 的步骤。
+> 3. 只有在远程环境必须运行 `imshow` 时，才需要额外的 `libgl1` / `libglib2.0` 系统库。

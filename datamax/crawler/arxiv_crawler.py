@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 import aiohttp
+from defusedxml import ElementTree as ET
 
 from .base_crawler import BaseCrawler
 from .exceptions import CrawlerException, NetworkException, ParseException
@@ -161,8 +162,6 @@ class ArxivCrawler(BaseCrawler):
             ParseException: If XML parsing fails
         """
         try:
-            import xml.etree.ElementTree as ET
-
             root = ET.fromstring(xml_content)
 
             # Define namespaces
@@ -288,8 +287,6 @@ class ArxivCrawler(BaseCrawler):
             List of parsed paper metadata
         """
         try:
-            import xml.etree.ElementTree as ET
-
             root = ET.fromstring(xml_content)
 
             namespaces = {

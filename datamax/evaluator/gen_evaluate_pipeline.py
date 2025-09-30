@@ -24,29 +24,40 @@ from datamax.parser import DataMax
 
 
 class PipelineConfig:
-    SEARCH_QUERY = "intermodality shipping"
-    MAX_PAPERS_TO_CRAWL = 1
-
-    # Ensure your API Key is set as an environment variable or replace the default value
-    DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
-    DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/XXXXXX/"
-    QA_MODEL_NAME = "qwen-vl-plus"  # Must be a VLLM model
-
-    # MODIFIED: Use the DashScope model name for embeddings
-    CLIP_MODEL_NAME = "multimodal-embedding-v1"
-    VQA_MODEL_NAME = "qwen2.5-vl-7b-instruct"
-
-    QUESTIONS_PER_CHUNK = 2
-    MAX_WORKERS = 4
-
-    CLIP_SCORE_THRESHOLD = 0.2
-
-    OUTPUT_BASE_DIR = Path("intermodality/eva_multimodal")
-    RAW_DATA_DIR = OUTPUT_BASE_DIR / "01_raw_data"
-    PARSED_MD_DIR = OUTPUT_BASE_DIR / "02_parsed_markdown"
-    IMAGES_DIR = OUTPUT_BASE_DIR / "03_images"
-    GENERATED_QA_DIR = OUTPUT_BASE_DIR / "04_generated_qa"
-    EVALUATED_DATA_DIR = OUTPUT_BASE_DIR / "05_evaluated_data"
+    def __init__(
+        self,
+        search_query: str = "intermodality shipping",
+        max_papers_to_crawl: int = 1,
+        dashscope_api_key: str = None,
+        dashscope_base_url: str = "https://dashscope.aliyuncs.com/XXXXXX/",
+        qa_model_name: str = "qwen-vl-plus",
+        clip_model_name: str = "multimodal-embedding-v1",
+        vqa_model_name: str = "qwen2.5-vl-7b-instruct",
+        questions_per_chunk: int = 2,
+        max_workers: int = 4,
+        clip_score_threshold: float = 0.2,
+        output_base_dir: str = "intermodality/eva_multimodal"
+    ):
+        """Initialize pipeline configuration with customizable parameters."""
+        self.SEARCH_QUERY = search_query
+        self.MAX_PAPERS_TO_CRAWL = max_papers_to_crawl
+        
+        # Use provided API key or fall back to environment variable or default
+        self.DASHSCOPE_API_KEY = dashscope_api_key or os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
+        self.DASHSCOPE_BASE_URL = dashscope_base_url
+        self.QA_MODEL_NAME = qa_model_name
+        self.CLIP_MODEL_NAME = clip_model_name
+        self.VQA_MODEL_NAME = vqa_model_name
+        self.QUESTIONS_PER_CHUNK = questions_per_chunk
+        self.MAX_WORKERS = max_workers
+        self.CLIP_SCORE_THRESHOLD = clip_score_threshold
+        
+        self.OUTPUT_BASE_DIR = Path(output_base_dir)
+        self.RAW_DATA_DIR = self.OUTPUT_BASE_DIR / "01_raw_data"
+        self.PARSED_MD_DIR = self.OUTPUT_BASE_DIR / "02_parsed_markdown"
+        self.IMAGES_DIR = self.OUTPUT_BASE_DIR / "03_images"
+        self.GENERATED_QA_DIR = self.OUTPUT_BASE_DIR / "04_generated_qa"
+        self.EVALUATED_DATA_DIR = self.OUTPUT_BASE_DIR / "05_evaluated_data"
 
 
 class IntermodalityPipeline:
@@ -61,8 +72,8 @@ class IntermodalityPipeline:
         self.evaluator = MultimodalConsistencyEvaluator(
             clip_model_name=str(self.config.CLIP_MODEL_NAME),
             vqa_model_name=str(self.config.VQA_MODEL_NAME),
-            dashscope_api_key=self.config.DASHSCOPE_API_KEY,
-            dashscope_base_url=self.config.DASHSCOPE_BASE_URL,
+            api_key=self.config.DASHSCOPE_API_KEY,
+            base_url=self.config.DASHSCOPE_BASE_URL,
         )
         self.text_evaluator = TextQualityEvaluator()  # Initialize TextQualityEvaluator
         self._setup_directories()
@@ -80,6 +91,22 @@ class IntermodalityPipeline:
             self.config.EVALUATED_DATA_DIR,
         ]:
             path.mkdir(parents=True, exist_ok=True)
+
+    def _cleanup_temp_directories(self):
+        """Clean up temporary directories created during processing."""
+        temp_dirs = [
+            Path("__temp__"),
+            Path("temp"),
+            Path("tmp")
+        ]
+        for temp_dir in temp_dirs:
+            if temp_dir.exists() and temp_dir.is_dir():
+                try:
+                    import shutil
+                    shutil.rmtree(temp_dir)
+                    logger.info(f"Cleaned up temporary directory: {temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
 
     async def step_1_crawl_data(self) -> list[Path]:
         """Step 1: Crawl papers from ArXiv and download the actual PDF files."""
@@ -236,12 +263,28 @@ class IntermodalityPipeline:
         )
 
         for i, qa_item in enumerate(generated_qa):
-            conversation = qa_item.get("conversations", [])
-            if not conversation or len(conversation) < 2:
+            # Handle both conversation formats: "conversations" (from/to) and "messages" (role/content)
+            conversation = []
+            if "conversations" in qa_item:
+                # Format: {"from": "user", "value": "..."}
+                conversation = qa_item["conversations"]
+                if conversation and len(conversation) >= 2:
+                    user_message = conversation[0].get("value", "")
+                    assistant_message = conversation[1].get("value", "")
+                else:
+                    continue
+            elif "messages" in qa_item:
+                # Format: {"role": "user", "content": "..."}
+                conversation = qa_item["messages"]
+                if conversation and len(conversation) >= 2:
+                    user_message = conversation[0].get("content", "")
+                    assistant_message = conversation[1].get("content", "")
+                else:
+                    continue
+            else:
+                logger.warning(f"QA pair #{i+1} has unrecognized format, skipping evaluation.")
                 continue
 
-            user_message = conversation[0].get("value", "")
-            assistant_message = conversation[1].get("value", "")
             images = qa_item.get("images", [])
 
             if not images:
@@ -251,6 +294,14 @@ class IntermodalityPipeline:
                 continue
 
             image_path = images[0]
+            
+            # Validate that the image file exists
+            if not os.path.exists(image_path):
+                logger.warning(
+                    f"QA pair #{i+1} references non-existent image '{image_path}', skipping evaluation."
+                )
+                continue
+                
             try:
                 question_text = user_message.replace("<image>", "").strip()
 
@@ -265,7 +316,7 @@ class IntermodalityPipeline:
                 vqa_scores = self.evaluator.evaluate_vqa_score(
                     image_path, [question_text, assistant_message]
                 )
-                print("vqa_scores", vqa_scores)
+                logger.debug(f"VQA scores for QA #{i+1}: {vqa_scores}")
 
                 similarity_q = clip_score_q.get("cosine_similarity", 0)
                 similarity_a = clip_score_a.get("cosine_similarity", 0)
@@ -333,7 +384,7 @@ class IntermodalityPipeline:
 
         if (
             not self.config.DASHSCOPE_API_KEY
-            or self.config.DASHSCOPE_API_KEY == "YOUR_DASHSCOPE_API_KEY"
+            or self.config.DASHSCOPE_API_KEY == "YOUR OWN KEY"
         ):
             logger.error(
                 "Please set your DASHSCOPE_API_KEY in the script or as an environment variable."
@@ -355,14 +406,6 @@ class IntermodalityPipeline:
             logger.error("Pipeline terminated because no QA pairs were generated.")
             return
 
-        generated_qa = [
-            {
-                "conversations": [
-                    {"from": "user", "value": "<image>\n图片右下角是什么？"}
-                ]
-            }
-        ]
-
         final_data, report = self.step_4_evaluate_and_filter(generated_qa)
 
         logger.info("--- Pipeline Execution Summary ---")
@@ -377,8 +420,19 @@ class IntermodalityPipeline:
             f"The final dataset is saved in: {self.config.EVALUATED_DATA_DIR}"
         )
         logger.info("🎉 Pipeline execution complete!")
+        
+        # Clean up temporary directories
+        self._cleanup_temp_directories()
 
 
 if __name__ == "__main__":
-    pipeline = IntermodalityPipeline(config=PipelineConfig())
+    # Example of how to initialize with custom parameters:
+    # config = PipelineConfig(
+    #     search_query="your search query",
+    #     max_papers_to_crawl=5,
+    #     dashscope_api_key="your_api_key",
+    #     output_base_dir="your/output/directory"
+    # )
+    config = PipelineConfig()
+    pipeline = IntermodalityPipeline(config=config)
     asyncio.run(pipeline.run())
