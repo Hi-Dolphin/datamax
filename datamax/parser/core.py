@@ -409,7 +409,9 @@ class DataMax(BaseLife):
         custom_domain_tree: list[dict[str, Any]] | None = None,
         debug: bool = False,
         structured_data: bool = False,
-        auto_self_review_mode: bool = False
+        auto_self_review_mode: bool = False,
+        checkpoint_path: str | None = None,
+        resume_from_checkpoint: bool = True,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -444,6 +446,8 @@ class DataMax(BaseLife):
         :param structured_data: Whether to use structured data format
         :param auto_self_review_mode: Whether to activate review mode. When True, generated QA pairs will be 
                            sent to LLM for review, and only pairs with scores >= 4 will be kept.
+        :param checkpoint_path: Optional JSONL file path to persist QA generation progress.
+        :param resume_from_checkpoint: Whether to reuse existing checkpoint data when restarting.
         :return: List of QA pairs
         """
         import datamax.generator.qa_generator as qa_generator
@@ -470,7 +474,9 @@ class DataMax(BaseLife):
             custom_domain_tree_provided=custom_domain_tree is not None,
             file_path=self.file_path,
             use_mineru=self.use_mineru,
-            domain=self.domain
+            domain=self.domain,
+            checkpoint_path_provided=checkpoint_path is not None,
+            resume_from_checkpoint=resume_from_checkpoint,
         )
 
         # Prepare content
@@ -585,7 +591,9 @@ class DataMax(BaseLife):
                         custom_domain_tree=custom_domain_tree,
                         use_mineru=self.use_mineru,
                         debug=debug,
-                        structured_data=structured_data
+                        structured_data=structured_data,
+                        checkpoint_path=checkpoint_path,
+                        resume_from_checkpoint=resume_from_checkpoint,
                     )
                 
                 dbg.log_data_structure(data, "generated_data")

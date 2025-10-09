@@ -1,11 +1,13 @@
 import json
+import os
 import os.path
 import re
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Union
+from typing import Callable, Dict, Optional, Union
 import requests
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -26,6 +28,173 @@ from .prompt_templates import (
 lock = threading.Lock()
 
 DEFAULT_REQUEST_TIMEOUT = 200
+
+
+DEFAULT_MAX_RETRIES = int(os.getenv("DATAMAX_LLM_MAX_RETRIES", "5"))
+RETRY_BASE_DELAY_SECONDS = float(os.getenv("DATAMAX_LLM_RETRY_BASE_DELAY", "1.0"))
+RETRY_BACKOFF_FACTOR = float(os.getenv("DATAMAX_LLM_BACKOFF_FACTOR", "2.0"))
+MAX_BACKOFF_SECONDS = float(os.getenv("DATAMAX_LLM_MAX_BACKOFF_SECONDS", "30"))
+MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("DATAMAX_LLM_MIN_INTERVAL_SECONDS", "0.6"))
+
+_rate_limit_lock = threading.Lock()
+_last_request_timestamp = 0.0
+
+
+class QAProgressTracker:
+    """Handle incremental QA pair persistence and resume."""
+
+    def __init__(self, path: Optional[str], resume: bool = True):
+        self.path = path
+        self.lock = threading.Lock()
+        self.entries_by_key: Dict[str, dict] = {}
+        self.order: list[str] = []
+
+        if self.path:
+            dir_name = os.path.dirname(self.path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+            if resume and os.path.exists(self.path):
+                self._load_existing()
+            elif not resume and os.path.exists(self.path):
+                os.remove(self.path)
+
+    def _make_key(self, entry: dict) -> Optional[str]:
+        return entry.get("qid") or entry.get("instruction")
+
+    def _load_existing(self):
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"Skipping invalid checkpoint line in {self.path}: {line[:80]}..."
+                        )
+                        continue
+                    key = self._make_key(entry)
+                    if not key:
+                        continue
+                    self.entries_by_key[key] = entry
+                    if key not in self.order:
+                        self.order.append(key)
+            logger.info(
+                f"Loaded {len(self.entries_by_key)} checkpointed QA pairs from {self.path}"
+            )
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            logger.warning(f"Failed to load checkpoint {self.path}: {exc}")
+
+    def _rewrite_file_locked(self):
+        if not self.path:
+            return
+        with open(self.path, "w", encoding="utf-8") as f:
+            for key in self.order:
+                entry = self.entries_by_key.get(key)
+                if entry:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    def record(self, entry: dict):
+        key = self._make_key(entry)
+        if not key:
+            return
+        with self.lock:
+            is_new = key not in self.entries_by_key
+            self.entries_by_key[key] = entry
+            if is_new:
+                self.order.append(key)
+            if not self.path:
+                return
+            if is_new:
+                with open(self.path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            else:
+                self._rewrite_file_locked()
+
+    def existing_answers(self) -> Dict[str, str]:
+        answers: Dict[str, str] = {}
+        for entry in self.entries_by_key.values():
+            question = entry.get("instruction")
+            answer = entry.get("output")
+            if question and answer is not None:
+                answers[question] = answer
+        return answers
+
+    def has_entry(self, *, qid: Optional[str], question: str) -> bool:
+        key = qid or question
+        return bool(key and key in self.entries_by_key)
+
+    def total_entries(self) -> int:
+        return len(self.entries_by_key)
+
+
+def _respect_rate_limit(min_interval: float):
+    if min_interval <= 0:
+        return
+    global _last_request_timestamp
+    with _rate_limit_lock:
+        now = time.perf_counter()
+        wait_time = min_interval - (now - _last_request_timestamp)
+        if wait_time > 0:
+            time.sleep(wait_time)
+            now = time.perf_counter()
+        _last_request_timestamp = now
+
+
+def _extract_error_detail(response: Optional[requests.Response]) -> str:
+    if response is None:
+        return ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            message = payload.get("message")
+            if not message and isinstance(payload.get("error"), dict):
+                message = payload["error"].get("message")
+            if message:
+                return str(message)
+            return json.dumps(payload, ensure_ascii=False)
+    except ValueError:
+        pass
+    return response.text or ""
+
+
+def _get_retry_after(response: Optional[requests.Response]) -> Optional[float]:
+    if response is None:
+        return None
+    retry_after = response.headers.get("Retry-After")
+    if not retry_after:
+        return None
+    try:
+        return float(retry_after)
+    except (TypeError, ValueError):
+        return None
+
+
+def _should_retry(status_code: Optional[int], error_detail: str) -> bool:
+    if status_code is None:
+        return True
+    if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        return True
+    if status_code == 400 and "rate" in error_detail.lower():
+        return True
+    return False
+
+
+def _calculate_retry_delay(
+    attempt: int,
+    retry_after: Optional[float],
+    backoff_factor: float,
+) -> float:
+    if retry_after is not None:
+        return min(max(retry_after, 0.0), MAX_BACKOFF_SECONDS)
+    delay = RETRY_BASE_DELAY_SECONDS * (backoff_factor ** (attempt - 1))
+    return min(max(delay, 0.5), MAX_BACKOFF_SECONDS)
+
+
+
 
 # ====== API settings======
 # set your api key and base url in .env file
@@ -77,7 +246,7 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
         pages = splitter.split_documents(documents)
         page_content = [i.page_content for i in pages]
         logger.info(
-            f"📄 Markdown file '{file_name}' split into {len(page_content)} chunks"
+            f"馃搫 Markdown file '{file_name}' split into {len(page_content)} chunks"
         )
         return page_content
 
@@ -113,9 +282,9 @@ def load_and_split_text(
         file_ext = os.path.splitext(file_path)[1].lower()
         file_name = os.path.basename(file_path)
 
-        logger.info(f"开始处理文件: {file_name} (类型: {file_ext})")
+        logger.info(f"寮€濮嬪鐞嗘枃浠? {file_name} (绫诲瀷: {file_ext})")
 
-        # 使用DataMax解析文件，传递use_mineru和use_qwen_vl_ocr参数
+        # 浣跨敤DataMax瑙ｆ瀽鏂囦欢锛屼紶閫抲se_mineru鍜寀se_qwen_vl_ocr鍙傛暟
         dm = DataMax(
             file_path=file_path,
             to_markdown=True,
@@ -150,23 +319,23 @@ def load_and_split_text(
         # Directly split text content
         page_content = splitter.split_text(content)
 
-        # 根据文件类型提供不同的日志信息
+        # 鏍规嵁鏂囦欢绫诲瀷鎻愪緵涓嶅悓鐨勬棩蹇椾俊鎭?
         if file_ext == ".pdf":
             if use_qwen_vl_ocr:
                 logger.info(
-                    f"📄 PDF文件 '{file_name}' 使用Qwen-VL OCR解析，被分解为 {len(page_content)} 个chunk"
+                    f"馃搫 PDF鏂囦欢 '{file_name}' 浣跨敤Qwen-VL OCR瑙ｆ瀽锛岃鍒嗚В涓?{len(page_content)} 涓猚hunk"
                 )
             elif use_mineru:
                 logger.info(
-                    f"📄 PDF文件 '{file_name}' 使用MinerU解析，被分解为 {len(page_content)} 个chunk"
+                    f"馃搫 PDF鏂囦欢 '{file_name}' 浣跨敤MinerU瑙ｆ瀽锛岃鍒嗚В涓?{len(page_content)} 涓猚hunk"
                 )
             else:
                 logger.info(
-                    f"📄 PDF file '{file_name}' parsed with PyMuPDF, split into {len(page_content)} chunks"
+                    f"馃搫 PDF file '{file_name}' parsed with PyMuPDF, split into {len(page_content)} chunks"
                 )
         else:
             logger.info(
-                f"📄 {file_ext.upper()} file '{file_name}' split into {len(page_content)} chunks"
+                f"馃搫 {file_ext.upper()} file '{file_name}' split into {len(page_content)} chunks"
             )
 
         return page_content
@@ -214,6 +383,7 @@ def extract_json_from_llm_output(output: str):
     return None
 
 
+
 def llm_generator(
     api_key: str,
     model: str,
@@ -224,116 +394,160 @@ def llm_generator(
     temperature: float = 0.7,
     top_p: float = 0.9,
     debug: bool = False,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_backoff_factor: float = RETRY_BACKOFF_FACTOR,
+    min_interval_seconds: Union[float, None] = None,
 ) -> list:
-    """Generate content using LLM API"""
-    try:
-        if not message:
-            # logger.warning("No message provided, using default system prompt")
-            message = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "请严格按照要求生成内容"},
-            ]
+    """Generate content using LLM API with automatic throttling and retries."""
+    attempts = max(1, max_retries)
+    request_interval = (
+        min_interval_seconds
+        if min_interval_seconds is not None
+        else MIN_REQUEST_INTERVAL_SECONDS
+    )
+    last_error_message = ""
 
-        if debug:
-            logger.debug("=" * 80)
-            logger.debug("🚀 大模型请求详细信息")
-            logger.debug("=" * 80)
-            logger.debug(f"📍 模型: {model}")
-            logger.debug(f"🌐 API地址: {base_url}")
-            logger.debug(f"🌡️  温度参数: {temperature}")
-            logger.debug(f"🎯 Top-P参数: {top_p}")
-            logger.debug(f"📝 请求类型: {type}")
-            logger.debug("-" * 40)
-            logger.debug("💬 消息内容:")
-            for i, msg in enumerate(message, 1):
-                role_emoji = (
-                    "🤖"
-                    if msg["role"] == "system"
-                    else "👤" if msg["role"] == "user" else "🔧"
-                )
-                logger.debug(f"  {i}. {role_emoji} {msg['role'].upper()}:")
-                content_lines = msg["content"].split("\n")
-                for line in content_lines:
-                    if line.strip():
-                        logger.debug(f"     {line}")
-                logger.debug("")
-            logger.debug("-" * 40)
+    for attempt in range(1, attempts + 1):
+        if request_interval:
+            _respect_rate_limit(request_interval)
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "model": model,
-            "messages": message,
-            "temperature": temperature,
-            "top_p": top_p,
-        }
+        try:
+            if not message:
+                message = [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "Please follow the generation instructions strictly."},
+                ]
 
-        if debug:
-            logger.debug("📤 发送请求到大模型...")
-
-        response = requests.post(
-            base_url,
-            headers=headers,
-            json=data,
-            timeout=DEFAULT_REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        if debug:
-            logger.debug("✅ 大模型响应成功")
-            logger.debug("-" * 40)
-            logger.debug("📥 响应详细信息:")
-            logger.debug(f"  📊 状态码: {response.status_code}")
-            if "usage" in result:
-                usage = result["usage"]
-                logger.debug(f"  🔢 Token使用情况:")
-                logger.debug(f"     输入Token: {usage.get('prompt_tokens', 'N/A')}")
-                logger.debug(f"     输出Token: {usage.get('completion_tokens', 'N/A')}")
-                logger.debug(f"     总Token: {usage.get('total_tokens', 'N/A')}")
-            logger.debug("-" * 40)
-
-        # Parse LLM response
-        if "choices" in result and len(result["choices"]) > 0:
-            output = result["choices"][0]["message"]["content"]
-
-            if debug:
-                logger.debug("📋 大模型原始回答:")
-                output_lines = output.split("\n")
-                for line in output_lines:
-                    if line.strip():
-                        logger.debug(f"  {line}")
+            if debug and attempt == 1:
+                logger.debug("=" * 60)
+                logger.debug("LLM request details")
+                logger.debug("=" * 60)
+                logger.debug(f"Model: {model}")
+                logger.debug(f"API URL: {base_url}")
+                logger.debug(f"Temperature: {temperature}")
+                logger.debug(f"Top-P: {top_p}")
+                logger.debug(f"Request type: {type}")
+                logger.debug("-" * 40)
+                logger.debug("Messages:")
+                for idx, msg in enumerate(message, 1):
+                    logger.debug(f"{idx}. {msg['role'].upper()}:")
+                    content_lines = msg.get("content", "").split("\n")
+                    for line in content_lines:
+                        if line.strip():
+                            logger.debug(f"   {line}")
                 logger.debug("-" * 40)
 
-            if type == "question":
-                fmt_output = extract_json_from_llm_output(output)
-                if debug:
-                    logger.debug(f"🔄 解析后的问题列表: {fmt_output}")
-                    logger.debug(
-                        f"📈 解析出 {len(fmt_output) if fmt_output else 0} 个问题"
-                    )
-                    logger.debug("=" * 80)
-                return fmt_output if fmt_output is not None else []
-            else:
-                if debug:
-                    logger.debug(
-                        f"📝 返回原始内容 (长度: {len(output) if output else 0} 字符)"
-                    )
-                    logger.debug("=" * 80)
-                return [output] if output else []
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            data = {
+                "model": model,
+                "messages": message,
+                "temperature": temperature,
+                "top_p": top_p,
+            }
 
-        if debug:
-            logger.debug("⚠️  响应中没有有效的choices内容")
-            logger.debug("=" * 80)
-        return []
+            if debug and attempt == 1:
+                logger.debug("Sending request to LLM...")
 
-    except Exception as e:
-        logger.error(f"LLM keyword extraction failed: {e}")
-        if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-            logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
-        return []
+            response = requests.post(
+                base_url,
+                headers=headers,
+                json=data,
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if debug and attempt == 1:
+                logger.debug("LLM response received")
+                logger.debug("-" * 40)
+                logger.debug(f"Status code: {response.status_code}")
+                if "usage" in result:
+                    usage = result["usage"]
+                    logger.debug("Token usage:")
+                    logger.debug(f"  Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
+                    logger.debug(f"  Completion tokens: {usage.get('completion_tokens', 'N/A')}")
+                    logger.debug(f"  Total tokens: {usage.get('total_tokens', 'N/A')}")
+                logger.debug("-" * 40)
+
+            if "choices" in result and len(result["choices"]) > 0:
+                output = result["choices"][0]["message"].get("content", "")
+
+                if debug and attempt == 1:
+                    logger.debug("Raw LLM response:")
+                    for line in output.split("\n"):
+                        if line.strip():
+                            logger.debug(f"  {line}")
+                    logger.debug("-" * 40)
+
+                if type == "question":
+                    fmt_output = extract_json_from_llm_output(output)
+                    if debug and attempt == 1:
+                        logger.debug(f"Parsed questions: {fmt_output}")
+                        logger.debug(
+                            f"Question count: {len(fmt_output) if fmt_output else 0}"
+                        )
+                        logger.debug("=" * 60)
+                    return fmt_output if fmt_output is not None else []
+                else:
+                    if debug and attempt == 1:
+                        logger.debug(f"Returning raw content (length: {len(output)})")
+                        logger.debug("=" * 60)
+                    return [output] if output else []
+
+            if debug and attempt == 1:
+                logger.debug("No valid choices returned by LLM")
+                logger.debug("=" * 60)
+            return []
+
+        except requests.exceptions.HTTPError as http_err:
+            response = http_err.response if hasattr(http_err, "response") else None
+            status_code = response.status_code if response is not None else None
+            error_detail = _extract_error_detail(response)
+            last_error_message = (
+                f"HTTP {status_code}: {error_detail or str(http_err)}"
+            )
+            if _should_retry(status_code, error_detail) and attempt < attempts:
+                wait_time = _calculate_retry_delay(
+                    attempt, _get_retry_after(response), retry_backoff_factor
+                )
+                logger.warning(
+                    "LLM request was rate limited or temporarily failed "
+                    f"({last_error_message}); retrying in {wait_time:.2f}s"
+                )
+                time.sleep(wait_time)
+                continue
+            logger.error(f"LLM keyword extraction failed: {last_error_message}")
+            if hasattr(http_err, "__traceback__") and http_err.__traceback__ is not None:
+                logger.error(f"Error line number: {http_err.__traceback__.tb_lineno}")
+            return []
+        except requests.exceptions.RequestException as req_err:
+            last_error_message = str(req_err)
+            if attempt < attempts:
+                wait_time = _calculate_retry_delay(attempt, None, retry_backoff_factor)
+                logger.warning(
+                    "LLM request hit a network error "
+                    f"({last_error_message}); retrying in {wait_time:.2f}s"
+                )
+                time.sleep(wait_time)
+                continue
+            logger.error(f"LLM keyword extraction failed: {last_error_message}")
+            if hasattr(req_err, "__traceback__") and req_err.__traceback__ is not None:
+                logger.error(f"Error line number: {req_err.__traceback__.tb_lineno}")
+            return []
+        except Exception as e:
+            last_error_message = str(e)
+            logger.error(f"LLM keyword extraction failed: {last_error_message}")
+            if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+            return []
+
+    logger.error(
+        f"LLM keyword extraction failed after {attempts} attempts: {last_error_message}"
+    )
+    return []
 
 
 # ------------thread_process-------------
@@ -365,7 +579,7 @@ def process_match_tags(
             type="question",
             debug=debug,
         )
-        return match[0] if match else {"question": q, "label": "其他"}
+        return match[0] if match else {"question": q, "label": "鍏朵粬"}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_q = {executor.submit(match_one_question, q): q for q in questions}
@@ -394,21 +608,21 @@ def process_domain_tree(
 
     if debug:
         logger.debug("=" * 80)
-        logger.debug("🌳 DOMAIN TREE GENERATION DEBUG INFO")
+        logger.debug("馃尦 DOMAIN TREE GENERATION DEBUG INFO")
         logger.debug("=" * 80)
-        logger.debug(f"📝 System Prompt: {prompt[:200]}...")
-        logger.debug(f"🔧 Model: {model}")
-        logger.debug(f"🌐 API URL: {base_url}")
-        logger.debug(f"🌡️ Temperature: {temperature}")
-        logger.debug(f"🎯 Top-P: {top_p}")
-        logger.debug(f"🔄 Max Retries: {max_retries}")
+        logger.debug(f"馃摑 System Prompt: {prompt[:200]}...")
+        logger.debug(f"馃敡 Model: {model}")
+        logger.debug(f"馃寪 API URL: {base_url}")
+        logger.debug(f"馃尅锔?Temperature: {temperature}")
+        logger.debug(f"馃幆 Top-P: {top_p}")
+        logger.debug(f"馃攧 Max Retries: {max_retries}")
         logger.debug("=" * 80)
 
     for attempt in range(max_retries):
         try:
             message = [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": "请严格按照要求生成内容"},
+                {"role": "user", "content": "Please analyze the document and return a structured domain tree in JSON."},
             ]
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -430,25 +644,25 @@ def process_domain_tree(
             result = response.json()
 
             if debug:
-                logger.debug(f"📡 API Response Status: {response.status_code}")
+                logger.debug(f"馃摗 API Response Status: {response.status_code}")
                 if "usage" in result:
-                    logger.debug(f"🔢 Token Usage: {result['usage']}")
+                    logger.debug(f"馃敘 Token Usage: {result['usage']}")
 
             # Parse LLM response
             if "choices" in result and len(result["choices"]) > 0:
                 output = result["choices"][0]["message"]["content"]
                 if debug:
-                    logger.debug(f"📄 Raw Response: {output[:500]}...")
+                    logger.debug(f"馃搫 Raw Response: {output[:500]}...")
                 if output:
                     json_output = extract_json_from_llm_output(output)
                     if debug:
-                        logger.debug(f"🔍 Parsed JSON: {json_output}")
+                        logger.debug(f"馃攳 Parsed JSON: {json_output}")
                     if json_output is not None:
                         domain_tree = DomainTree()
                         domain_tree.from_json(json_output)
                         if debug:
                             logger.debug(
-                                f"🌳 Generated Domain Tree: {domain_tree.visualize()}"
+                                f"馃尦 Generated Domain Tree: {domain_tree.visualize()}"
                             )
                         logger.info(
                             f"Domain tree generated successfully, created {len(json_output)} main tags"
@@ -476,7 +690,7 @@ def process_domain_tree(
 
             if attempt == max_retries - 1:
                 error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
-                print(f"❌ {error_msg}")
+                print(f"鉂?{error_msg}")
                 logger.error(
                     f"Domain tree generation failed after {max_retries} retries: {error_msg}"
                 )
@@ -488,7 +702,7 @@ def process_domain_tree(
                 time.sleep(2)  # Wait 2 seconds before retry
 
     error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
-    print(f"❌ {error_msg}")
+    print(f"鉂?{error_msg}")
     logger.error(
         f"Domain tree generation failed after {max_retries} retries: {error_msg}"
     )
@@ -517,7 +731,7 @@ def process_questions(
             try:
                 # logger.warning(f"page: {page}")
                 prompt = get_system_prompt_for_question(page, question_number)
-                # Step1 生成问题的大模型
+                # Step1 鐢熸垚闂鐨勫ぇ妯″瀷
                 questions = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -561,7 +775,7 @@ def process_questions(
             for page in page_content
         ]
         if debug:
-            # Debug模式下禁用进度条，避免与debug日志冲突
+            # Debug妯″紡涓嬬鐢ㄨ繘搴︽潯锛岄伩鍏嶄笌debug鏃ュ織鍐茬獊
             for future in as_completed(futures):
                 result = future.result()
                 if result:
@@ -589,18 +803,32 @@ def process_answers(
     max_workers: int = 5,
     max_retries: int = 10,
     debug: bool = False,
+    existing_answers: Optional[Dict[str, str]] = None,
+    progress_callback: Optional[Callable[[str, str], None]] = None,
 ) -> dict:
     """Generate answers using multi-threading"""
-    qa_pairs = {}
+    qa_pairs: Dict[str, str] = {}
     if message is None:
         message = []
+    if existing_answers:
+        qa_pairs.update(existing_answers)
+        logger.info(
+            f"Loaded {len(existing_answers)} answers from checkpoint, skipping regeneration for them"
+        )
+
+    pending_items = [
+        item for item in question_items if item["question"] not in qa_pairs
+    ]
+    if not pending_items:
+        logger.info("All questions already have answers from checkpoint")
+        return qa_pairs
 
     def _generate_answer_with_retry(item):
         """Inner function for answer generation with retry"""
         for attempt in range(max_retries):
             try:
                 prompt = get_system_prompt_for_answer(item["page"], item["question"])
-                # Step2 生成答案的大模型
+                # Step2 鐢熸垚绛旀鐨勫ぇ妯″瀷
                 answer = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -641,22 +869,24 @@ def process_answers(
         return None  # return None to discard the question with answer
 
     logger.info(
-        f"Starting answer generation (threads: {max_workers}, retries: {max_retries})..."
+        f"Starting answer generation (threads: {max_workers}, retries: {max_retries}, pending: {len(pending_items)})..."
     )
+    # TODO: UnboundLocalError: cannot access local variable 'pending_items' where it is not associated with a value
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(_generate_answer_with_retry, item): item
-            for item in question_items
+            for item in pending_items
         }
 
         if debug:
-            # Debug模式下禁用进度条，避免与debug日志冲突
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:  # only add question with answer
                     question, answer = result
                     with lock:
                         qa_pairs[question] = answer
+                    if progress_callback:
+                        progress_callback(question, answer)
         else:
             with tqdm(
                 as_completed(futures), total=len(futures), desc="Generating answers"
@@ -667,6 +897,8 @@ def process_answers(
                         question, answer = result
                         with lock:
                             qa_pairs[question] = answer
+                        if progress_callback:
+                            progress_callback(question, answer)
                         pbar.set_postfix({"Generated answers": len(qa_pairs)})
     return qa_pairs
 
@@ -688,6 +920,7 @@ def generatr_qa_pairs(
     max_workers: int = 5,
     domain_tree: DomainTree = None,
     debug: bool = False,
+    progress_tracker: Optional["QAProgressTracker"] = None,
 ) -> list:
     if message is None:
         message = []
@@ -695,6 +928,29 @@ def generatr_qa_pairs(
         from datamax.generator.domain_tree import DomainTree
 
         domain_tree = DomainTree([])
+    existing_answers = (
+        progress_tracker.existing_answers() if progress_tracker else None
+    )
+    question_lookup = {item["question"]: item for item in question_info}
+
+    def _on_answer_generated(question: str, answer: str):
+        if not progress_tracker:
+            return
+        question_item = question_lookup.get(question)
+        if not question_item:
+            return
+        label = question_item.get("label", "")
+        entry = {
+            "qid": question_item.get("qid", ""),
+            "instruction": question,
+            "input": "",
+            "output": answer,
+            "label": label,
+            "tag-path": find_tagpath_by_label(domain_tree, label) if domain_tree else "",
+        }
+        progress_tracker.record(entry)
+
+
     qa_pairs = process_answers(
         question_items=question_info,
         message=message,
@@ -703,6 +959,8 @@ def generatr_qa_pairs(
         base_url=base_url,
         model=model_name,
         debug=debug,
+        existing_answers=existing_answers,
+        progress_callback=_on_answer_generated,
     )
     logger.success(f"Completed! Generated {len(qa_pairs)} QA pairs in total")
     res_list = []
@@ -726,110 +984,120 @@ def generatr_qa_pairs(
     return res_list
 
 
+
+
 def _interactive_tree_modification(domain_tree):
-    """
-    Interactive custom domain tree structure modification
-    :param domain_tree: DomainTree instance
-    :return: Modified DomainTree instance
-    """
-    print("\n Do you need to modify the tree?")
+    """Interactive custom domain tree structure modification."""
+    print("\nDo you need to modify the tree?")
     print("Supported operations:")
-    print("1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）")
-    print("2. 增加节点：xxx；父节点：xxx；子节点：xxx")
-    print("3. 删除节点：xxx")
-    print("4. 更新节点：新名称；原先节点：旧名称")
-    print("5. 结束树操作")
+    print("1. Add node: <name>; Parent: <parent> (parent optional; blank adds as root)")
+    print("2. Add node: <name>; Parent: <parent>; Child: <child>")
+    print("3. Delete node: <name>")
+    print("4. Rename node: <new name>; Original: <old name>")
+    print("5. Finish")
     print(
-        "Note: Node format is usually: x.xx xxxx, like: '1.1 货物运输组织与路径规划' or '1 运输系统组织'"
+        "Note: Node format is usually like '1.1 Logistics Planning' or '1 Transportation Systems'."
     )
-    print("\nPlease enter operation command (enter '结束树操作' to exit):")
+    print("\nPlease enter operation command (enter 'Finish' to exit):")
+
     while True:
         try:
             user_input = input("> ").strip()
-            if user_input == "结束树操作":
-                print("✅ Tree operations completed, continuing QA pair generation...")
+            if not user_input:
+                continue
+            if user_input.lower() == "finish":
+                print("Tree operations completed, continuing QA pair generation...")
                 break
-            elif user_input.startswith("增加节点："):
-                parts = user_input.split("；")
-                if len(parts) >= 2:
-                    node_name = parts[0].replace("增加节点：", "").strip()
-                    parent_name = parts[1].replace("父节点：", "").strip()
-                    if not parent_name:
-                        if domain_tree.add_node(node_name):
-                            print(
-                                f"✅ Successfully added node '{node_name}' as root node"
-                            )
-                        else:
-                            print(f"❌ Add failed: Unknown error")
-                    elif len(parts) == 2:
-                        if domain_tree.add_node(node_name, parent_name):
-                            print(
-                                f"✅ Successfully added node '{node_name}' under parent node '{parent_name}'"
-                            )
-                        else:
-                            print(
-                                f"❌ Add failed: Parent node '{parent_name}' not found"
-                            )
-                    elif len(parts) == 3:
-                        child_name = parts[2].replace("子节点：", "").strip()
-                        if domain_tree.insert_node_between(
-                            node_name, parent_name, child_name
-                        ):
-                            print(
-                                f"✅ Successfully inserted node '{node_name}' between '{parent_name}' and '{child_name}'"
-                            )
-                        else:
-                            print(
-                                f"❌ Insert failed: Please check parent and child node relationship"
-                            )
+            elif user_input.lower().startswith("add node"):
+                parts = [segment.strip() for segment in user_input.split(";")]
+                if not parts:
+                    print("Format error: please use 'Add node: <name>; Parent: <parent>'")
+                    continue
+                name_part = parts[0].split(":", 1)
+                if len(name_part) != 2:
+                    print("Format error: missing node name")
+                    continue
+                node_name = name_part[1].strip()
+                parent_name = ""
+                child_name = ""
+                for segment in parts[1:]:
+                    key_value = [s.strip() for s in segment.split(":", 1)]
+                    if len(key_value) != 2:
+                        continue
+                    key_lower = key_value[0].lower()
+                    if key_lower == "parent":
+                        parent_name = key_value[1]
+                    elif key_lower == "child":
+                        child_name = key_value[1]
+
+                if not parent_name:
+                    if domain_tree.add_node(node_name):
+                        print(f"Successfully added node '{node_name}' as root node")
                     else:
-                        print("❌ Format error: Please use correct format")
-                else:
-                    print("❌ Format error: Please use correct format")
-            elif user_input.startswith("删除节点："):
-                node_name = user_input.replace("删除节点：", "").strip()
-                if domain_tree.remove_node(node_name):
-                    print(
-                        f"✅ Successfully deleted node '{node_name}' and all its descendant nodes"
-                    )
-                else:
-                    print(f"❌ Delete failed: Node '{node_name}' not found")
-            elif user_input.startswith("更新节点："):
-                parts = user_input.split("；")
-                if len(parts) == 2:
-                    new_name = parts[0].replace("更新节点：", "").strip()
-                    old_name = parts[1].replace("原先节点：", "").strip()
-                    if domain_tree.update_node(old_name, new_name):
+                        print("Add failed: unknown error")
+                elif child_name:
+                    if domain_tree.insert_node_between(node_name, parent_name, child_name):
                         print(
-                            f"✅ Successfully updated node '{old_name}' to '{new_name}'"
+                            f"Successfully inserted node '{node_name}' between '{parent_name}' and '{child_name}'"
                         )
                     else:
-                        print(f"❌ Update failed: Node '{old_name}' not found")
+                        print("Insert failed: please check parent and child relationship")
                 else:
+                    if domain_tree.add_node(node_name, parent_name):
+                        print(
+                            f"Successfully added node '{node_name}' under parent node '{parent_name}'"
+                        )
+                    else:
+                        print(f"Add failed: parent node '{parent_name}' not found")
+            elif user_input.lower().startswith("delete node"):
+                name_part = user_input.split(":", 1)
+                node_name = name_part[1].strip() if len(name_part) == 2 else ""
+                if not node_name:
+                    print("Format error: please provide node name")
+                    continue
+                if domain_tree.remove_node(node_name):
                     print(
-                        "❌ Format error: Please use correct format, like: 更新节点：新名称；原先节点：旧名称"
+                        f"Successfully deleted node '{node_name}' and all its descendant nodes"
                     )
+                else:
+                    print(f"Delete failed: node '{node_name}' not found")
+            elif user_input.lower().startswith("rename node"):
+                parts = [segment.strip() for segment in user_input.split(";")]
+                if len(parts) != 2:
+                    print(
+                        "Format error: please use 'Rename node: <new name>; Original: <old name>'"
+                    )
+                    continue
+                new_part = parts[0].split(":", 1)
+                old_part = parts[1].split(":", 1)
+                if len(new_part) != 2 or len(old_part) != 2:
+                    print(
+                        "Format error: please use 'Rename node: <new name>; Original: <old name>'"
+                    )
+                    continue
+                new_name = new_part[1].strip()
+                old_name = old_part[1].strip()
+                if domain_tree.update_node(old_name, new_name):
+                    print(f"Successfully updated node '{old_name}' to '{new_name}'")
+                else:
+                    print(f"Update failed: node '{old_name}' not found")
             else:
-                print("❌ Unknown operation, please use correct format")
-            print("\n📝 Current tree structure:")
+                print("Unknown operation. Please follow the listed formats.")
+
+            print("\nCurrent tree structure:")
             print(domain_tree.visualize())
             print("\nPlease enter next operation command:")
             print("Supported operations:")
-            print(
-                "1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）"
-            )
-            print("2. 增加节点：xxx；父节点：xxx；子节点：xxx")
-            print("3. 删除节点：xxx")
-            print("4. 更新节点：新名称；原先节点：旧名称")
-            print("5. 结束树操作")
-            print(
-                "Note: Node format is usually: x.xx xxxx, like: '1.1 货物运输组织与路径规划' or '1 运输系统组织'"
-            )
+            print("1. Add node: <name>; Parent: <parent> (parent optional)")
+            print("2. Add node: <name>; Parent: <parent>; Child: <child>")
+            print("3. Delete node: <name>")
+            print("4. Rename node: <new name>; Original: <old name>")
+            print("5. Finish")
         except KeyboardInterrupt:
-            print("\n\n⚠️⚠️Operation interrupted⚠️⚠️, continuing QA pair generation...")
+            print("\nOperation interrupted, continuing QA pair generation...")
             break
         except Exception as e:
-            print(f"❌ Operation error: {e}")
+            print(f"Operation error: {e}")
             print("Please re-enter operation command:")
     return domain_tree
 
@@ -850,7 +1118,9 @@ def full_qa_labeling_process(
     custom_domain_tree: list = None,
     use_mineru: bool = False,  # Add use_mineru parameter
     debug: bool = False,
-    structured_data: bool = False
+    structured_data: bool = False,
+    checkpoint_path: Optional[str] = None,
+    resume_from_checkpoint: bool = True,
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction,
@@ -892,14 +1162,14 @@ def full_qa_labeling_process(
         content_type = "Text"
         if content.strip().startswith("#") or "**" in content or "```" in content:
             content_type = "Markdown"
-            logger.info("📄 Detected Markdown format content")
+            logger.info("馃搫 Detected Markdown format content")
         elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
             content_type = "PDF converted content"
-            logger.info("📄 Detected PDF converted content")
+            logger.info("馃搫 Detected PDF converted content")
             if use_mineru:
-                logger.info("📄 Using MinerU parsed PDF content")
+                logger.info("馃搫 Using MinerU parsed PDF content")
             else:
-                logger.info("📄 Using PDF parsed PDF content")
+                logger.info("馃搫 Using PDF parsed PDF content")
             
         # Directly use LangChain's text splitter for chunking without creating temporary files
         from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -914,29 +1184,29 @@ def full_qa_labeling_process(
 
     elif structured_data == True:
         content_type = "Dict"
-        logger.info("⛓ Detected Dict format content")
+        logger.info("鉀?Detected Dict format content")
         # logger.info(f"Befor RecursiveJsonSplitter: {type(content)}, {content}")
-        # TODO： 正则表达式分割 - 已完成
+        # TODO锛?姝ｅ垯琛ㄨ揪寮忓垎鍓?- 宸插畬鎴?
         import re
         import json
         
-        # 使用正则表达式匹配完整的JSON对象
-        # 匹配以 { 开头，以 } 结尾，且中间内容平衡的JSON对象
+        # 浣跨敤姝ｅ垯琛ㄨ揪寮忓尮閰嶅畬鏁寸殑JSON瀵硅薄
+        # 鍖归厤浠?{ 寮€澶达紝浠?} 缁撳熬锛屼笖涓棿鍐呭骞宠　鐨凧SON瀵硅薄
         json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
         json_matches = re.findall(json_pattern, content)
         
-        # 验证并解析每个匹配的JSON对象
+        # 楠岃瘉骞惰В鏋愭瘡涓尮閰嶇殑JSON瀵硅薄
         valid_json_objects = []
         for match in json_matches:
             try:
-                # 尝试解析JSON验证有效性
+                # 灏濊瘯瑙ｆ瀽JSON楠岃瘉鏈夋晥鎬?
                 json_obj = json.loads(match)
-                valid_json_objects.append(match)  # 或者可以存储解析后的对象 json_obj
+                valid_json_objects.append(match)  # 鎴栬€呭彲浠ュ瓨鍌ㄨВ鏋愬悗鐨勫璞?json_obj
             except json.JSONDecodeError:
-                # 如果解析失败，跳过这个匹配项
+                # 濡傛灉瑙ｆ瀽澶辫触锛岃烦杩囪繖涓尮閰嶉」
                 continue
         
-        # 确保我们只取前三个有效的JSON对象
+        # 纭繚鎴戜滑鍙彇鍓嶄笁涓湁鏁堢殑JSON瀵硅薄
         page_content = valid_json_objects
         
         # logger.info(f"After RecursiveJsonSplitter: {page_content}")
@@ -948,9 +1218,9 @@ def full_qa_labeling_process(
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
-            logger.info("🌳 Using user-uploaded custom domain tree structure")
+            logger.info("馃尦 Using user-uploaded custom domain tree structure")
             print(
-                "🌳 Using your uploaded custom domain tree structure for pre-labeling..."
+                "馃尦 Using your uploaded custom domain tree structure for pre-labeling..."
             )
         else:
             # otherwise, generate tree from text
@@ -974,13 +1244,13 @@ def full_qa_labeling_process(
         if interactive_tree and domain_tree and domain_tree.tree:
             tree_source = "Custom" if custom_domain_tree is not None else "Generated"
             print("\n" + "=" * 60)
-            print(f"🌳 {tree_source} domain tree structure:")
+            print(f"Domain tree source: {tree_source}")
             print("=" * 60)
             print(domain_tree.visualize())
             print("=" * 60)
             if custom_domain_tree is not None:
                 print(
-                    "💡 You can modify the custom tree, or enter '结束树操作' to use it directly"
+                    "馃挕 You can modify the custom tree, or enter '缁撴潫鏍戞搷浣? to use it directly"
                 )
             domain_tree = _interactive_tree_modification(domain_tree)
         #  --------------  split done  -------------------
@@ -1023,6 +1293,16 @@ def full_qa_labeling_process(
         for question_item in question_info:
             question_item["label"] = ""
     # 5. generate answers
+    progress_tracker = None
+    if checkpoint_path:
+        progress_tracker = QAProgressTracker(
+            checkpoint_path, resume=resume_from_checkpoint
+        )
+        logger.info(
+            f"Checkpointing QA generation to {checkpoint_path} "
+            f"(resume={'enabled' if resume_from_checkpoint else 'disabled'})"
+        )
+
     qa_list = generatr_qa_pairs(
         question_info=question_info,
         api_key=api_key,
@@ -1032,7 +1312,7 @@ def full_qa_labeling_process(
         max_workers=max_workers,
         domain_tree=domain_tree if use_tree_label else None,
         debug=debug,
+        progress_tracker=progress_tracker,
     )
 
     # Return both qa_list and domain_tree
-    return {"qa_pairs": qa_list, "domain_tree": domain_tree}
