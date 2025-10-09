@@ -816,9 +816,23 @@ def process_answers(
             f"Loaded {len(existing_answers)} answers from checkpoint, skipping regeneration for them"
         )
 
-    pending_items = [
-        item for item in question_items if item["question"] not in qa_pairs
-    ]
+    pending_items: list[dict] = []
+    if not question_items:
+        logger.warning("No question items supplied for answer generation")
+        return qa_pairs
+
+    for item in question_items:
+        if not isinstance(item, dict):
+            logger.warning(f"Skipping non-dict question item: {item!r}")
+            continue
+
+        question = item.get("question")
+        if question is None:
+            logger.warning(f"Skipping question item without 'question' key: {item!r}")
+            continue
+
+        if question not in qa_pairs:
+            pending_items.append(item)
     if not pending_items:
         logger.info("All questions already have answers from checkpoint")
         return qa_pairs
@@ -1162,14 +1176,14 @@ def full_qa_labeling_process(
         content_type = "Text"
         if content.strip().startswith("#") or "**" in content or "```" in content:
             content_type = "Markdown"
-            logger.info("馃搫 Detected Markdown format content")
+            logger.info("Detected Markdown format content")
         elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
             content_type = "PDF converted content"
-            logger.info("馃搫 Detected PDF converted content")
+            logger.info("Detected PDF converted content")
             if use_mineru:
-                logger.info("馃搫 Using MinerU parsed PDF content")
+                logger.info("Using MinerU parsed PDF content")
             else:
-                logger.info("馃搫 Using PDF parsed PDF content")
+                logger.info("Using PDF parsed PDF content")
             
         # Directly use LangChain's text splitter for chunking without creating temporary files
         from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -1184,29 +1198,22 @@ def full_qa_labeling_process(
 
     elif structured_data == True:
         content_type = "Dict"
-        logger.info("鉀?Detected Dict format content")
+        logger.info("Detected Dict format content")
         # logger.info(f"Befor RecursiveJsonSplitter: {type(content)}, {content}")
-        # TODO锛?姝ｅ垯琛ㄨ揪寮忓垎鍓?- 宸插畬鎴?
         import re
         import json
         
-        # 浣跨敤姝ｅ垯琛ㄨ揪寮忓尮閰嶅畬鏁寸殑JSON瀵硅薄
-        # 鍖归厤浠?{ 寮€澶达紝浠?} 缁撳熬锛屼笖涓棿鍐呭骞宠　鐨凧SON瀵硅薄
         json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
         json_matches = re.findall(json_pattern, content)
         
-        # 楠岃瘉骞惰В鏋愭瘡涓尮閰嶇殑JSON瀵硅薄
         valid_json_objects = []
         for match in json_matches:
             try:
-                # 灏濊瘯瑙ｆ瀽JSON楠岃瘉鏈夋晥鎬?
                 json_obj = json.loads(match)
-                valid_json_objects.append(match)  # 鎴栬€呭彲浠ュ瓨鍌ㄨВ鏋愬悗鐨勫璞?json_obj
+                valid_json_objects.append(match)
             except json.JSONDecodeError:
-                # 濡傛灉瑙ｆ瀽澶辫触锛岃烦杩囪繖涓尮閰嶉」
                 continue
         
-        # 纭繚鎴戜滑鍙彇鍓嶄笁涓湁鏁堢殑JSON瀵硅薄
         page_content = valid_json_objects
         
         # logger.info(f"After RecursiveJsonSplitter: {page_content}")
@@ -1218,9 +1225,9 @@ def full_qa_labeling_process(
         # if custom_domain_tree is not None, use it
         if custom_domain_tree is not None:
             domain_tree = DomainTree(custom_domain_tree)
-            logger.info("馃尦 Using user-uploaded custom domain tree structure")
+            logger.info("Using user-uploaded custom domain tree structure")
             print(
-                "馃尦 Using your uploaded custom domain tree structure for pre-labeling..."
+                "Using your uploaded custom domain tree structure for pre-labeling..."
             )
         else:
             # otherwise, generate tree from text
@@ -1250,7 +1257,7 @@ def full_qa_labeling_process(
             print("=" * 60)
             if custom_domain_tree is not None:
                 print(
-                    "馃挕 You can modify the custom tree, or enter '缁撴潫鏍戞搷浣? to use it directly"
+                    "You can modify the custom tree, or enter to use it directly"
                 )
             domain_tree = _interactive_tree_modification(domain_tree)
         #  --------------  split done  -------------------
@@ -1316,3 +1323,26 @@ def full_qa_labeling_process(
     )
 
     # Return both qa_list and domain_tree
+    result = {
+        "qa_pairs": qa_list,
+        "metadata": {
+            "content_type": content_type,
+            "question_number": question_number,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "use_tree_label": use_tree_label,
+            "structured_data": structured_data,
+            "total_questions_generated": len(question_info),
+            "total_qa_pairs": len(qa_list),
+        },
+    }
+
+    if use_tree_label and domain_tree:
+        result["domain_tree"] = domain_tree.to_json()
+        result["domain_tree_source"] = (
+            "custom" if custom_domain_tree is not None else "generated"
+        )
+    else:
+        result["domain_tree"] = None
+
+    return result

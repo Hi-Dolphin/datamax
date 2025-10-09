@@ -255,7 +255,7 @@ class DataMax(BaseLife):
                     return self.parsed_data
                 else:
                     logger.info(
-                        f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
+                        f"⏳ [Cache Miss] No cached data for {self.file_path}, parsing..."
                     )
                     self._cache = {
                         k: v for k, v in self._cache.items() if v["ttl"] > time.time()
