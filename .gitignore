@@ -240,3 +240,5 @@ DEPLOYMENT_GUIDE.md
 *.csv
 
 !sample_document.txt
+
+data_*

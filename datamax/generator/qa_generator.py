@@ -6,8 +6,9 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 import requests
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -17,12 +18,15 @@ from loguru import logger
 from pyexpat.errors import messages
 from tqdm import tqdm
 
+from datamax.utils.performance_monitor import PerformanceMonitor
+
 from .domain_tree import DomainTree  # for cache domain tree
 from .prompt_templates import (
     get_system_prompt_for_answer,
     get_system_prompt_for_domain_tree,
     get_system_prompt_for_match_label,
     get_system_prompt_for_question,
+    get_system_prompt_for_review,
 )
 
 lock = threading.Lock()
@@ -38,6 +42,10 @@ MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("DATAMAX_LLM_MIN_INTERVAL_SECONDS
 
 _rate_limit_lock = threading.Lock()
 _last_request_timestamp = 0.0
+
+QUESTION_STAGE = "question_generation"
+ANSWER_STAGE = "answer_generation"
+REVIEW_STAGE = "qa_review"
 
 
 class QAProgressTracker:
@@ -389,7 +397,7 @@ def llm_generator(
     model: str,
     base_url: str,
     prompt: Union[str, None] = None,
-    type: str = 'normal',
+    type: str = "normal",
     message: Union[list, None] = None,
     temperature: float = 0.7,
     top_p: float = 0.9,
@@ -397,6 +405,8 @@ def llm_generator(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_backoff_factor: float = RETRY_BACKOFF_FACTOR,
     min_interval_seconds: Union[float, None] = None,
+    perf_monitor: Optional[PerformanceMonitor] = None,
+    perf_stage: Optional[str] = None,
 ) -> list:
     """Generate content using LLM API with automatic throttling and retries."""
     attempts = max(1, max_retries)
@@ -408,6 +418,7 @@ def llm_generator(
     last_error_message = ""
 
     for attempt in range(1, attempts + 1):
+        call_start = time.perf_counter()
         if request_interval:
             _respect_rate_limit(request_interval)
 
@@ -459,13 +470,22 @@ def llm_generator(
             )
             response.raise_for_status()
             result = response.json()
+            duration = time.perf_counter() - call_start
+            usage = result.get("usage") or {}
+
+            if perf_monitor:
+                perf_monitor.record_request(
+                    stage=perf_stage,
+                    duration_seconds=duration,
+                    prompt_tokens=usage.get("prompt_tokens"),
+                    completion_tokens=usage.get("completion_tokens"),
+                )
 
             if debug and attempt == 1:
                 logger.debug("LLM response received")
                 logger.debug("-" * 40)
                 logger.debug(f"Status code: {response.status_code}")
-                if "usage" in result:
-                    usage = result["usage"]
+                if usage:
                     logger.debug("Token usage:")
                     logger.debug(f"  Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
                     logger.debug(f"  Completion tokens: {usage.get('completion_tokens', 'N/A')}")
@@ -719,11 +739,14 @@ def process_questions(
     message: list = None,
     max_retries: int = 10,
     debug: bool = False,
+    perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> list:
     """Generate questions using multi-threading with retry mechanism"""
     total_questions = []
     if message is None:
         message = []
+    stage_name = QUESTION_STAGE
+    stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
 
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
@@ -740,6 +763,8 @@ def process_questions(
                     prompt=prompt,
                     type="question",
                     debug=debug,
+                    perf_monitor=perf_monitor,
+                    perf_stage=stage_name,
                 )
                 if questions:
                     return [
@@ -768,29 +793,32 @@ def process_questions(
     logger.info(
         f"Starting question generation (threads: {max_workers}, retries: {max_retries})..."
     )
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # logger.warning(f"page_content: {page_content}")
-        futures = [
-            executor.submit(_generate_questions_with_retry, page)
-            for page in page_content
-        ]
-        if debug:
-            # Debug妯″紡涓嬬鐢ㄨ繘搴︽潯锛岄伩鍏嶄笌debug鏃ュ織鍐茬獊
-            for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    with lock:
-                        total_questions.extend(result)
-        else:
-            with tqdm(
-                as_completed(futures), total=len(futures), desc="Generating questions"
-            ) as pbar:
-                for future in pbar:
+    with stage_ctx:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # logger.warning(f"page_content: {page_content}")
+            futures = [
+                executor.submit(_generate_questions_with_retry, page)
+                for page in page_content
+            ]
+            if debug:
+                # Debug妯??紡涓嬬鐢ㄨ繘搴︽潯锛岄伩鍏嶄笌debug鏃ュ織鍐茬獊
+                for future in as_completed(futures):
                     result = future.result()
                     if result:
                         with lock:
                             total_questions.extend(result)
-                        pbar.set_postfix({"Generated questions": len(total_questions)})
+            else:
+                with tqdm(
+                    as_completed(futures), total=len(futures), desc="Generating questions"
+                ) as pbar:
+                    for future in pbar:
+                        result = future.result()
+                        if result:
+                            with lock:
+                                total_questions.extend(result)
+                            pbar.set_postfix({"Generated questions": len(total_questions)})
+    if perf_monitor:
+        perf_monitor.add_stage_items(stage_name, len(total_questions))
     return total_questions
 
 
@@ -805,11 +833,19 @@ def process_answers(
     debug: bool = False,
     existing_answers: Optional[Dict[str, str]] = None,
     progress_callback: Optional[Callable[[str, str], None]] = None,
+    perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs: Dict[str, str] = {}
     if message is None:
         message = []
+    stage_name = ANSWER_STAGE
+
+    def _finalize(result: Dict[str, str]) -> Dict[str, str]:
+        if perf_monitor:
+            perf_monitor.add_stage_items(stage_name, len(result))
+        return result
+
     if existing_answers:
         qa_pairs.update(existing_answers)
         logger.info(
@@ -819,7 +855,7 @@ def process_answers(
     pending_items: list[dict] = []
     if not question_items:
         logger.warning("No question items supplied for answer generation")
-        return qa_pairs
+        return _finalize(qa_pairs)
 
     for item in question_items:
         if not isinstance(item, dict):
@@ -835,7 +871,7 @@ def process_answers(
             pending_items.append(item)
     if not pending_items:
         logger.info("All questions already have answers from checkpoint")
-        return qa_pairs
+        return _finalize(qa_pairs)
 
     def _generate_answer_with_retry(item):
         """Inner function for answer generation with retry"""
@@ -851,6 +887,8 @@ def process_answers(
                     message=message,
                     type="answer",
                     debug=debug,
+                    perf_monitor=perf_monitor,
+                    perf_stage=stage_name,
                 )
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]
@@ -886,26 +924,16 @@ def process_answers(
         f"Starting answer generation (threads: {max_workers}, retries: {max_retries}, pending: {len(pending_items)})..."
     )
     # TODO: UnboundLocalError: cannot access local variable 'pending_items' where it is not associated with a value
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_generate_answer_with_retry, item): item
-            for item in pending_items
-        }
+    stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
+    with stage_ctx:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_generate_answer_with_retry, item): item
+                for item in pending_items
+            }
 
-        if debug:
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:  # only add question with answer
-                    question, answer = result
-                    with lock:
-                        qa_pairs[question] = answer
-                    if progress_callback:
-                        progress_callback(question, answer)
-        else:
-            with tqdm(
-                as_completed(futures), total=len(futures), desc="Generating answers"
-            ) as pbar:
-                for future in pbar:
+            if debug:
+                for future in as_completed(futures):
                     result = future.result()
                     if result is not None:  # only add question with answer
                         question, answer = result
@@ -913,8 +941,176 @@ def process_answers(
                             qa_pairs[question] = answer
                         if progress_callback:
                             progress_callback(question, answer)
-                        pbar.set_postfix({"Generated answers": len(qa_pairs)})
-    return qa_pairs
+            else:
+                with tqdm(
+                    as_completed(futures), total=len(futures), desc="Generating answers"
+                ) as pbar:
+                    for future in pbar:
+                        result = future.result()
+                        if result is not None:  # only add question with answer
+                            question, answer = result
+                            with lock:
+                                qa_pairs[question] = answer
+                            if progress_callback:
+                                progress_callback(question, answer)
+                            pbar.set_postfix({"Generated answers": len(qa_pairs)})
+    return _finalize(qa_pairs)
+
+
+def review_qa_pairs(
+    qa_pairs: list[dict],
+    *,
+    source_text: Optional[str],
+    api_key: str,
+    model: str,
+    base_url: str,
+    score_threshold: int = 4,
+    max_workers: int = 5,
+    max_retries: int = 3,
+    debug: bool = False,
+    user_prompt: str = "请进行评分",
+    progress_desc: str = "Reviewing QA pairs",
+    dbg: Any = None,
+    perf_monitor: Optional[PerformanceMonitor] = None,
+) -> tuple[list[dict], int]:
+    """
+    Review QA pairs concurrently and return the accepted pairs with rejection count.
+
+    Args:
+        qa_pairs: List of QA pair dicts to review.
+        source_text: Original source text used for prompt construction.
+        api_key: API key for the LLM.
+        model: Model name for the LLM.
+        base_url: Base URL for the LLM service.
+        score_threshold: Minimum score to accept a QA pair.
+        max_workers: Maximum number of concurrent review workers.
+        max_retries: Number of retries for each review request.
+        debug: Disable progress bar and rely on debug logs when True.
+        user_prompt: User message sent alongside the system prompt.
+        progress_desc: Description for the progress bar.
+        dbg: Optional debug logger context.
+
+    Returns:
+        Tuple of (accepted QA pairs list, rejected count).
+    """
+    if not qa_pairs:
+        logger.info("No QA pairs supplied for review; skipping review process")
+        if perf_monitor:
+            perf_monitor.add_stage_items(REVIEW_STAGE, 0)
+        return [], 0
+
+    reviewed_qa_pairs: list[dict] = []
+    rejected_count = 0
+    stage_ctx = perf_monitor.stage(REVIEW_STAGE) if perf_monitor else nullcontext()
+
+    def _review_single(idx: int, qa_pair: dict):
+        last_error_message = ""
+        reference_text = qa_pair.get("context") or source_text or ""
+        for attempt in range(max_retries):
+            try:
+                qa_pair_json = json.dumps(qa_pair, ensure_ascii=False, indent=2)
+                review_prompt = get_system_prompt_for_review(reference_text, qa_pair_json)
+                review_messages = [
+                    {"role": "system", "content": review_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+                # logger.info(f"review_messages: {review_messages}")
+                review_result_list = llm_generator(
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    type="review",
+                    message=review_messages,
+                    debug=debug,
+                    perf_monitor=perf_monitor,
+                    perf_stage=REVIEW_STAGE,
+                )
+                review_result = review_result_list[0] if review_result_list else ""
+                if not review_result:
+                    last_error_message = "Empty review result"
+                    continue
+
+                try:
+                    review_json = json.loads(review_result)
+                except json.JSONDecodeError as exc:
+                    last_error_message = f"JSON decode error: {exc}"
+                    return (
+                        idx,
+                        qa_pair,
+                        False,
+                        0,
+                        "Failed to parse review result",
+                        "warning",
+                        last_error_message,
+                    )
+
+                score = review_json.get("score", 0)
+                reason = review_json.get("reason", "No reason provided")
+
+                if score >= score_threshold:
+                    return idx, qa_pair, True, score, reason, None, None
+
+                return idx, qa_pair, False, score, reason, "info", None
+
+            except Exception as exc:  # noqa: BLE001
+                last_error_message = str(exc)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+
+        return (
+            idx,
+            qa_pair,
+            False,
+            0,
+            "Review request failed",
+            "error",
+            last_error_message,
+        )
+
+    progress_bar = None
+    if not debug:
+        progress_bar = tqdm(total=len(qa_pairs), desc=progress_desc, unit="pair")
+
+    with stage_ctx:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(_review_single, idx, qa_pair)
+                for idx, qa_pair in enumerate(qa_pairs, start=1)
+            ]
+
+            iterator = as_completed(futures)
+            for future in iterator:
+                idx, qa_pair, accepted, score, reason, severity, error_message = future.result()
+
+                if accepted:
+                    reviewed_qa_pairs.append(qa_pair)
+                    if dbg:
+                        dbg.log(f"QA pair {idx} passed review (score: {score}): {reason}")
+                else:
+                    rejected_count += 1
+                    if dbg:
+                        dbg.log(f"QA pair {idx} rejected (score: {score}): {reason}")
+                    if severity == "warning":
+                        logger.warning(f"Failed to parse review result for QA pair {idx}: {error_message}")
+                    elif severity == "error":
+                        logger.error(f"Error reviewing QA pair {idx}: {error_message}")
+
+                if progress_bar:
+                    progress_bar.update(1)
+                    progress_bar.set_postfix(
+                        {
+                            "passed": len(reviewed_qa_pairs),
+                            "rejected": rejected_count,
+                        }
+                    )
+
+        if progress_bar:
+            progress_bar.close()
+
+    if perf_monitor:
+        perf_monitor.add_stage_items(REVIEW_STAGE, len(qa_pairs))
+
+    return reviewed_qa_pairs, rejected_count
 
 
 # find tagpath by label
@@ -935,6 +1131,7 @@ def generatr_qa_pairs(
     domain_tree: DomainTree = None,
     debug: bool = False,
     progress_tracker: Optional["QAProgressTracker"] = None,
+    perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> list:
     if message is None:
         message = []
@@ -961,6 +1158,7 @@ def generatr_qa_pairs(
             "output": answer,
             "label": label,
             "tag-path": find_tagpath_by_label(domain_tree, label) if domain_tree else "",
+            "context": question_item.get("page", ""),
         }
         progress_tracker.record(entry)
 
@@ -975,6 +1173,7 @@ def generatr_qa_pairs(
         debug=debug,
         existing_answers=existing_answers,
         progress_callback=_on_answer_generated,
+        perf_monitor=perf_monitor,
     )
     logger.success(f"Completed! Generated {len(qa_pairs)} QA pairs in total")
     res_list = []
@@ -993,6 +1192,7 @@ def generatr_qa_pairs(
                 "output": answer,
                 "label": label,
                 "tag-path": tag_path,
+                "context": question_item.get("page", ""),
             }
             res_list.append(qa_entry)
     return res_list
@@ -1135,6 +1335,7 @@ def full_qa_labeling_process(
     structured_data: bool = False,
     checkpoint_path: Optional[str] = None,
     resume_from_checkpoint: bool = True,
+    perf_monitor: Optional[PerformanceMonitor] = None,
 ):
     """
     Complete QA generation workflow, including splitting, domain tree generation and interaction,
@@ -1142,12 +1343,7 @@ def full_qa_labeling_process(
     """
     import uuid
 
-    from datamax.generator.qa_generator import (
-        generatr_qa_pairs,
-        process_domain_tree,
-        process_match_tags,
-        process_questions,
-    )
+    monitor = perf_monitor or PerformanceMonitor()
 
     # Validate required parameters
     if not content:
@@ -1273,6 +1469,7 @@ def full_qa_labeling_process(
         max_workers=max_workers,
         message=messages,
         debug=debug,
+        perf_monitor=monitor,
     )
     for question_item in question_info:
         if "qid" not in question_item:
@@ -1320,6 +1517,7 @@ def full_qa_labeling_process(
         domain_tree=domain_tree if use_tree_label else None,
         debug=debug,
         progress_tracker=progress_tracker,
+        perf_monitor=monitor,
     )
 
     # Return both qa_list and domain_tree
@@ -1344,5 +1542,7 @@ def full_qa_labeling_process(
         )
     else:
         result["domain_tree"] = None
+
+    result["performance"] = monitor.build_report()
 
     return result

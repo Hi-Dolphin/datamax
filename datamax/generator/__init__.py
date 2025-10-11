@@ -25,6 +25,7 @@ from .qa_generator import (
     process_match_tags,
     process_questions,
 )
+from datamax.utils.performance_monitor import PerformanceMonitor
 
 __all__ = [
     # QA Generator
@@ -40,6 +41,7 @@ __all__ = [
     "find_tagpath_by_label",
     "generatr_qa_pairs",
     "full_qa_labeling_process",
+    "PerformanceMonitor",
     # Multimodal QA Generator
     "get_instruction_prompt",
     "parse_markdown_and_associate_images",

@@ -13,6 +13,7 @@ from datamax.cleaner import data_cleaner
 from datamax.parser.base import BaseLife
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.debug_logger import DebugContext
+from datamax.generator import PerformanceMonitor
 
 
 class ParserFactory:
@@ -410,6 +411,11 @@ class DataMax(BaseLife):
         debug: bool = False,
         structured_data: bool = False,
         auto_self_review_mode: bool = False,
+        review_max_workers: int = 5,
+        review_max_retries: int = 3,
+        review_score_threshold: int = 4,
+        review_user_prompt: str = "请进行评分",
+        review_progress_desc: str = "Reviewing QA pairs",
         checkpoint_path: str | None = None,
         resume_from_checkpoint: bool = True,
     ):
@@ -444,8 +450,13 @@ class DataMax(BaseLife):
             ]
         :param debug: Enable debug logging
         :param structured_data: Whether to use structured data format
-        :param auto_self_review_mode: Whether to activate review mode. When True, generated QA pairs will be 
+        :param auto_self_review_mode: Whether to activate review mode. When True, generated QA pairs will be
                            sent to LLM for review, and only pairs with scores >= 4 will be kept.
+        :param review_max_workers: Maximum concurrency for review requests.
+        :param review_max_retries: Maximum retry attempts per review request.
+        :param review_score_threshold: Minimum score required to keep a QA pair.
+        :param review_user_prompt: User message sent to the reviewer LLM.
+        :param review_progress_desc: Progress bar description for review mode.
         :param checkpoint_path: Optional JSONL file path to persist QA generation progress.
         :param resume_from_checkpoint: Whether to reuse existing checkpoint data when restarting.
         :return: List of QA pairs
@@ -454,6 +465,112 @@ class DataMax(BaseLife):
 
         # Initialize debug context
         dbg = DebugContext(enabled=debug, context_name="get_pre_label")
+        perf_monitor = PerformanceMonitor()
+        self.performance_monitor = perf_monitor
+
+        def _round_metric(value, digits: int = 3):
+            return round(value, digits) if isinstance(value, (int, float)) else value
+
+        def _log_performance_report(report: dict):
+            if not dbg.enabled:
+                return
+            for stage_name, metrics in report.get("stages", {}).items():
+                dbg.log(
+                    f"Performance[{stage_name}]",
+                    items=metrics.get("items"),
+                    qpm=_round_metric(metrics.get("effective_qpm")),
+                    tokens_per_second=_round_metric(metrics.get("tokens_per_second")),
+                    request_count=metrics.get("request_count"),
+                )
+            totals = report.get("totals", {})
+            dbg.log(
+                "PerformanceTotals",
+                total_tokens=totals.get("total_tokens"),
+                overall_qpm=_round_metric(totals.get("overall_qpm")),
+                tokens_per_second=_round_metric(totals.get("tokens_per_second")),
+            )
+
+        def _format_performance_table(report: dict) -> str:
+            stages = report.get("stages", {})
+            if not stages:
+                return "┌──────────────────────┐\n│ No performance data │\n└──────────────────────┘"
+
+            headers = [
+                "Stage",
+                "Runs",
+                "Items",
+                "Duration(s)",
+                "Reqs",
+                "QPM",
+                "Total Tokens",
+                "Tokens/s",
+                "Tokens/req",
+            ]
+            rows = []
+
+            for stage_name, metrics in stages.items():
+                label = stage_name.replace("_", " ").title()
+                rows.append(
+                    [
+                        label,
+                        str(metrics.get("runs", 0)),
+                        str(metrics.get("items", 0)),
+                        f"{metrics.get('stage_duration_seconds', 0.0):.2f}",
+                        str(metrics.get("request_count", 0)),
+                        f"{metrics.get('effective_qpm', 0.0):.2f}",
+                        str(metrics.get("total_tokens", 0)),
+                        f"{metrics.get('tokens_per_second', 0.0):.2f}",
+                        f"{metrics.get('tokens_per_request', 0.0):.2f}",
+                    ]
+                )
+
+            widths = [len(header) for header in headers]
+            for row in rows:
+                for idx, cell in enumerate(row):
+                    widths[idx] = max(widths[idx], len(cell))
+
+            def _make_border(left: str, fill: str, junction: str, right: str) -> str:
+                segments = [fill * (w + 2) for w in widths]
+                return left + junction.join(segments) + right
+
+            top = _make_border("┌", "─", "┬", "┐")
+            mid = _make_border("├", "─", "┼", "┤")
+            bottom = _make_border("└", "─", "┴", "┘")
+
+            header_cells = [
+                f" {headers[idx].ljust(widths[idx])} " for idx in range(len(headers))
+            ]
+            header_line = "│" + "│".join(header_cells) + "│"
+
+            row_lines = []
+            for row in rows:
+                cells = [
+                    f" {row[idx].ljust(widths[idx])} " for idx in range(len(headers))
+                ]
+                row_lines.append("│" + "│".join(cells) + "│")
+
+            totals = report.get("totals", {})
+            totals_line = (
+                "Totals: tokens="
+                f"{totals.get('total_tokens', 0)} | prompt="
+                f"{totals.get('prompt_tokens', 0)} | completion="
+                f"{totals.get('completion_tokens', 0)} | "
+                f"overall_qpm={totals.get('overall_qpm', 0.0):.2f} | "
+                f"tokens/s={totals.get('tokens_per_second', 0.0):.2f} | "
+                f"duration={totals.get('workflow_duration_seconds', 0.0):.2f}s"
+            )
+
+            table_lines = [top, header_line, mid, *row_lines, bottom, totals_line]
+            return "\n".join(table_lines)
+
+        def _record_performance(target):
+            report = perf_monitor.build_report()
+            self.last_performance_report = report
+            if isinstance(target, dict):
+                target["performance"] = report
+            _log_performance_report(report)
+            logger.info("\n📊 Performance Summary\n{}", _format_performance_table(report))
+            return report
         
         # Log input parameters
         dbg.log_params(
@@ -482,8 +599,8 @@ class DataMax(BaseLife):
         # Prepare content
         with dbg.section("Content Preparation"):
             if content is not None:
-                text = content
-                dbg.log(f"Using external content, length: {len(text)}")
+                prepared_text = content
+                dbg.log(f"Using external content, length: {len(prepared_text)}")
             else:
                 dbg.log("Fetching content via get_data()")
                 processed = self.get_data()
@@ -492,16 +609,16 @@ class DataMax(BaseLife):
                 # Convert to text
                 if isinstance(processed, list):
                     parts = [d["content"] if isinstance(d, dict) else d for d in processed]
-                    text = "\n\n".join(parts)
-                    dbg.log(f"Merged {len(parts)} parts, total length: {len(text)}")
+                    prepared_text = "\n\n".join(parts)
+                    dbg.log(f"Merged {len(parts)} parts, total length: {len(prepared_text)}")
                 elif isinstance(processed, dict):
-                    text = processed.get("content", "")
-                    dbg.log(f"Extracted content from dict, length: {len(text)}")
+                    prepared_text = processed.get("content", "")
+                    dbg.log(f"Extracted content from dict, length: {len(prepared_text)}")
                 else:
-                    text = processed
-                    dbg.log(f"Using content as-is, length: {len(text)}")
+                    prepared_text = processed
+                    dbg.log(f"Using content as-is, length: {len(prepared_text)}")
                 
-                print(text)
+                print(prepared_text)
 
         # Add lifecycle marker
         if self.parsed_data is not None and isinstance(self.parsed_data, dict):
@@ -567,7 +684,7 @@ class DataMax(BaseLife):
                     )
                 else:
                     logger.info("Using standard QA generator...")
-                    dbg.log(f"Text length: {len(text)}")
+                    dbg.log(f"Text length: {len(prepared_text)}")
                     dbg.log_params(
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
@@ -577,7 +694,7 @@ class DataMax(BaseLife):
                     )
 
                     data = qa_generator.full_qa_labeling_process(
-                        content=text,
+                        content=prepared_text,
                         api_key=api_key,
                         base_url=base_url,
                         model_name=model_name,
@@ -594,6 +711,7 @@ class DataMax(BaseLife):
                         structured_data=structured_data,
                         checkpoint_path=checkpoint_path,
                         resume_from_checkpoint=resume_from_checkpoint,
+                        perf_monitor=perf_monitor,
                     )
                 
                 dbg.log_data_structure(data, "generated_data")
@@ -623,60 +741,26 @@ class DataMax(BaseLife):
                     qa_pairs = data
                 else:
                     logger.warning("Unexpected data format for review mode, skipping review")
+                    _record_performance(data)
                     return data
                 
-                # Import review prompt template
-                from datamax.generator.prompt_templates import get_system_prompt_for_review
-                
-                reviewed_qa_pairs = []
-                rejected_count = 0
-                
-                for i, qa_pair in enumerate(qa_pairs):
-                    try:
-                        # Convert QA pair to JSON string for review
-                        qa_pair_json = json.dumps(qa_pair, ensure_ascii=False, indent=2)
-                        
-                        # Create review messages
-                        review_prompt = get_system_prompt_for_review(text, qa_pair_json)
-                        review_messages = [
-                            {"role": "system", "content": review_prompt},
-                            {"role": "user", "content": "请进行评分"}
-                        ]
-                        
-                        # Get review result from LLM using llm_generator
-                        from datamax.generator.qa_generator import llm_generator
-                        review_result_list = llm_generator(
-                            api_key=api_key,
-                            model=model_name,
-                            base_url=base_url,
-                            type="review",
-                            message=review_messages,
-                            debug=debug
-                        )
-                        review_result = review_result_list[0] if review_result_list else ""
+                from datamax.generator.qa_generator import review_qa_pairs
 
-                        # Parse review result
-                        try:
-                            review_json = json.loads(review_result)
-                            score = review_json.get("score", 0)
-                            reason = review_json.get("reason", "No reason provided")
-                            
-                            if score >= 4:
-                                reviewed_qa_pairs.append(qa_pair)
-                                dbg.log(f"QA pair {i+1} passed review (score: {score}): {reason}")
-                            else:
-                                rejected_count += 1
-                                dbg.log(f"QA pair {i+1} rejected (score: {score}): {reason}")
-                                
-                        except json.JSONDecodeError:
-                            logger.warning(f"Failed to parse review result for QA pair {i+1}, rejecting as low quality")
-                            rejected_count += 1
-                            continue
-                            
-                    except Exception as e:
-                        logger.error(f"Error reviewing QA pair {i+1}: {e}")
-                        rejected_count += 1
-                        continue
+                reviewed_qa_pairs, rejected_count = review_qa_pairs(
+                    qa_pairs=qa_pairs,
+                    source_text=prepared_text,
+                    api_key=api_key,
+                    model=model_name,
+                    base_url=base_url,
+                    score_threshold=review_score_threshold,
+                    max_workers=review_max_workers,
+                    max_retries=review_max_retries,
+                    debug=debug,
+                    user_prompt=review_user_prompt,
+                    progress_desc=review_progress_desc,
+                    dbg=dbg,
+                    perf_monitor=perf_monitor,
+                )
                 
                 logger.info(f"✅ Review completed: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
                 dbg.log(f"Review results: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
@@ -687,6 +771,7 @@ class DataMax(BaseLife):
                 else:
                     data = reviewed_qa_pairs
                 
+                _record_performance(data)
                 # Preview reviewed QA pairs
                 dbg.preview_qa_pairs(data, max_preview=10)
                 
@@ -694,6 +779,7 @@ class DataMax(BaseLife):
                 return data
             
             # Preview QA pairs
+            _record_performance(data)
             dbg.preview_qa_pairs(data, max_preview=10)
             
             dbg.log("Returning generated data")

@@ -13,7 +13,7 @@ model = os.getenv("QA_MODEL", "YOUR QA MODEL")
 def main():
     parent_path = "/mnt/f/datamax/data"
     save_parent_path = "/mnt/f/datamax/train"
-    input_names = ["continent", "countries", "port", "special_region", "trade_area", "vessel_type", "cargo_type", "sea_area", "map_node"]
+    input_names = ["cargo_type"] # "continent", "countries", "port", "special_region", "trade_area", "vessel_type", "sea_area", "map_node" 
     for input_name in input_names:
         input_path = os.path.join(parent_path, input_name) + '.json'
 
@@ -31,7 +31,7 @@ def main():
             base_url=base_url,
             model_name=model,
             question_number=30,  # question_number_per_chunk
-            max_workers=5,
+            max_workers=1,
             debug=False,
             structured_data=True,  # 结构化数据开启
             auto_self_review_mode=True
