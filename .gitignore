@@ -242,3 +242,6 @@ DEPLOYMENT_GUIDE.md
 !sample_document.txt
 
 data_*
+checkpoints.jsonl
+logs
+logs/*

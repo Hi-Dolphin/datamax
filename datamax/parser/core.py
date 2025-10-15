@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Literal, TypedDict, overload, cast, Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -14,6 +14,63 @@ from datamax.parser.base import BaseLife
 from datamax.utils.lifecycle_types import LifeType
 from datamax.utils.debug_logger import DebugContext
 from datamax.generator import PerformanceMonitor
+
+
+class LifecycleMetadata(TypedDict):
+    storage_size: int
+    source_file: str
+    domain: str
+    usage_purpose: str
+
+
+class LifecycleRecord(TypedDict):
+    update_time: str
+    life_type: list[str]
+    life_metadata: LifecycleMetadata
+
+
+ParsedFieldValue = str | list[LifecycleRecord]
+
+
+class ParsedDocument(TypedDict, total=False):
+    extension: str
+    content: str
+    lifecycle: list[LifecycleRecord]
+
+
+class ParsedDataList(list[ParsedDocument]):
+    """List wrapper that exposes dict-like get access for tooling."""
+
+    @overload
+    def get(self, key: Literal["content"], default: str | None = None) -> str | None:
+        ...
+
+    @overload
+    def get(self, key: Literal["extension"], default: str | None = None) -> str | None:
+        ...
+
+    @overload
+    def get(
+        self, key: Literal["lifecycle"], default: list[LifecycleRecord] | None = None
+    ) -> list[LifecycleRecord] | None:
+        ...
+
+    @overload
+    def get(self, key: str, default: ParsedFieldValue | None = None) -> ParsedFieldValue | None:
+        ...
+
+    def get(self, key: str, default: ParsedFieldValue | None = None) -> ParsedFieldValue | None:
+        if not self:
+            return default
+        first = self[0]
+        if key not in first:
+            return default
+        value = first[key]
+        return cast(ParsedFieldValue, value)
+
+
+ParsedData = ParsedDocument
+ParsedDataResult = ParsedDocument | ParsedDataList
 
 
 class ParserFactory:
@@ -214,7 +271,7 @@ class DataMax(BaseLife):
                 f"✅ [Cache Updated] Cached data for {file_name}, ttl: {self._cache[file_name]['ttl']}"
             )
 
-    def get_data(self):
+    def get_data(self) -> ParsedDataResult:
         """
         Parse the file or directory specified in the file path and return the data.
 
@@ -222,7 +279,7 @@ class DataMax(BaseLife):
         """
         try:
             if isinstance(self.file_path, list):
-                parsed_data = []
+                parsed_items: list[ParsedData] = []
                 for f in self.file_path:
                     file_name = os.path.basename(f)
                     if (
@@ -230,7 +287,7 @@ class DataMax(BaseLife):
                         and self._cache[file_name]["ttl"] > time.time()
                     ):
                         logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
-                        parsed_data.append(self._cache[file_name]["data"])
+                        parsed_items.append(self._cache[file_name]["data"])
                     else:
                         logger.info(
                             f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -241,9 +298,11 @@ class DataMax(BaseLife):
                             if v["ttl"] > time.time()
                         }
                         res_data = self._parse_file(f)
-                        parsed_data.append(res_data)
+                        parsed_items.append(res_data)
                         self.set_data(file_name, res_data)
-                return parsed_data
+                parsed_list = ParsedDataList(parsed_items)
+                self.parsed_data = parsed_list
+                return parsed_list
 
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
                 file_name = os.path.basename(self.file_path)
@@ -262,6 +321,11 @@ class DataMax(BaseLife):
                         k: v for k, v in self._cache.items() if v["ttl"] > time.time()
                     }
                     parsed_data = self._parse_file(self.file_path)
+                    if isinstance(parsed_data, list):
+                        parsed_list = ParsedDataList(parsed_data)
+                        self.parsed_data = parsed_list
+                        self.set_data(file_name, parsed_list)
+                        return parsed_list
                     self.parsed_data = parsed_data
                     self.set_data(file_name, parsed_data)
                     return parsed_data
@@ -270,7 +334,7 @@ class DataMax(BaseLife):
                 file_list = [
                     str(file) for file in list(Path(self.file_path).rglob("*.*"))
                 ]
-                parsed_data = []
+                parsed_items: list[ParsedData] = []
                 for f in file_list:
                     if os.path.isfile(f):
                         file_name = os.path.basename(f)
@@ -281,7 +345,7 @@ class DataMax(BaseLife):
                             logger.info(
                                 f"✅ [Cache Hit] Using cached data for {file_name}"
                             )
-                            parsed_data.append(self._cache[file_name]["data"])
+                            parsed_items.append(self._cache[file_name]["data"])
                         else:
                             logger.info(
                                 f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -292,9 +356,11 @@ class DataMax(BaseLife):
                                 if v["ttl"] > time.time()
                             }
                             res_data = self._parse_file(f)
-                            parsed_data.append(res_data)
+                            parsed_items.append(res_data)
                             self.set_data(file_name, res_data)
-                return parsed_data
+                parsed_list = ParsedDataList(parsed_items)
+                self.parsed_data = parsed_list
+                return parsed_list
             else:
                 raise ValueError("Invalid file path.")
 
@@ -394,7 +460,7 @@ class DataMax(BaseLife):
     def get_pre_label(
         self,
         *,
-        content: str = None,
+        content: str | None = None,
         use_mllm: bool = False,
         api_key: str,
         base_url: str,
@@ -405,14 +471,14 @@ class DataMax(BaseLife):
         max_workers: int = 5,
         language: str = "zh",
         use_tree_label: bool = False,
-        messages: list = None,
+        messages: list | None= None,
         interactive_tree: bool = False,
         custom_domain_tree: list[dict[str, Any]] | None = None,
         debug: bool = False,
         structured_data: bool = False,
         auto_self_review_mode: bool = False,
         review_max_workers: int = 5,
-        review_max_retries: int = 3,
+        review_max_retries: int = 10,
         review_score_threshold: int = 4,
         review_user_prompt: str = "请进行评分",
         review_progress_desc: str = "Reviewing QA pairs",
