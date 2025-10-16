@@ -8,7 +8,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from itertools import islice
 import requests
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -202,8 +203,6 @@ def _calculate_retry_delay(
     return min(max(delay, 0.5), MAX_BACKOFF_SECONDS)
 
 
-
-
 # ====== API settings======
 # set your api key and base url in .env file
 API_KEY = os.getenv("DASHSCOPE_API_KEY", "your-api-key-here")
@@ -389,7 +388,6 @@ def extract_json_from_llm_output(output: str):
 
     logger.error(f"Model output not in standard format: {output}")
     return None
-
 
 
 def llm_generator(
@@ -742,7 +740,6 @@ def process_questions(
     perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> list:
     """Generate questions using multi-threading with retry mechanism"""
-    total_questions = []
     if message is None:
         message = []
     stage_name = QUESTION_STAGE
@@ -752,9 +749,7 @@ def process_questions(
         """Inner function for question generation with retry"""
         for attempt in range(max_retries):
             try:
-                # logger.warning(f"page: {page}")
                 prompt = get_system_prompt_for_question(page, question_number)
-                # Step1 鐢熸垚闂鐨勫ぇ妯″瀷
                 questions = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -770,10 +765,9 @@ def process_questions(
                     return [
                         {"question": question, "page": page} for question in questions
                     ]
-                else:
-                    logger.warning(
-                        f"Question generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
-                    )
+                logger.warning(
+                    f"Question generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
+                )
             except Exception as e:
                 logger.error(
                     f"Question generation error (attempt {attempt + 1}/{max_retries}): {e}"
@@ -790,33 +784,87 @@ def process_questions(
         logger.error(f"Question generation failed after {max_retries} retries")
         return []
 
+    def _batch_iterable(it: Iterable[Any], batch_size: int):
+        iterator = iter(it)
+        while True:
+            batch = list(islice(iterator, batch_size))
+            if not batch:
+                break
+            yield batch
+
+    def _process_batch(pages_batch: List[Any]) -> List[Dict[str, Any]]:
+        batch_output: List[Dict[str, Any]] = []
+        for page in pages_batch:
+            result = _generate_questions_with_retry(page)
+            if result:
+                batch_output.extend(result)
+        return batch_output
+
+    def generate_questions_concurrent_io(
+        pages: List[Any],
+        max_workers: int,
+        stage_ctx,
+        debug: bool = False,
+    ) -> List[Dict[str, Any]]:
+        ctx = stage_ctx if stage_ctx is not None else nullcontext()
+        worker_count = max(1, max_workers)
+        total_pages = len(pages)
+        target_batches = max(1, worker_count * 3)
+        batch_size = max(1, (total_pages + target_batches - 1) // target_batches)
+        indexed_batches: List[Tuple[int, List[Any]]] = [
+            (idx, batch) for idx, batch in enumerate(_batch_iterable(pages, batch_size))
+        ]
+        batch_results: List[Optional[List[Dict[str, Any]]]] = [None] * len(
+            indexed_batches
+        )
+        with ctx:
+            if total_pages == 0:
+                return []
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                futures = {
+                    executor.submit(_process_batch, batch_pages): batch_idx
+                    for batch_idx, batch_pages in indexed_batches
+                }
+                if debug:
+                    for future in as_completed(futures):
+                        batch_idx = futures[future]
+                        try:
+                            batch_results[batch_idx] = future.result()
+                        except Exception:
+                            batch_results[batch_idx] = []
+                else:
+                    with tqdm(
+                        total=len(futures), desc="Generating questions"
+                    ) as progress_bar:
+                        for future in as_completed(futures):
+                            batch_idx = futures[future]
+                            try:
+                                batch_results[batch_idx] = future.result()
+                            except Exception:
+                                batch_results[batch_idx] = []
+                            progress_bar.update(1)
+                            progress_bar.set_postfix(
+                                {
+                                    "Generated questions": sum(
+                                        len(batch or []) for batch in batch_results
+                                    )
+                                }
+                            )
+        ordered_results: List[Dict[str, Any]] = []
+        for batch in batch_results:
+            if batch:
+                ordered_results.extend(batch)
+        return ordered_results
+
     logger.info(
         f"Starting question generation (threads: {max_workers}, retries: {max_retries})..."
     )
-    with stage_ctx:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # logger.warning(f"page_content: {page_content}")
-            futures = [
-                executor.submit(_generate_questions_with_retry, page)
-                for page in page_content
-            ]
-            if debug:
-                # Debug妯??紡涓嬬鐢ㄨ繘搴︽潯锛岄伩鍏嶄笌debug鏃ュ織鍐茬獊
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result:
-                        with lock:
-                            total_questions.extend(result)
-            else:
-                with tqdm(
-                    as_completed(futures), total=len(futures), desc="Generating questions"
-                ) as pbar:
-                    for future in pbar:
-                        result = future.result()
-                        if result:
-                            with lock:
-                                total_questions.extend(result)
-                            pbar.set_postfix({"Generated questions": len(total_questions)})
+    total_questions = generate_questions_concurrent_io(
+        pages=page_content,
+        max_workers=max_workers,
+        stage_ctx=stage_ctx,
+        debug=debug,
+    )
     if perf_monitor:
         perf_monitor.add_stage_items(stage_name, len(total_questions))
     return total_questions
@@ -1113,9 +1161,6 @@ def review_qa_pairs(
     return reviewed_qa_pairs, rejected_count
 
 
-# find tagpath by label
-
-
 def find_tagpath_by_label(domain_tree: DomainTree, label: str):
     return domain_tree.find_path(label)
 
@@ -1196,8 +1241,6 @@ def generatr_qa_pairs(
             }
             res_list.append(qa_entry)
     return res_list
-
-
 
 
 def _interactive_tree_modification(domain_tree):
