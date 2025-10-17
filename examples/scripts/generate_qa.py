@@ -30,13 +30,12 @@ def main():
             api_key=api_key,
             base_url=base_url,
             model_name=model,
-            question_number=40,  # question_number_per_chunk
-            max_workers=10,
+            question_number=50,  # question_number_per_chunk
+            max_qps=100.0,
             debug=False,
             structured_data=True,  # enable structured output
             auto_self_review_mode=True,
-            checkpoint_path="/mnt/f/datamax/checkpoints.jsonl",
-            resume_from_checkpoint=True
+            review_max_qps=100.0
         )
 
         dm.save_label_data(qa, save_path)
@@ -45,4 +44,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# nohup python examples/scripts/generate_qa.py > logs/generate_qa_2.out 2>&1 & echo $! > logs/generate_qa_2.pid
+# nohup python examples/scripts/generate_qa.py > generate_qa.out 2>&1 & echo $! > generate_qa.pid

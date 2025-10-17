@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import os.path
 import re
@@ -151,6 +152,27 @@ def _respect_rate_limit(min_interval: float):
             time.sleep(wait_time)
             now = time.perf_counter()
         _last_request_timestamp = now
+
+
+def _determine_worker_count(
+    max_qps: float,
+    total_items: int,
+    *,
+    multiplier: float = 3.0,
+    hard_cap: int = 64,
+) -> int:
+    """
+    Derive a practical worker count from the user-specified QPS budget.
+
+    We deliberately avoid exposing raw thread counts. Instead, we size a pool large
+    enough to keep the request pipeline saturated for typical I/O bound latencies.
+    """
+    if total_items <= 0:
+        return 0
+    if max_qps <= 0:
+        return 1
+    scaled = max(1, int(math.ceil(max_qps * multiplier)))
+    return max(1, min(total_items, hard_cap, scaled))
 
 
 def _extract_error_detail(response: Optional[requests.Response]) -> str:
@@ -577,13 +599,20 @@ def process_match_tags(
     tags_json: list,
     temperature: float = 0.7,
     top_p: float = 0.9,
-    max_workers: int = 3,
+    max_qps: float = 3.0,
     debug: bool = False,
 ):
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    if not questions:
+        logger.info("No questions supplied for tag matching; skipping")
+        return []
+
+    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+    worker_count = _determine_worker_count(max_qps, len(questions))
     logger.info(
-        f"Starting concurrent question-tag matching... (max_workers={max_workers})"
+        "Starting concurrent question-tag matching... "
+        f"(max_qps={max_qps}, worker_count={worker_count})"
     )
     results = []
 
@@ -596,10 +625,11 @@ def process_match_tags(
             prompt=prompt,
             type="question",
             debug=debug,
+            min_interval_seconds=interval,
         )
-        return match[0] if match else {"question": q, "label": "鍏朵粬"}
+        return match[0] if match else {"question": q, "label": "鍏朵�?"}
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_to_q = {executor.submit(match_one_question, q): q for q in questions}
         for future in as_completed(future_to_q):
             res = future.result()
@@ -609,6 +639,7 @@ def process_match_tags(
         f"Question-tag matching completed successfully, generated {len(results)} questions"
     )
     return results
+
 
 
 def process_domain_tree(
@@ -733,7 +764,7 @@ def process_questions(
     base_url: str,
     page_content: list,
     question_number: int,
-    max_workers: int = 5,
+    max_qps: float = 5.0,
     message: list = None,
     max_retries: int = 10,
     debug: bool = False,
@@ -744,6 +775,7 @@ def process_questions(
         message = []
     stage_name = QUESTION_STAGE
     stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
+    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
 
     def _generate_questions_with_retry(page):
         """Inner function for question generation with retry"""
@@ -760,6 +792,7 @@ def process_questions(
                     debug=debug,
                     perf_monitor=perf_monitor,
                     perf_stage=stage_name,
+                    min_interval_seconds=interval,
                 )
                 if questions:
                     return [
@@ -802,12 +835,12 @@ def process_questions(
 
     def generate_questions_concurrent_io(
         pages: List[Any],
-        max_workers: int,
+        worker_count: int,
         stage_ctx,
         debug: bool = False,
     ) -> List[Dict[str, Any]]:
         ctx = stage_ctx if stage_ctx is not None else nullcontext()
-        worker_count = max(1, max_workers)
+        worker_count = max(1, worker_count)
         total_pages = len(pages)
         target_batches = max(1, worker_count * 3)
         batch_size = max(1, (total_pages + target_batches - 1) // target_batches)
@@ -856,12 +889,13 @@ def process_questions(
                 ordered_results.extend(batch)
         return ordered_results
 
+    worker_count = _determine_worker_count(max_qps, len(page_content))
     logger.info(
-        f"Starting question generation (threads: {max_workers}, retries: {max_retries})..."
+        f"Starting question generation (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries})..."
     )
     total_questions = generate_questions_concurrent_io(
         pages=page_content,
-        max_workers=max_workers,
+        worker_count=worker_count,
         stage_ctx=stage_ctx,
         debug=debug,
     )
@@ -870,13 +904,14 @@ def process_questions(
     return total_questions
 
 
+
 def process_answers(
     api_key: str,
     model: str,
     base_url: str,
     question_items: list,
     message: list | None = None,
-    max_workers: int = 5,
+    max_qps: float = 5.0,
     max_retries: int = 10,
     debug: bool = False,
     existing_answers: Optional[Dict[str, str]] = None,
@@ -921,12 +956,13 @@ def process_answers(
         logger.info("All questions already have answers from checkpoint")
         return _finalize(qa_pairs)
 
+    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+
     def _generate_answer_with_retry(item):
         """Inner function for answer generation with retry"""
         for attempt in range(max_retries):
             try:
                 prompt = get_system_prompt_for_answer(item["page"], item["question"])
-                # Step2 鐢熸垚绛旀鐨勫ぇ妯″瀷
                 answer = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -937,13 +973,13 @@ def process_answers(
                     debug=debug,
                     perf_monitor=perf_monitor,
                     perf_stage=stage_name,
+                    min_interval_seconds=interval,
                 )
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]
-                else:
-                    logger.warning(
-                        f"Answer generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
-                    )
+                logger.warning(
+                    f"Answer generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
+                )
             except Exception as e:
                 logger.error(
                     f"Answer generation error (attempt {attempt + 1}/{max_retries}): {e}"
@@ -953,11 +989,8 @@ def process_answers(
 
             if attempt < max_retries - 1:
                 logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
-                import time
+                time.sleep(2)
 
-                time.sleep(2)  # retry after 2 seconds
-
-        # all retries failed
         question_text = (
             item["question"][:20] + "..."
             if len(item["question"]) > 20
@@ -966,15 +999,15 @@ def process_answers(
         logger.error(
             f"Network status is poor! Discarded QA pair for question: ({question_text})"
         )
-        return None  # return None to discard the question with answer
+        return None
 
+    worker_count = _determine_worker_count(max_qps, len(pending_items))
     logger.info(
-        f"Starting answer generation (threads: {max_workers}, retries: {max_retries}, pending: {len(pending_items)})..."
+        f"Starting answer generation (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries}, pending: {len(pending_items)})..."
     )
-    # TODO: UnboundLocalError: cannot access local variable 'pending_items' where it is not associated with a value
     stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
     with stage_ctx:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
             futures = {
                 executor.submit(_generate_answer_with_retry, item): item
                 for item in pending_items
@@ -983,7 +1016,7 @@ def process_answers(
             if debug:
                 for future in as_completed(futures):
                     result = future.result()
-                    if result is not None:  # only add question with answer
+                    if result is not None:
                         question, answer = result
                         with lock:
                             qa_pairs[question] = answer
@@ -995,13 +1028,14 @@ def process_answers(
                 ) as pbar:
                     for future in pbar:
                         result = future.result()
-                        if result is not None:  # only add question with answer
+                        if result is not None:
                             question, answer = result
                             with lock:
                                 qa_pairs[question] = answer
                             if progress_callback:
                                 progress_callback(question, answer)
                             pbar.set_postfix({"Generated answers": len(qa_pairs)})
+
     return _finalize(qa_pairs)
 
 
@@ -1013,10 +1047,10 @@ def review_qa_pairs(
     model: str,
     base_url: str,
     score_threshold: int = 4,
-    max_workers: int = 5,
+    max_qps: float = 5.0,
     max_retries: int = 3,
     debug: bool = False,
-    user_prompt: str = "请进行评分",
+    user_prompt: str = "\u8bf7\u8fdb\u884c\u8bc4\u4f30",
     progress_desc: str = "Reviewing QA pairs",
     dbg: Any = None,
     perf_monitor: Optional[PerformanceMonitor] = None,
@@ -1031,7 +1065,7 @@ def review_qa_pairs(
         model: Model name for the LLM.
         base_url: Base URL for the LLM service.
         score_threshold: Minimum score to accept a QA pair.
-        max_workers: Maximum number of concurrent review workers.
+        max_qps: Maximum review requests per second.
         max_retries: Number of retries for each review request.
         debug: Disable progress bar and rely on debug logs when True.
         user_prompt: User message sent alongside the system prompt.
@@ -1047,6 +1081,7 @@ def review_qa_pairs(
             perf_monitor.add_stage_items(REVIEW_STAGE, 0)
         return [], 0
 
+    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
     reviewed_qa_pairs: list[dict] = []
     rejected_count = 0
     stage_ctx = perf_monitor.stage(REVIEW_STAGE) if perf_monitor else nullcontext()
@@ -1062,7 +1097,6 @@ def review_qa_pairs(
                     {"role": "system", "content": review_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
-                # logger.info(f"review_messages: {review_messages}")
                 review_result_list = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -1072,6 +1106,7 @@ def review_qa_pairs(
                     debug=debug,
                     perf_monitor=perf_monitor,
                     perf_stage=REVIEW_STAGE,
+                    min_interval_seconds=interval,
                 )
                 review_result = review_result_list[0] if review_result_list else ""
                 if not review_result:
@@ -1104,7 +1139,6 @@ def review_qa_pairs(
                 last_error_message = str(exc)
                 if attempt < max_retries - 1:
                     time.sleep(1)
-
         return (
             idx,
             qa_pair,
@@ -1119,8 +1153,12 @@ def review_qa_pairs(
     if not debug:
         progress_bar = tqdm(total=len(qa_pairs), desc=progress_desc, unit="pair")
 
+    worker_count = _determine_worker_count(max_qps, len(qa_pairs))
+    logger.info(
+        f"Starting QA review (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries}, total: {len(qa_pairs)})..."
+    )
     with stage_ctx:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
             futures = [
                 executor.submit(_review_single, idx, qa_pair)
                 for idx, qa_pair in enumerate(qa_pairs, start=1)
@@ -1128,7 +1166,15 @@ def review_qa_pairs(
 
             iterator = as_completed(futures)
             for future in iterator:
-                idx, qa_pair, accepted, score, reason, severity, error_message = future.result()
+                (
+                    idx,
+                    qa_pair,
+                    accepted,
+                    score,
+                    reason,
+                    severity,
+                    error_message,
+                ) = future.result()
 
                 if accepted:
                     reviewed_qa_pairs.append(qa_pair)
@@ -1139,7 +1185,9 @@ def review_qa_pairs(
                     if dbg:
                         dbg.log(f"QA pair {idx} rejected (score: {score}): {reason}")
                     if severity == "warning":
-                        logger.warning(f"Failed to parse review result for QA pair {idx}: {error_message}")
+                        logger.warning(
+                            f"Failed to parse review result for QA pair {idx}: {error_message}"
+                        )
                     elif severity == "error":
                         logger.error(f"Error reviewing QA pair {idx}: {error_message}")
 
@@ -1161,6 +1209,7 @@ def review_qa_pairs(
     return reviewed_qa_pairs, rejected_count
 
 
+
 def find_tagpath_by_label(domain_tree: DomainTree, label: str):
     return domain_tree.find_path(label)
 
@@ -1172,7 +1221,7 @@ def generatr_qa_pairs(
     model_name: str,
     question_number: int = 5,
     message: list = None,
-    max_workers: int = 5,
+    max_qps: float = 5.0,
     domain_tree: DomainTree = None,
     debug: bool = False,
     progress_tracker: Optional["QAProgressTracker"] = None,
@@ -1211,7 +1260,7 @@ def generatr_qa_pairs(
     qa_pairs = process_answers(
         question_items=question_info,
         message=message,
-        max_workers=max_workers,
+        max_qps=max_qps,
         api_key=api_key,
         base_url=base_url,
         model=model_name,
@@ -1368,7 +1417,7 @@ def full_qa_labeling_process(
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     question_number: int = 5,
-    max_workers: int = 5,
+    max_qps: float = 5.0,
     use_tree_label: bool = False,
     messages: list = None,
     interactive_tree: bool = False,
@@ -1509,7 +1558,7 @@ def full_qa_labeling_process(
         base_url=base_url,
         page_content=page_content,
         question_number=question_number,
-        max_workers=max_workers,
+        max_qps=max_qps,
         message=messages,
         debug=debug,
         perf_monitor=monitor,
@@ -1530,7 +1579,7 @@ def full_qa_labeling_process(
             model=model_name,
             tags_json=domain_tree.to_json(),
             questions=[q["question"] for q in question_info],
-            max_workers=max_workers,
+            max_qps=max_qps,
             debug=debug,
         )
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
@@ -1556,7 +1605,7 @@ def full_qa_labeling_process(
         base_url=base_url,
         model_name=model_name,
         question_number=question_number,
-        max_workers=max_workers,
+        max_qps=max_qps,
         domain_tree=domain_tree if use_tree_label else None,
         debug=debug,
         progress_tracker=progress_tracker,

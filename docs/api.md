@@ -28,7 +28,7 @@ dm.get_pre_label(
   base_url: str,
   model_name: str,
   question_number: int = 5,
-  max_workers: int = 5,
+  max_qps: float = 5.0,
   use_tree_label: bool = False,
   interactive_tree: bool = False,
   messages: list | None = None,
@@ -73,4 +73,3 @@ from datamax.evaluator import TextQualityEvaluator, MultimodalConsistencyEvaluat
   ]
 }
 ```
-

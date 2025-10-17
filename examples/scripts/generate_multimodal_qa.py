@@ -16,11 +16,10 @@ def main():
         api_key=api_key,
         model_name=model,
         question_number=2,
-        max_workers=5,
+        max_qps=5.0,
     )
     print(f"Generated {len(qa)} multimodal QA pairs")
 
 
 if __name__ == "__main__":
     main()
-

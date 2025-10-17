@@ -468,7 +468,7 @@ class DataMax(BaseLife):
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         question_number: int = 5,
-        max_workers: int = 5,
+        max_qps: float = 5.0,
         language: str = "zh",
         use_tree_label: bool = False,
         messages: list | None= None,
@@ -477,10 +477,10 @@ class DataMax(BaseLife):
         debug: bool = False,
         structured_data: bool = False,
         auto_self_review_mode: bool = False,
-        review_max_workers: int = 5,
+        review_max_qps: float = 5.0,
         review_max_retries: int = 10,
         review_score_threshold: int = 4,
-        review_user_prompt: str = "请进行评分",
+        review_user_prompt: str = "\u8bf7\u8fdb\u884c\u8bc4\u4f30",
         review_progress_desc: str = "Reviewing QA pairs",
         checkpoint_path: str | None = None,
         resume_from_checkpoint: bool = True,
@@ -496,7 +496,7 @@ class DataMax(BaseLife):
         :param chunk_size: Chunk size
         :param chunk_overlap: Overlap length
         :param question_number: Number of questions generated per chunk
-        :param max_workers: Number of concurrent workers
+        :param max_qps: Maximum requests per second budget
         :param language: Language for QA generation ("zh" for Chinese, "en" for English)
         :param use_tree_label: Whether to use domain tree label for generating questions
         :param messages: Custom messages
@@ -518,7 +518,7 @@ class DataMax(BaseLife):
         :param structured_data: Whether to use structured data format
         :param auto_self_review_mode: Whether to activate review mode. When True, generated QA pairs will be
                            sent to LLM for review, and only pairs with scores >= 4 will be kept.
-        :param review_max_workers: Maximum concurrency for review requests.
+        :param review_max_qps: Maximum QPS for review requests.
         :param review_max_retries: Maximum retry attempts per review request.
         :param review_score_threshold: Minimum score required to keep a QA pair.
         :param review_user_prompt: User message sent to the reviewer LLM.
@@ -649,7 +649,7 @@ class DataMax(BaseLife):
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             question_number=question_number,
-            max_workers=max_workers,
+            max_qps=max_qps,
             language=language,
             use_tree_label=use_tree_label,
             messages_provided=messages is not None,
@@ -746,7 +746,7 @@ class DataMax(BaseLife):
                         base_url=base_url,
                         model_name=model_name,
                         question_number=question_number,
-                        max_workers=max_workers,
+                        max_qps=max_qps,
                     )
                 else:
                     logger.info("Using standard QA generator...")
@@ -755,7 +755,7 @@ class DataMax(BaseLife):
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                         question_number=question_number,
-                        max_workers=max_workers,
+                        max_qps=max_qps,
                         use_tree_label=use_tree_label
                     )
 
@@ -767,7 +767,7 @@ class DataMax(BaseLife):
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                         question_number=question_number,
-                        max_workers=max_workers,
+                        max_qps=max_qps,
                         use_tree_label=use_tree_label,
                         messages=messages,
                         interactive_tree=interactive_tree,
@@ -819,7 +819,7 @@ class DataMax(BaseLife):
                     model=model_name,
                     base_url=base_url,
                     score_threshold=review_score_threshold,
-                    max_workers=review_max_workers,
+                    max_qps=review_max_qps,
                     max_retries=review_max_retries,
                     debug=debug,
                     user_prompt=review_user_prompt,

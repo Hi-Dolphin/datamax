@@ -688,7 +688,12 @@ from datamax.cli.generator_cli import GeneratorCLI
 @click.option(
     "--question-number", type=int, default=5, help="Number of questions per chunk"
 )
-@click.option("--max-workers", type=int, default=5, help="Maximum number of workers")
+@click.option(
+    "--max-qps",
+    type=float,
+    default=5.0,
+    help="Maximum QPS budget for LLM requests",
+)
 @click.pass_context
 def qa(
     ctx,
@@ -700,7 +705,7 @@ def qa(
     chunk_size,
     chunk_overlap,
     question_number,
-    max_workers,
+    max_qps,
 ):
     """Generate QA pairs from text files.
 
@@ -733,7 +738,7 @@ def qa(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             question_number=question_number,
-            max_workers=max_workers,
+            max_qps=max_qps,
         )
 
         # Save result
@@ -764,7 +769,12 @@ def qa(
 @click.option(
     "--question-number", type=int, default=2, help="Number of questions per chunk"
 )
-@click.option("--max-workers", type=int, default=5, help="Maximum number of workers")
+@click.option(
+    "--max-qps",
+    type=float,
+    default=5.0,
+    help="Maximum QPS budget for multimodal requests",
+)
 @click.pass_context
 def multimodal(
     ctx,
@@ -775,7 +785,7 @@ def multimodal(
     chunk_size,
     chunk_overlap,
     question_number,
-    max_workers,
+    max_qps,
 ):
     """Generate multimodal QA pairs from markdown files with images.
 
@@ -807,7 +817,7 @@ def multimodal(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             question_number=question_number,
-            max_workers=max_workers,
+            max_qps=max_qps,
         )
 
         # Save result

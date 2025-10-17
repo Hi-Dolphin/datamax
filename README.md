@@ -48,7 +48,7 @@ qa_list = client.get_pre_label(
     base_url=LABEL_LLM_BASE_URL,
     model_name=LABEL_LLM_MODEL_NAME,
     question_number=10,
-    max_workers=5)
+    max_qps=5.0)
 
 # save label data
 client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)

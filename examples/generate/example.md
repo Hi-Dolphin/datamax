@@ -121,7 +121,7 @@ result = generator.generate_qa(
     question_number=3,
     chunk_size=300,
     chunk_overlap=50,
-    max_workers=4
+    max_qps=4.0
 )
 
 print("Custom QA generation result:")
@@ -147,7 +147,7 @@ result = generator.generate_multimodal_qa(
     question_number=2,
     chunk_size=2000,
     chunk_overlap=300,
-    max_workers=2
+    max_qps=2.0
 )
 
 print("Multimodal QA generation completed!")

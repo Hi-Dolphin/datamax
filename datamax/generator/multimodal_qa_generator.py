@@ -2,10 +2,12 @@
 
 import base64
 import json
+import math
 import mimetypes
 import os
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
 
@@ -15,6 +17,32 @@ from openai import OpenAI
 from tqdm import tqdm
 
 lock = threading.Lock()
+
+_qps_lock = threading.Lock()
+_last_request_ts = 0.0
+
+
+def _respect_qps_limit(min_interval: float) -> None:
+    """Throttle outbound multimodal requests to honor the configured QPS budget."""
+    if min_interval <= 0:
+        return
+    global _last_request_ts
+    with _qps_lock:
+        now = time.perf_counter()
+        wait_time = min_interval - (now - _last_request_ts)
+        if wait_time > 0:
+            time.sleep(wait_time)
+            now = time.perf_counter()
+        _last_request_ts = now
+
+
+def _derive_worker_count(max_qps: float, total_items: int) -> int:
+    if total_items <= 0:
+        return 0
+    if max_qps <= 0:
+        return 1
+    scaled = max(1, int(math.ceil(max_qps * 3)))
+    return max(1, min(total_items, 32, scaled))
 
 from .prompt_templates import get_instruction_prompt
 
@@ -174,16 +202,17 @@ def generate_multimodal_qa_with_openai(
 def generatr_qa_pairs(
     file_path: str,
     api_key: str,
-    model_name: str,
-    chunk_size=2000,
-    chunk_overlap=300,
-    question_number=2,
-    max_workers=5,
+    base_url: str | None = None,
+    model_name: str = "gpt-4-vision-preview",
+    chunk_size: int = 2000,
+    chunk_overlap: int = 300,
+    question_number: int = 2,
+    max_qps: float = 5.0,
     debug: bool = False,
     **kwargs,
-):
+) -> List[Dict[str, Any]]:
     """
-    The main function for generating multimodal question-answer pairs from a Markdown file containing images.
+    Generate multimodal QA pairs from a Markdown file with associated images.
     """
     if debug:
         logger.debug(f"generatr_qa_pairs called with parameters:")
@@ -193,7 +222,7 @@ def generatr_qa_pairs(
         logger.debug(f"  chunk_size: {chunk_size}")
         logger.debug(f"  chunk_overlap: {chunk_overlap}")
         logger.debug(f"  question_number: {question_number}")
-        logger.debug(f"  max_workers: {max_workers}")
+        logger.debug(f"  max_qps: {max_qps}")
         logger.debug(f"  kwargs: {kwargs}")
 
     chunks_with_images = parse_markdown_and_associate_images(
@@ -212,6 +241,8 @@ def generatr_qa_pairs(
         logger.debug(f"Found {len(chunks_with_images)} chunks with images")
 
     final_qa_list = []
+    min_interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+    worker_count = _derive_worker_count(max_qps, len(chunks_with_images))
 
     def _process_chunk(chunk_data):
         context_text = chunk_data["text"]
@@ -227,6 +258,7 @@ def generatr_qa_pairs(
         if debug:
             logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
 
+        _respect_qps_limit(min_interval)
         generated_dialogs = generate_multimodal_qa_with_openai(
             api_key=api_key,
             model=model_name,
@@ -266,19 +298,18 @@ def generatr_qa_pairs(
         return chunk_qas
 
     logger.info(
-        f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (threads: {max_workers})..."
+        f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (max_qps={max_qps}, worker_count={worker_count})..."
     )
     if debug:
-        logger.debug(f"Using ThreadPoolExecutor with {max_workers} workers")
+        logger.debug(f"Using ThreadPoolExecutor with {max(1, worker_count)} workers")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
         futures = [
             executor.submit(_process_chunk, chunk) for chunk in chunks_with_images
         ]
 
         # Disable tqdm progress bar in debug mode to avoid conflict with log output
         if debug:
-            # Do not use progress bar in debug mode, process futures directly
             for i, future in enumerate(as_completed(futures), 1):
                 result = future.result()
                 if result:
@@ -292,7 +323,6 @@ def generatr_qa_pairs(
                         f"Processed chunk {i}/{len(futures)}: Future returned empty result"
                     )
         else:
-            # Use progress bar in non-debug mode
             with tqdm(
                 as_completed(futures),
                 total=len(futures),
@@ -311,3 +341,4 @@ def generatr_qa_pairs(
     if debug:
         logger.debug(f"Returning {len(final_qa_list)} multimodal QA pairs")
     return final_qa_list
+

@@ -48,7 +48,7 @@ class GeneratorCLI:
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         question_number: int = 5,
-        max_workers: int = 5,
+        max_qps: float = 5.0,
     ) -> Dict[str, Any]:
         """Generate QA pairs from text files.
 
@@ -61,7 +61,7 @@ class GeneratorCLI:
             chunk_size: Text chunk size
             chunk_overlap: Chunk overlap size
             question_number: Number of questions per chunk
-            max_workers: Maximum number of workers
+            max_qps: Maximum requests per second budget
 
         Returns:
             Dictionary with generated QA pairs
@@ -103,7 +103,7 @@ class GeneratorCLI:
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 question_number=question_number,
-                max_workers=max_workers,
+                max_qps=max_qps,
                 use_mineru=False,
                 debug=self.verbose,
             )
@@ -127,7 +127,7 @@ class GeneratorCLI:
         chunk_size: int = 2000,
         chunk_overlap: int = 300,
         question_number: int = 2,
-        max_workers: int = 5,
+        max_qps: float = 5.0,
     ) -> List[Dict[str, Any]]:
         """Generate multimodal QA pairs from markdown files with images.
 
@@ -139,7 +139,7 @@ class GeneratorCLI:
             chunk_size: Text chunk size
             chunk_overlap: Chunk overlap size
             question_number: Number of questions per chunk
-            max_workers: Maximum number of workers
+            max_qps: Maximum requests per second budget
 
         Returns:
             List of generated multimodal QA pairs
@@ -173,7 +173,7 @@ class GeneratorCLI:
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
                 question_number=question_number,
-                max_workers=max_workers,
+                max_qps=max_qps,
                 debug=self.verbose,
             )
 

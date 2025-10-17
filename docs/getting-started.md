@@ -45,7 +45,7 @@ qa = dm.get_pre_label(
     base_url="https://dashscope.aliyuncs.com/api/v1",  # 未带 /chat/completions 会自动补全
     model_name="qwen-max",
     question_number=10,
-    max_workers=5,
+    max_qps=5.0,
     use_tree_label=True,
 )
 dm.save_label_data(qa, "train")  # 导出 train.jsonl
@@ -58,4 +58,3 @@ dm.save_label_data(qa, "train")  # 导出 train.jsonl
 - 爬虫层：web/arxiv 引擎 + 存储适配（本地/云）
 - 评估层：文本质量、多模态一致性，支持端到端筛选
 - CLI 层：命令行工具覆盖解析/清洗/生成/爬取/评估/批处理
-

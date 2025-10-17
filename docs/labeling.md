@@ -13,7 +13,7 @@ qa = dm.get_pre_label(
     base_url="${DASHSCOPE_BASE_URL}",   # 未带 /chat/completions 会自动补全
     model_name="qwen-max",
     question_number=8,
-    max_workers=5,
+    max_qps=5.0,
     use_tree_label=True,       # 使用领域树
     interactive_tree=False     # 交互式修订（可选）
 )
@@ -42,7 +42,7 @@ result = full_qa_labeling_process(
   content="你的长文本...",
   api_key="...", base_url="...", model_name="qwen-max",
   chunk_size=500, chunk_overlap=100,
-  question_number=6, max_workers=5,
+  question_number=6, max_qps=5.0,
   use_tree_label=True, debug=False
 )
 qa_pairs = result.get("qa_pairs", [])
@@ -59,13 +59,13 @@ qa = generate_multimodal_qa_pairs(
   api_key="${OPENAI_API_KEY}",
   model_name="gpt-4o",
   question_number=2,
-  max_workers=5
+  max_qps=5.0
 )
 ```
 
 ## 接口说明（要点）
 - 兼容 OpenAI `/chat/completions` 接口；`base_url` 未含该路径时会自动补全
-- `question_number` 控制每段生成问题数量；并发通过 `max_workers` 控制
+- `question_number` 控制每段生成问题数量；并发通过 `max_qps`（每秒请求数上限）控制
 - `save_label_data` 输出 `*.jsonl`，可直接用于训练
 
 ## 示例脚本
