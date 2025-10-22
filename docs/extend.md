@@ -2,7 +2,7 @@
 
 ## 新文件解析器
 1) 在 `datamax/parser` 新增 `xxx_parser.py`，实现类如 `XxxParser(BaseLife)`，输出使用 `MarkdownOutputVo`
-2) 在 `ParserFactory` 注册扩展名到模块/类的映射（`datamax/parser/core.py`）
+2) 在 `ParserFactory` 注册扩展名到模块/类的映射（`datamax/core.py`）
 3) 保持统一生命周期事件（开始/完成/失败）
 
 ## 新爬虫引擎
@@ -20,4 +20,3 @@
 ## 最佳实践
 - 解析 → 清洗 → 标注 → 评估 分层清晰、彼此解耦
 - 所有阶段补齐 `lifecycle`，便于审计与可追溯
-

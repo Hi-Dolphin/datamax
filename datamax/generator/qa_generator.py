@@ -305,7 +305,7 @@ def load_and_split_text(
         List of document chunks
     """
     try:
-        from datamax.parser.core import DataMax
+        from datamax.core import DataMax
 
         # Get file extension for logging
         file_ext = os.path.splitext(file_path)[1].lower()
@@ -442,12 +442,19 @@ def llm_generator(
         if request_interval:
             _respect_rate_limit(request_interval)
 
+        messages_payload = None
         try:
-            if not message:
-                message = [
+            messages_payload = (
+                list(message)
+                if message
+                else [
                     {"role": "system", "content": prompt},
-                    {"role": "user", "content": "Please follow the generation instructions strictly."},
+                    {
+                        "role": "user",
+                        "content": "Please follow the generation instructions strictly.",
+                    },
                 ]
+            )
 
             if debug and attempt == 1:
                 logger.debug("=" * 60)
@@ -460,9 +467,12 @@ def llm_generator(
                 logger.debug(f"Request type: {type}")
                 logger.debug("-" * 40)
                 logger.debug("Messages:")
-                for idx, msg in enumerate(message, 1):
+                for idx, msg in enumerate(messages_payload, 1):
                     logger.debug(f"{idx}. {msg['role'].upper()}:")
-                    content_lines = msg.get("content", "").split("\n")
+                    content_value = msg.get("content", "")
+                    if not isinstance(content_value, str):
+                        content_value = str(content_value)
+                    content_lines = content_value.split("\n")
                     for line in content_lines:
                         if line.strip():
                             logger.debug(f"   {line}")
@@ -474,7 +484,7 @@ def llm_generator(
             }
             data = {
                 "model": model,
-                "messages": message,
+                "messages": messages_payload,
                 "temperature": temperature,
                 "top_p": top_p,
             }
@@ -492,6 +502,7 @@ def llm_generator(
             result = response.json()
             duration = time.perf_counter() - call_start
             usage = result.get("usage") or {}
+            raw_output = ""
 
             if perf_monitor:
                 perf_monitor.record_request(
@@ -513,17 +524,34 @@ def llm_generator(
                 logger.debug("-" * 40)
 
             if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"].get("content", "")
+                raw_output = result["choices"][0]["message"].get("content", "")
 
                 if debug and attempt == 1:
                     logger.debug("Raw LLM response:")
-                    for line in output.split("\n"):
+                    for line in raw_output.split("\n"):
                         if line.strip():
                             logger.debug(f"  {line}")
                     logger.debug("-" * 40)
 
+                if perf_monitor:
+                    perf_monitor.record_call(
+                        stage=perf_stage,
+                        call_type=type or "unknown",
+                        messages=messages_payload,
+                        response=raw_output,
+                        prompt=prompt,
+                        metadata={
+                            "model": model,
+                            "base_url": base_url,
+                            "temperature": temperature,
+                            "top_p": top_p,
+                            "attempt": attempt,
+                            "status_code": response.status_code,
+                        },
+                    )
+
                 if type == "question":
-                    fmt_output = extract_json_from_llm_output(output)
+                    fmt_output = extract_json_from_llm_output(raw_output)
                     if debug and attempt == 1:
                         logger.debug(f"Parsed questions: {fmt_output}")
                         logger.debug(
@@ -533,9 +561,29 @@ def llm_generator(
                     return fmt_output if fmt_output is not None else []
                 else:
                     if debug and attempt == 1:
-                        logger.debug(f"Returning raw content (length: {len(output)})")
+                        logger.debug(
+                            f"Returning raw content (length: {len(raw_output)})"
+                        )
                         logger.debug("=" * 60)
-                    return [output] if output else []
+                    return [raw_output] if raw_output else []
+
+            if perf_monitor:
+                perf_monitor.record_call(
+                    stage=perf_stage,
+                    call_type=type or "unknown",
+                    messages=messages_payload,
+                    response=raw_output,
+                    prompt=prompt,
+                    metadata={
+                        "model": model,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "attempt": attempt,
+                        "status_code": response.status_code,
+                        "note": "No choices returned",
+                    },
+                )
 
             if debug and attempt == 1:
                 logger.debug("No valid choices returned by LLM")
@@ -549,6 +597,23 @@ def llm_generator(
             last_error_message = (
                 f"HTTP {status_code}: {error_detail or str(http_err)}"
             )
+            if perf_monitor:
+                perf_monitor.record_call(
+                    stage=perf_stage,
+                    call_type=type or "unknown",
+                    messages=messages_payload or [],
+                    response="",
+                    prompt=prompt,
+                    metadata={
+                        "model": model,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "attempt": attempt,
+                        "status_code": status_code,
+                        "error": last_error_message,
+                    },
+                )
             if _should_retry(status_code, error_detail) and attempt < attempts:
                 wait_time = _calculate_retry_delay(
                     attempt, _get_retry_after(response), retry_backoff_factor
@@ -565,6 +630,22 @@ def llm_generator(
             return []
         except requests.exceptions.RequestException as req_err:
             last_error_message = str(req_err)
+            if perf_monitor:
+                perf_monitor.record_call(
+                    stage=perf_stage,
+                    call_type=type or "unknown",
+                    messages=messages_payload or [],
+                    response="",
+                    prompt=prompt,
+                    metadata={
+                        "model": model,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "attempt": attempt,
+                        "error": last_error_message,
+                    },
+                )
             if attempt < attempts:
                 wait_time = _calculate_retry_delay(attempt, None, retry_backoff_factor)
                 logger.warning(
@@ -579,6 +660,22 @@ def llm_generator(
             return []
         except Exception as e:
             last_error_message = str(e)
+            if perf_monitor:
+                perf_monitor.record_call(
+                    stage=perf_stage,
+                    call_type=type or "unknown",
+                    messages=messages_payload or [],
+                    response="",
+                    prompt=prompt,
+                    metadata={
+                        "model": model,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "attempt": attempt,
+                        "error": last_error_message,
+                    },
+                )
             logger.error(f"LLM keyword extraction failed: {last_error_message}")
             if hasattr(e, "__traceback__") and e.__traceback__ is not None:
                 logger.error(f"Error line number: {e.__traceback__.tb_lineno}")

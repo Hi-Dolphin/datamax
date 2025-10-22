@@ -2,19 +2,20 @@
 Performance monitoring utilities for DataMax LLM workflows.
 
 The PerformanceMonitor is designed to collect stage-level timings,
-token usage, and request rates across the QA generation pipeline.
-It can be shared across modules to provide a consistent view of
-how each stage performs, making it easier to plug metrics into
-automation or analytics tooling.
+token usage, request rates, and detailed LLM invocations across the QA
+generation pipeline. It can be shared across modules to provide a
+consistent view of how each stage performs, making it easier to plug
+metrics and call transcripts into automation or analytics tooling.
 """
 
 from __future__ import annotations
 
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 
 @dataclass
@@ -72,6 +73,30 @@ class StageReport:
         }
 
 
+@dataclass
+class LLMCallRecord:
+    """Structured record of a single LLM invocation."""
+
+    id: str
+    stage: str
+    call_type: str
+    prompt: Optional[str]
+    messages: List[Dict[str, str]]
+    response: str
+    metadata: Dict[str, Any]
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "stage": self.stage,
+            "call_type": self.call_type,
+            "prompt": self.prompt,
+            "messages": self.messages,
+            "response": self.response,
+            "metadata": self.metadata,
+        }
+
+
 class PerformanceMonitor:
     """
     Collects stage-level performance metrics for LLM driven workflows.
@@ -97,6 +122,7 @@ class PerformanceMonitor:
         self._lock = threading.Lock()
         self._stages: Dict[str, StageStats] = {}
         self._workflow_started_at = time.perf_counter()
+        self._call_records: List[LLMCallRecord] = []
 
     def _stage(self, name: str) -> StageStats:
         with self._lock:
@@ -161,6 +187,81 @@ class PerformanceMonitor:
             stage_stats.total_completion_tokens += completion_tokens
             stage_stats.total_tokens += total_tokens
 
+    def record_call(
+        self,
+        *,
+        stage: Optional[str],
+        call_type: str,
+        messages: Sequence[Dict[str, Any]] | None,
+        response: Optional[str],
+        prompt: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Persist the transcript of an LLM request/response cycle.
+
+        Args:
+            stage: Logical stage name; defaults to 'llm_calls' if None.
+            call_type: High level call category (e.g. 'question', 'answer').
+            messages: Sequence of chat messages that were sent to the LLM.
+            response: Raw textual response returned by the LLM.
+            prompt: Optional prompt text used to build the request.
+            metadata: Optional auxiliary metadata such as model name.
+        """
+        normalized_messages: List[Dict[str, str]] = []
+        if messages:
+            for message in messages:
+                if not isinstance(message, dict):
+                    continue
+                role = str(message.get("role", "") or "").strip()
+                content = message.get("content", "")
+                if content is None:
+                    content = ""
+                normalized_messages.append(
+                    {"role": role, "content": str(content)}
+                )
+
+        record = LLMCallRecord(
+            id=str(uuid.uuid4()),
+            stage=stage or "llm_calls",
+            call_type=call_type or "unknown",
+            prompt=prompt,
+            messages=normalized_messages,
+            response=response or "",
+            metadata=dict(metadata or {}),
+        )
+        with self._lock:
+            self._call_records.append(record)
+
+    def get_call_records(self) -> List[dict]:
+        """Return a shallow copy of recorded LLM call transcripts."""
+        with self._lock:
+            return [record.to_dict() for record in self._call_records]
+
+    def call_records_as_qa_pairs(self) -> List[dict]:
+        """Convert recorded LLM calls into QA-style training entries."""
+        records = self.get_call_records()
+        qa_pairs: List[dict] = []
+        for record in records:
+            instruction = self._messages_to_instruction(record.get("messages", []))
+            if not instruction and record.get("prompt"):
+                instruction = str(record.get("prompt") or "")
+            qa_pairs.append(
+                {
+                    "qid": record["id"],
+                    "instruction": instruction,
+                    "input": "",
+                    "output": record.get("response", ""),
+                    "label": "",
+                    "tag-path": "",
+                    "context": "",
+                    "source_stage": record.get("stage"),
+                    "call_type": record.get("call_type"),
+                    "metadata": record.get("metadata", {}),
+                }
+            )
+        return qa_pairs
+
     def build_report(self) -> dict:
         """Return a dictionary summarising all recorded metrics."""
         with self._lock:
@@ -168,6 +269,8 @@ class PerformanceMonitor:
                 name: self._create_stage_report(stats).to_dict()
                 for name, stats in self._stages.items()
             }
+
+            call_count = len(self._call_records)
 
             total_prompt_tokens = sum(
                 stats.total_prompt_tokens for stats in self._stages.values()
@@ -201,6 +304,7 @@ class PerformanceMonitor:
                     "workflow_duration_seconds": overall_duration,
                     "tokens_per_second": overall_tokens_per_second,
                     "overall_qpm": overall_qpm,
+                    "llm_call_count": call_count,
                 },
             }
 
@@ -245,3 +349,16 @@ class PerformanceMonitor:
             tokens_per_second=tokens_per_second,
             tokens_per_request=tokens_per_request,
         )
+
+    @staticmethod
+    def _messages_to_instruction(messages: Sequence[Dict[str, str]]) -> str:
+        if not messages:
+            return ""
+        lines: List[str] = []
+        for message in messages:
+            role = message.get("role", "").upper() or "UNKNOWN"
+            content = message.get("content", "")
+            if content is None:
+                content = ""
+            lines.append(f"{role}: {content}".strip())
+        return "\n\n".join(line for line in lines if line) or ""
