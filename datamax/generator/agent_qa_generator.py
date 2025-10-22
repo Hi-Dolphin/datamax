@@ -4,9 +4,13 @@ import json
 import uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+import re
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from urllib.parse import urljoin
 
 from loguru import logger
+import requests
 
 try:
     import yaml
@@ -28,6 +32,7 @@ from .qa_generator import (
     extract_json_from_llm_output,
     llm_generator,
 )
+from .auth import AuthManager, AuthContext
 
 
 @dataclass
@@ -41,6 +46,10 @@ class ToolSpec:
     output_schema: Optional[dict] = None
     tags: List[str] = field(default_factory=list)
     source_spec: Optional[str] = None
+    parameters: List[dict] = field(default_factory=list)
+    servers: List[str] = field(default_factory=list)
+    security: List[dict] = field(default_factory=list)
+    security_schemes: Dict[str, dict] = field(default_factory=dict)
 
     def to_prompt_block(self) -> str:
         request_schema = ""
@@ -62,6 +71,9 @@ class ToolSpec:
             parts.append(f"Output JSON Schema: {response_schema}")
         if self.operation_id:
             parts.append(f"operationId: {self.operation_id}")
+        if self.security:
+            schemes = ", ".join(sorted({key for entry in self.security for key in entry.keys()}))
+            parts.append(f"Auth Required: {schemes or 'unspecified scheme'}")
         return "\n".join(parts)
 
 
@@ -80,6 +92,9 @@ class ApiEndpoint:
     servers: List[str]
     source_spec: str
     dependencies: List[str] = field(default_factory=list)
+    request_schema: Optional[dict] = None
+    response_schemas: Dict[str, dict] = field(default_factory=dict)
+    security_schemes: Dict[str, dict] = field(default_factory=dict)
 
     def tool_name(self) -> str:
         if self.identifier:
@@ -89,8 +104,10 @@ class ApiEndpoint:
 
     def to_tool_spec(self) -> ToolSpec:
         success_response = None
+        success_status = None
         for status, resp in self.responses.items():
             if str(status).startswith("2"):
+                success_status = str(status)
                 success_response = resp
                 break
         return ToolSpec(
@@ -100,12 +117,18 @@ class ApiEndpoint:
             description=self.summary or self.description or "",
             operation_id=self.identifier if self.identifier and self.identifier != self.tool_name() else None,
             input_schema=self._extract_request_schema(),
-            output_schema=self._extract_response_schema(success_response),
+            output_schema=self._extract_response_schema(success_status, success_response),
             tags=list(self.tags),
             source_spec=self.source_spec,
+            servers=list(self.servers),
+            security=list(self.security),
+            security_schemes=dict(self.security_schemes),
+            parameters=[param for param in self.parameters],
         )
 
     def _extract_request_schema(self) -> Optional[dict]:
+        if self.request_schema:
+            return self.request_schema
         if not self.request_body:
             return None
         content = self.request_body.get("content") or {}
@@ -119,7 +142,14 @@ class ApiEndpoint:
                 return item["schema"]
         return None
 
-    def _extract_response_schema(self, response: Optional[dict]) -> Optional[dict]:
+    def _extract_response_schema(self, status: Optional[str], response: Optional[dict]) -> Optional[dict]:
+        if status and status in self.response_schemas:
+            return self.response_schemas[status]
+        if self.response_schemas:
+            for key, schema in self.response_schemas.items():
+                if key.startswith("2"):
+                    return schema
+            return next(iter(self.response_schemas.values()))
         if not response:
             return None
         content = response.get("content") or {}
@@ -137,11 +167,12 @@ class ApiEndpoint:
 @dataclass
 class ApiSpec:
     source: str
+    raw: dict
     title: str
     version: str
     servers: List[str]
     endpoints: List[ApiEndpoint]
-    raw: dict
+    security_schemes: Dict[str, dict]
 
 
 @dataclass
@@ -290,6 +321,10 @@ class AgentGenerationConfig:
     max_workers: int = 4
     debug: bool = False
     agent_backend: str = "langgraph"
+    auth: Optional[Dict[str, Any]] = None
+    default_tool_server: Optional[str] = None
+    tool_request_timeout: float = 30.0
+    require_auth_for_protected_tools: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +337,13 @@ class ApiSpecLoader:
 
     def load(self, spec_sources: Sequence[Union[str, dict]]) -> List[ApiSpec]:
         specs: List[ApiSpec] = []
+        seen_keys: set[str] = set()
         for source in spec_sources:
+            key = self._build_source_key(source)
+            if key in seen_keys:
+                logger.debug(f"Skipping duplicate specification source: {key}")
+                continue
+            seen_keys.add(key)
             try:
                 specs.append(self._load_single(source))
             except Exception as exc:
@@ -344,6 +385,10 @@ class ApiSpecLoader:
     def _build_spec(self, raw: dict, title: str, version: str, source: str) -> ApiSpec:
         paths = raw.get("paths") or {}
         servers = [srv.get("url", "") for srv in raw.get("servers", []) if isinstance(srv, dict)]
+        components = raw.get("components") or {}
+        security_schemes = components.get("securitySchemes") if isinstance(components, dict) else {}
+        if not isinstance(security_schemes, dict):
+            security_schemes = {}
         endpoints: List[ApiEndpoint] = []
         for path, operations in paths.items():
             if not isinstance(operations, dict):
@@ -358,16 +403,18 @@ class ApiSpecLoader:
                 summary = operation.get("summary") or ""
                 description = operation.get("description") or ""
                 tags = operation.get("tags") or []
-                parameters = []
-                if isinstance(operation.get("parameters"), list):
-                    parameters = [
-                        param for param in operation["parameters"] if isinstance(param, dict)
-                    ]
+                parameters = self._normalise_parameters(operation.get("parameters"), raw)
                 request_body = operation.get("requestBody")
                 responses = operation.get("responses") or {}
                 security = operation.get("security") or raw.get("security") or []
                 op_servers = operation.get("servers") or []
                 endpoint_servers = [srv.get("url", "") for srv in op_servers if isinstance(srv, dict)]
+                resolved_request_schema = (
+                    self._resolve_request_schema(request_body, raw) if isinstance(request_body, dict) else None
+                )
+                resolved_responses = (
+                    self._resolve_response_schemas(responses, raw) if isinstance(responses, dict) else {}
+                )
                 endpoint = ApiEndpoint(
                     identifier=identifier,
                     method=method_lower,
@@ -382,17 +429,158 @@ class ApiSpecLoader:
                     servers=endpoint_servers or servers,
                     source_spec=source,
                     dependencies=self._extract_dependencies(operation),
+                    request_schema=resolved_request_schema,
+                    response_schemas=resolved_responses,
+                    security_schemes=security_schemes,
                 )
                 endpoints.append(endpoint)
         self._infer_structural_dependencies(endpoints)
         return ApiSpec(
             source=source,
+            raw=raw,
             title=title,
             version=version,
             servers=servers,
             endpoints=endpoints,
-            raw=raw,
+            security_schemes=security_schemes,
         )
+
+    def _build_source_key(self, source: Union[str, dict]) -> str:
+        if isinstance(source, dict):
+            if "info" in source:
+                info = source.get("info") or {}
+                title = info.get("title") or "<unnamed>"
+                version = info.get("version") or "<unknown>"
+                return f"dict::{title}::{version}"
+            return f"dict::{id(source)}"
+        try:
+            path = Path(source)
+            return f"path::{path.resolve()}"
+        except Exception:
+            return f"raw::{str(source)}"
+
+    def _normalise_parameters(self, params: Any, raw: dict) -> List[dict]:
+        if not isinstance(params, list):
+            return []
+        normalised: List[dict] = []
+        for param in params:
+            resolved = self._resolve_parameter(param, raw)
+            if isinstance(resolved, dict):
+                normalised.append(resolved)
+        return normalised
+
+    def _resolve_parameter(self, param: Any, raw: dict, trail: Optional[set[str]] = None) -> Optional[dict]:
+        if not isinstance(param, dict):
+            return None
+        param_copy = dict(param)
+        ref = param_copy.get("$ref")
+        if isinstance(ref, str):
+            if trail is None:
+                trail = set()
+            if ref in trail:
+                param_copy.pop("$ref", None)
+            else:
+                target = self._lookup_ref(ref, raw)
+                if isinstance(target, dict):
+                    merged = self._merge_dicts(target, {k: v for k, v in param_copy.items() if k != "$ref"})
+                    trail = set(trail)
+                    trail.add(ref)
+                    return self._resolve_parameter(merged, raw, trail)
+        schema = param_copy.get("schema")
+        if isinstance(schema, dict):
+            param_copy["schema"] = self._resolve_schema(schema, raw)
+        return param_copy
+
+    def _resolve_request_schema(self, request_body: dict, raw: dict) -> Optional[dict]:
+        content = request_body.get("content")
+        if not isinstance(content, dict):
+            return None
+        media_preferences = (
+            "application/json",
+            "application/*+json",
+            "application/x-www-form-urlencoded",
+            "*/*",
+        )
+        for media_type in media_preferences:
+            body = content.get(media_type)
+            if isinstance(body, dict) and isinstance(body.get("schema"), dict):
+                return self._resolve_schema(body["schema"], raw)
+        for body in content.values():
+            if isinstance(body, dict) and isinstance(body.get("schema"), dict):
+                return self._resolve_schema(body["schema"], raw)
+        return None
+
+    def _resolve_response_schemas(self, responses: dict, raw: dict) -> Dict[str, dict]:
+        resolved: Dict[str, dict] = {}
+        for status, response in responses.items():
+            if not isinstance(response, dict):
+                continue
+            content = response.get("content")
+            if not isinstance(content, dict):
+                continue
+            schema: Optional[dict] = None
+            for media_type in ("application/json", "application/*+json"):
+                body = content.get(media_type)
+                if isinstance(body, dict) and isinstance(body.get("schema"), dict):
+                    schema = self._resolve_schema(body["schema"], raw)
+                    break
+            if schema is None:
+                for body in content.values():
+                    if isinstance(body, dict) and isinstance(body.get("schema"), dict):
+                        schema = self._resolve_schema(body["schema"], raw)
+                        break
+            if schema is not None:
+                resolved[str(status)] = schema
+        return resolved
+
+    def _resolve_schema(self, schema: Any, raw: dict, trail: Optional[set[str]] = None) -> Any:
+        if not isinstance(schema, dict):
+            return schema
+        schema_copy = dict(schema)
+        ref = schema_copy.get("$ref")
+        if isinstance(ref, str):
+            if trail is None:
+                trail = set()
+            if ref not in trail:
+                target = self._lookup_ref(ref, raw)
+                if isinstance(target, dict):
+                    merged = self._merge_dicts(target, {k: v for k, v in schema_copy.items() if k != "$ref"})
+                    new_trail = set(trail)
+                    new_trail.add(ref)
+                    return self._resolve_schema(merged, raw, new_trail)
+            schema_copy.pop("$ref", None)
+        for key, value in list(schema_copy.items()):
+            if isinstance(value, dict):
+                schema_copy[key] = self._resolve_schema(value, raw, trail)
+            elif isinstance(value, list):
+                schema_copy[key] = [self._resolve_schema(item, raw, trail) for item in value]
+        return schema_copy
+
+    @staticmethod
+    def _merge_dicts(base: dict, override: dict) -> dict:
+        merged = dict(base)
+        for key, value in override.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key] = ApiSpecLoader._merge_dicts(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
+
+    @staticmethod
+    def _lookup_ref(ref: str, raw: dict) -> Optional[dict]:
+        if not ref.startswith("#/"):
+            return None
+        parts = ref.lstrip("#/").split("/")
+        node: Any = raw
+        for part in parts:
+            if not isinstance(node, dict):
+                return None
+            node = node.get(part)
+            if node is None:
+                return None
+        if isinstance(node, dict):
+            return node
+        return None
 
     @staticmethod
     def _extract_dependencies(operation: dict) -> List[str]:
@@ -502,23 +690,128 @@ class ApiGraph:
     def describe_endpoints(self, endpoints: Sequence[ApiEndpoint], limit: int = 8) -> str:
         lines: List[str] = []
         for endpoint in list(endpoints)[:limit]:
-            params = ", ".join(
-                f"{param.get('name')}: {param.get('schema', {}).get('type', 'any')}"
-                for param in endpoint.parameters
-                if isinstance(param, dict)
-            )
-            request_info = f"Request body: {bool(endpoint.request_body)}"
+            params = self._format_parameters(endpoint.parameters)
+            request_info = self._summarize_schema(endpoint.request_schema)
             summary = endpoint.summary or endpoint.description or "No description"
             dependency_text = ""
             if endpoint.dependencies:
                 dependency_text = f" Depends on: {', '.join(endpoint.dependencies)}."
             lines.append(
                 f"- {endpoint.identifier} [{endpoint.method.upper()} {endpoint.path}] :: {summary}. "
-                f"Params: {params or 'None'}. {request_info}.{dependency_text}"
+                f"Params: {params}. Body: {request_info}.{dependency_text}"
             )
         if len(endpoints) > limit:
             lines.append(f"... ({len(endpoints) - limit} more endpoints omitted)")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_parameters(parameters: Sequence[dict], limit: int = 6) -> str:
+        formatted: List[str] = []
+        for param in parameters:
+            if not isinstance(param, dict):
+                continue
+            name = str(param.get("name") or "_")
+            location = param.get("in")
+            schema = param.get("schema") if isinstance(param.get("schema"), dict) else {}
+            type_name = ApiGraph._extract_type_name(schema) or "any"
+            desc_source = param.get("description") or schema.get("description") or ""
+            description = ApiGraph._truncate(desc_source, 60)
+            required = bool(param.get("required"))
+            parts = [name]
+            if location:
+                parts.append(f"[{location}]")
+            parts.append(f"({type_name})")
+            if required:
+                parts.append("!")
+            entry = "".join(parts)
+            if description:
+                entry += f": {description}"
+            formatted.append(entry)
+        if not formatted:
+            return "None"
+        if len(formatted) > limit:
+            extra = len(formatted) - limit
+            formatted = formatted[:limit] + [f"... +{extra} more"]
+        return "; ".join(formatted)
+
+    @staticmethod
+    def _summarize_schema(schema: Optional[dict], limit: int = 6) -> str:
+        if not schema:
+            return "None"
+        schema_type = schema.get("type") or ApiGraph._extract_type_name(schema) or "object"
+        if schema_type.startswith("array<"):
+            return schema_type
+        if schema_type == "array":
+            item_type = ApiGraph._extract_type_name(schema.get("items"))
+            return f"array<{item_type or 'object'}>"
+        properties = schema.get("properties")
+        if isinstance(properties, dict) and properties:
+            required = {str(name) for name in schema.get("required", []) if isinstance(name, str)}
+            items: List[str] = []
+            for key, value in list(properties.items())[:limit]:
+                entry = ApiGraph._summarize_property(key, value, required)
+                items.append(entry)
+            if len(properties) > limit:
+                items.append(f"... +{len(properties) - limit} more")
+            return f"{schema_type}{{{'; '.join(items)}}}"
+        if "enum" in schema and isinstance(schema["enum"], list):
+            enum_preview = ", ".join(str(item) for item in schema["enum"][:limit])
+            if len(schema["enum"]) > limit:
+                enum_preview += ", ..."
+            return f"enum[{enum_preview}]"
+        description = schema.get("description")
+        if description:
+            return f"{schema_type}: {ApiGraph._truncate(description, 80)}"
+        return schema_type
+
+    @staticmethod
+    def _summarize_property(name: str, prop: Any, required: set[str]) -> str:
+        if not isinstance(prop, dict):
+            return name
+        type_name = ApiGraph._extract_type_name(prop) or prop.get("type") or "object"
+        description = prop.get("description") or ""
+        description = ApiGraph._truncate(description, 60)
+        entry = f"{name}({type_name})"
+        if name in required:
+            entry += "!"
+        if description:
+            entry += f": {description}"
+        return entry
+
+    @staticmethod
+    def _extract_type_name(schema: Any) -> str:
+        if not isinstance(schema, dict):
+            return ""
+        schema_type = schema.get("type")
+        if schema_type == "array":
+            item_type = ApiGraph._extract_type_name(schema.get("items"))
+            return f"array<{item_type or 'object'}>"
+        if schema_type:
+            return str(schema_type)
+        ref = schema.get("$ref")
+        if isinstance(ref, str) and ref:
+            return ref.split("/")[-1]
+        if "enum" in schema and isinstance(schema["enum"], list):
+            return "enum"
+        for composite_key in ("oneOf", "anyOf", "allOf"):
+            composite = schema.get(composite_key)
+            if isinstance(composite, list) and composite:
+                delimiter = " | " if composite_key != "allOf" else " & "
+                parts = [
+                    part for part in (ApiGraph._extract_type_name(item) for item in composite if isinstance(item, dict))
+                    if part
+                ]
+                if parts:
+                    return delimiter.join(parts)
+        return ""
+
+    @staticmethod
+    def _truncate(text: str, length: int = 80) -> str:
+        if not text:
+            return ""
+        if len(text) <= length:
+            return text
+        return text[: length - 3].rstrip() + "..."
 
 
 # ---------------------------------------------------------------------------
@@ -730,8 +1023,20 @@ class ToolClassifier:
 
 
 class ToolRegistry:
-    def __init__(self, tool_specs: Sequence[ToolSpec]):
+    def __init__(
+        self,
+        tool_specs: Sequence[ToolSpec],
+        *,
+        auth_manager: Optional[AuthManager] = None,
+        default_server: Optional[str] = None,
+        timeout: float = 30.0,
+        require_auth: bool = True,
+    ):
         self._by_name: Dict[str, ToolSpec] = {spec.name: spec for spec in tool_specs}
+        self._auth_manager = auth_manager or AuthManager(None)
+        self._default_server = default_server
+        self._timeout = timeout
+        self._require_auth = require_auth
 
     def resolve(self, name: str) -> Optional[ToolSpec]:
         return self._by_name.get(name)
@@ -754,6 +1059,236 @@ class ToolRegistry:
             f"Simulated response from {tool.method.upper()} {tool.path}. "
             f"Parameters: {param_desc}. Likely returns {dominant_fields}."
         )
+
+    def invoke(
+        self,
+        tool: ToolSpec,
+        params: Optional[Dict[str, Any]],
+        monitor: Optional[PerformanceMonitor] = None,
+    ) -> Tuple[str, bool, Optional[str], Optional[float]]:
+        observation, success, error, latency = self._execute_request(tool, params or {})
+        if monitor and latency is not None:
+            monitor.record_request(stage="tool_invocation", duration_seconds=latency)
+        return observation, success, error, latency
+
+    def _execute_request(
+        self,
+        tool: ToolSpec,
+        params: Dict[str, Any],
+    ) -> Tuple[str, bool, Optional[str], Optional[float]]:
+        if not isinstance(params, dict):
+            raise TypeError(
+                f"Tool invocation expects parameters as an object, received {type(params).__name__}."
+            )
+        method, url, headers, query_params, json_payload, data_payload = self._prepare_request(tool, params)
+        start = time.perf_counter()
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=headers or None,
+                params=query_params or None,
+                json=json_payload if json_payload is not None else None,
+                data=data_payload,
+                timeout=self._timeout,
+            )
+        except requests.RequestException as exc:
+            latency = time.perf_counter() - start
+            message = f"Request failure invoking {tool.name}: {exc}"
+            logger.error(message)
+            return message, False, str(exc), latency
+
+        latency = time.perf_counter() - start
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            observation = self._format_error_response(response)
+            logger.warning(
+                "Tool %s responded with HTTP %s: %s",
+                tool.name,
+                response.status_code,
+                response.reason,
+            )
+            return observation, False, str(exc), latency
+
+        observation = self._summarise_response(response)
+        return observation, True, None, latency
+
+    def _prepare_request(
+        self,
+        tool: ToolSpec,
+        params: Dict[str, Any],
+    ) -> Tuple[str, str, Dict[str, str], Dict[str, Any], Optional[Any], Optional[Any]]:
+        payload = {key: value for key, value in params.items() if value is not None}
+        path_values, query_params, header_params, remaining = self._extract_parameter_values(tool, payload)
+        url, remaining_after_path = self._resolve_url(tool, path_values, remaining)
+        method = (tool.method or "get").lower()
+
+        body_json: Optional[Any] = None
+        body_data: Optional[Any] = None
+        if method in {"get", "delete", "head", "options"}:
+            for key, value in remaining_after_path.items():
+                query_params.setdefault(key, value)
+        else:
+            body_candidate = None
+            if "body" in remaining_after_path:
+                body_candidate = remaining_after_path.pop("body")
+            elif "json" in remaining_after_path:
+                body_candidate = remaining_after_path.pop("json")
+            elif remaining_after_path:
+                body_candidate = remaining_after_path
+
+            if isinstance(body_candidate, (str, bytes, bytearray)):
+                body_data = body_candidate
+            elif body_candidate is not None:
+                body_json = body_candidate
+
+        auth_context = self._resolve_auth_context(tool)
+
+        headers: Dict[str, str] = {k: str(v) for k, v in header_params.items()}
+        query_merged: Dict[str, Any] = dict(query_params)
+        if auth_context.headers:
+            headers.update(auth_context.headers)
+        if auth_context.query_params:
+            query_merged.update(auth_context.query_params)
+
+        if body_json is not None:
+            header_names = {key.lower(): key for key in headers.keys()}
+            if "content-type" not in header_names:
+                headers["Content-Type"] = "application/json"
+
+        return method, url, headers, query_merged, body_json, body_data
+
+    def _extract_parameter_values(
+        self,
+        tool: ToolSpec,
+        payload: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        working = dict(payload)
+        path_values: Dict[str, Any] = {}
+        query_params: Dict[str, Any] = {}
+        header_params: Dict[str, Any] = {}
+
+        for parameter in tool.parameters or []:
+            if not isinstance(parameter, dict):
+                continue
+            name = parameter.get("name")
+            if not name:
+                continue
+            location = (parameter.get("in") or "").lower()
+            required = bool(parameter.get("required"))
+            lookup_keys = [name]
+            if "-" in name:
+                lookup_keys.append(name.replace("-", "_"))
+
+            value_found = False
+            value = None
+            for key in lookup_keys:
+                if key in working:
+                    value = working.pop(key)
+                    value_found = True
+                    break
+
+            if location == "path":
+                if not value_found:
+                    if required:
+                        raise RuntimeError(
+                            f"Missing required path parameter '{name}' for tool '{tool.name}'."
+                        )
+                    continue
+                path_values[name] = value
+            elif value_found:
+                if location == "query":
+                    query_params[name] = value
+                elif location == "header":
+                    header_params[name] = value
+
+        return path_values, query_params, header_params, working
+
+    def _resolve_url(
+        self,
+        tool: ToolSpec,
+        path_values: Dict[str, Any],
+        payload: Dict[str, Any],
+    ) -> Tuple[str, Dict[str, Any]]:
+        path_template = tool.path or "/"
+        remaining = dict(payload)
+        placeholders = re.findall(r"{([^}]+)}", path_template)
+
+        for placeholder in placeholders:
+            key = placeholder.split(":")[0]
+            if key in path_values:
+                value = path_values.pop(key)
+            elif key in remaining:
+                value = remaining.pop(key)
+            elif key.replace("-", "_") in remaining:
+                alt_key = key.replace("-", "_")
+                value = remaining.pop(alt_key)
+            else:
+                raise RuntimeError(
+                    f"Missing value for path placeholder '{key}' in tool '{tool.name}'."
+                )
+            path_template = path_template.replace(f"{{{placeholder}}}", str(value))
+
+        base_url = self._select_base_url(tool)
+        full_url = urljoin(base_url.rstrip("/") + "/", path_template.lstrip("/"))
+        return full_url, remaining
+
+    def _select_base_url(self, tool: ToolSpec) -> str:
+        for candidate in tool.servers:
+            if not isinstance(candidate, str):
+                continue
+            cleaned = candidate.strip()
+            if not cleaned:
+                continue
+            if cleaned.startswith("http://") or cleaned.startswith("https://"):
+                return cleaned
+            if self._default_server:
+                return urljoin(self._default_server.rstrip("/") + "/", cleaned.lstrip("/"))
+        if self._default_server:
+            return self._default_server
+        raise RuntimeError(
+            f"No server URL available for tool '{tool.name}'. Provide `default_tool_server` in the config."
+        )
+
+    def _resolve_auth_context(self, tool: ToolSpec) -> AuthContext:
+        try:
+            return self._auth_manager.get_context(tool)
+        except RuntimeError:
+            if self._require_auth:
+                raise
+            logger.warning("Auth disabled yet required for tool '%s'; continuing without credentials.", tool.name)
+            return AuthContext()
+
+    def _summarise_response(self, response: requests.Response) -> str:
+        body_preview = self._extract_body_preview(response)
+        return f"HTTP {response.status_code}: {body_preview}"
+
+    def _format_error_response(self, response: requests.Response) -> str:
+        body_preview = self._extract_body_preview(response)
+        reason = response.reason or "error"
+        return f"HTTP {response.status_code} {reason}: {body_preview}"
+
+    @staticmethod
+    def _extract_body_preview(response: requests.Response, limit: int = 2000) -> str:
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if "application/json" in content_type:
+            try:
+                payload = response.json()
+                text = json.dumps(payload, ensure_ascii=False)
+            except ValueError:
+                text = response.text or ""
+        else:
+            text = response.text or ""
+        return ToolRegistry._truncate(text, limit=limit)
+
+    @staticmethod
+    def _truncate(value: str, limit: int = 2000) -> str:
+        if value is None:
+            return ""
+        if len(value) <= limit:
+            return value
+        return value[: limit - 3] + "..."
 
 
 def build_agent_plan(
@@ -932,7 +1467,9 @@ class LangGraphAgent:
                 state["step_index"] = index + 1
                 return state
             params = step.get("inputs") or {}
-            observation = self.tool_registry.simulate_invocation(tool_spec, params)
+            observation, success, error, latency = self.tool_registry.invoke(
+                tool_spec, params, monitor
+            )
             tool_calls: List[ToolCall] = state.get("tool_calls") or []
             sequence = len(tool_calls) + 1
             tool_calls.append(
@@ -941,10 +1478,16 @@ class LangGraphAgent:
                     tool_name=tool_spec.name,
                     input=params if isinstance(params, dict) else {},
                     observation=observation,
-                    success=True,
+                    success=success,
+                    latency_seconds=latency,
+                    error=error,
                     metadata={"reason": step.get("reason")},
                 )
             )
+            if not success and error:
+                state.setdefault("issues", []).append(
+                    f"Tool {tool_spec.name} invocation failed: {error}"
+                )
             turns: List[AgentTurn] = state.get("turns") or []
             turns.append(
                 AgentTurn(
@@ -1104,16 +1647,27 @@ class OpenAIAgent:
                         tool_input=params,
                     )
                 )
-                observation = self.tool_registry.simulate_invocation(tool_spec, params)
+                observation, success, error, latency = self.tool_registry.invoke(
+                    tool_spec, params, monitor
+                )
                 tool_call = ToolCall(
                     sequence=len(tool_calls) + 1,
                     tool_name=tool_spec.name,
                     input=params,
                     observation=observation,
-                    success=True,
+                    success=success,
+                    error=error,
+                    latency_seconds=latency,
                     metadata={"reason": step.get("reason")},
                 )
                 tool_calls.append(tool_call)
+                if not success and error:
+                    turns.append(
+                        AgentTurn(
+                            role="assistant",
+                            content=f"Tool {tool_spec.name} failed: {error}",
+                        )
+                    )
                 turns.append(
                     AgentTurn(
                         role="tool",
@@ -1243,7 +1797,30 @@ class AgentTrainingDataGenerator:
 
         api_graph = ApiGraph(specs)
         tool_catalog = api_graph.tool_catalog()
-        tool_registry = ToolRegistry(tool_catalog)
+        if self.config.require_auth_for_protected_tools and not self.config.auth:
+            protected_schemes = sorted(
+                {
+                    scheme
+                    for tool in tool_catalog
+                    for requirement in tool.security
+                    if isinstance(requirement, dict)
+                    for scheme in requirement.keys()
+                }
+            )
+            if protected_schemes:
+                raise RuntimeError(
+                    "Authentication is required for the loaded API specifications. "
+                    "Provide credentials for the following security schemes via AgentGenerationConfig.auth: "
+                    + ", ".join(protected_schemes)
+                )
+        auth_manager = AuthManager(self.config.auth)
+        tool_registry = ToolRegistry(
+            tool_catalog,
+            auth_manager=auth_manager,
+            default_server=self.config.default_tool_server,
+            timeout=self.config.tool_request_timeout,
+            require_auth=self.config.require_auth_for_protected_tools,
+        )
         backend = (self.config.agent_backend or "langgraph").lower()
         if backend == "langgraph":
             agent = LangGraphAgent(self.config, tool_registry)

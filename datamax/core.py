@@ -910,6 +910,14 @@ class DataMax(BaseLife):
                         max_workers=agent_mode_config.get("max_workers", 4),
                         debug=debug,
                         agent_backend=agent_backend,
+                        auth=agent_mode_config.get("auth"),
+                        default_tool_server=agent_mode_config.get("default_tool_server"),
+                        tool_request_timeout=float(
+                            agent_mode_config.get("tool_request_timeout", 30.0)
+                        ),
+                        require_auth_for_protected_tools=agent_mode_config.get(
+                            "require_auth_for_protected_tools", True
+                        ),
                     )
 
                     if isinstance(min_interval, (int, float)):
@@ -936,6 +944,16 @@ class DataMax(BaseLife):
                         agent_config.langgraph_retry = int(agent_mode_config["langgraph_retry"])
                     if agent_mode_config.get("max_retries") is not None:
                         agent_config.max_retries = int(agent_mode_config["max_retries"])
+                    if agent_mode_config.get("tool_request_timeout") is not None:
+                        agent_config.tool_request_timeout = float(agent_mode_config["tool_request_timeout"])
+                    if agent_mode_config.get("require_auth_for_protected_tools") is not None:
+                        agent_config.require_auth_for_protected_tools = bool(
+                            agent_mode_config["require_auth_for_protected_tools"]
+                        )
+                    if agent_mode_config.get("default_tool_server") is not None:
+                        agent_config.default_tool_server = str(agent_mode_config["default_tool_server"])
+                    if agent_mode_config.get("auth") is not None:
+                        agent_config.auth = agent_mode_config["auth"]
 
                     dbg.log_params(
                         agent_backend=agent_backend,
