@@ -8,6 +8,8 @@
 
 </div>
 
+**Documentation Portal:** https://hi-dolphin.github.io/datamax
+
 A powerful multi-format file parsing, data cleaning, and AI annotation toolkit built for modern Python applications.
 
 ## ✨ Key Features
@@ -58,6 +60,7 @@ client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 
 - See docs: `docs/index.md`
 - Sections: Getting Started, Parsing, Cleaning, Labeling, Crawling, Evaluation, CLI, API, Extending, FAQ
+- For the complete text-modal QA generation pipeline, see [examples/scripts/generate_qa.py](examples/scripts/generate_qa.py)
 
 ## 🤝 Contributing
 

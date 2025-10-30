@@ -25,6 +25,8 @@ nav:
   - CLI 参考: cli.md
   - API 参考: api.md
   - 扩展指南: extend.md
+  - 最佳实践:
+      - 文档 QA Pipeline: best-practices/generate-qa.md
   - FAQ: faq.md
 
 markdown_extensions:

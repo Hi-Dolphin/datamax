@@ -8,6 +8,8 @@
 
 </div>
 
+**项目文档站点：** https://hi-dolphin.github.io/datamax
+
 一个强大的多格式文件解析、数据清洗和AI标注工具包，为现代Python应用而建。
 
 ## ✨ 主要功能
@@ -58,6 +60,11 @@ qa_list = client.get_pre_label(
 # save label data
 client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 ```
+
+## 📚 文档
+
+- 文档入口：`docs/index.md`
+- 文档文本模态 QA 生成完整 Pipeline 使用示例请参考 [examples/scripts/generate_qa.py](examples/scripts/generate_qa.py)
 
 ## 🤝 贡献
 

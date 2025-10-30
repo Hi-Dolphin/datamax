@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
 import base64
 import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import requests
@@ -355,3 +358,34 @@ class AuthManager:
         if provider_name:
             return self._providers.get(provider_name)
         return None
+
+
+def load_auth_configuration_from_env(
+    *,
+    config_env_var: str = "AGENT_AUTH_CONFIG",
+    path_env_var: str = "AGENT_AUTH_CONFIG_PATH",
+) -> Optional[dict]:
+    """Load auth configuration for agent generators from environment variables."""
+    raw_json = os.getenv(config_env_var)
+    config_path = os.getenv(path_env_var)
+
+    if raw_json:
+        try:
+            return json.loads(raw_json)
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            raise RuntimeError(
+                f"Invalid JSON provided via {config_env_var}: {exc}"
+            ) from exc
+
+    if config_path:
+        path = Path(config_path).expanduser()
+        if not path.exists():
+            raise RuntimeError(f"Auth configuration file {path} not found.")
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            raise RuntimeError(
+                f"Invalid JSON inside auth configuration file {path}: {exc}"
+            ) from exc
+
+    return None

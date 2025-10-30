@@ -12,10 +12,11 @@
 - [API 参考](api.md)
 - [扩展指南](extend.md)
 - [FAQ](faq.md)
+- 最佳实践：
+  - [文档 QA Pipeline 示例](best-practices/generate-qa.md)
 
 如需从命令行查看能力与参数，运行：
 
 ```bash
 python -m datamax.cli.main --help
 ```
-
