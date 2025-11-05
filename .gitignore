@@ -245,7 +245,7 @@ data_*
 checkpoints.jsonl
 logs
 logs/*
-
+*.html
 *.out
 *.log
 *.pid

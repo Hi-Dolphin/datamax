@@ -1,19 +1,22 @@
 import importlib
 import json
 import os
+import sys
 import time
 from pathlib import Path
-from typing import Literal, TypedDict, overload, cast, Any
+from typing import Any, Callable, Literal, Sequence, TypedDict, cast, overload
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 
 import datamax.generator.qa_generator as qa_generator
 from datamax.cleaner import data_cleaner
-from datamax.parser.base import BaseLife
-from datamax.utils.lifecycle_types import LifeType
-from datamax.utils.debug_logger import DebugContext
 from datamax.generator import PerformanceMonitor
+from datamax.generator.types import PersistenceConfig, QAGenerationResult
+from datamax.parser.base import BaseLife
+from datamax.persistence import PostgresPersistence
+from datamax.utils.debug_logger import DebugContext
+from datamax.utils.lifecycle_types import LifeType
 
 
 class LifecycleMetadata(TypedDict):
@@ -542,6 +545,10 @@ class DataMax(BaseLife):
         checkpoint_path: str | None = None,
         resume_from_checkpoint: bool = True,
         agent_mode: dict[str, Any] | str | bool | None = None,
+        perf_monitor: PerformanceMonitor | None = None,
+        persistence: dict[str, Any] | None = None,
+        return_structured: bool = False,
+        post_process_hooks: Sequence[Callable[[QAGenerationResult], None]] | None = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -586,14 +593,29 @@ class DataMax(BaseLife):
         :param agent_mode: Optional agent configuration. When enabled, agent-style training data will be generated
                            instead of standard QA pairs. Accepts a dict with keys like `enabled`, `agent_backend`,
                            or a shorthand string backend ("langgraph", "openai").
+        :param perf_monitor: Optional shared PerformanceMonitor instance to reuse for this call.
+        :param persistence: Optional mapping containing persistence configuration (backend, dsn, etc.).
+        :param return_structured: If True, return QAGenerationResult instead of raw dict/list.
+        :param post_process_hooks: Optional callbacks that receive QAGenerationResult before returning.
         :return: List of QA pairs
         """
         import datamax.generator.qa_generator as qa_generator
 
         # Initialize debug context
         dbg = DebugContext(enabled=debug, context_name="get_pre_label")
-        perf_monitor = PerformanceMonitor()
-        self.performance_monitor = perf_monitor
+        monitor = perf_monitor if perf_monitor is not None else PerformanceMonitor()
+        self.performance_monitor = monitor
+
+        persistence_handler: PostgresPersistence | None = None
+        if persistence:
+            try:
+                persistence_config = PersistenceConfig.from_mapping(persistence)
+                persistence_handler = PostgresPersistence(persistence_config)
+            except Exception as exc:
+                logger.error("Failed to initialise persistence backend: {}", exc)
+                raise
+
+        prepared_text_value: str = ""
 
         def _round_metric(value, digits: int = 3):
             return round(value, digits) if isinstance(value, (int, float)) else value
@@ -691,21 +713,32 @@ class DataMax(BaseLife):
             return "\n".join(table_lines)
 
         def _record_performance(target):
-            if isinstance(target, dict) and "performance" in target and target["performance"]:
+            if isinstance(target, dict) and target.get("performance"):
                 report = target["performance"]
                 if isinstance(report, dict):
                     self.last_performance_report = report
-                    call_records = target.get("llm_call_records", [])
-                    call_qa_pairs = target.get("llm_call_qa_pairs", [])
+
+                    if "llm_call_records" in target:
+                        call_records = list(target.get("llm_call_records") or [])
+                    else:
+                        call_records = monitor.get_call_records()
+                        target["llm_call_records"] = call_records
+
+                    if "llm_call_qa_pairs" in target:
+                        call_qa_pairs = list(target.get("llm_call_qa_pairs") or [])
+                    else:
+                        call_qa_pairs = monitor.call_records_as_qa_pairs()
+                        target["llm_call_qa_pairs"] = call_qa_pairs
+
                     self.llm_call_records = call_records
                     self.llm_call_qa_pairs = call_qa_pairs
                     _log_performance_report(report)
                     logger.info("\n📊 Performance Summary\n{}", _format_performance_table(report))
                     return report
-            report = perf_monitor.build_report()
+            report = monitor.build_report()
             self.last_performance_report = report
-            call_records = perf_monitor.get_call_records()
-            call_qa_pairs = perf_monitor.call_records_as_qa_pairs()
+            call_records = monitor.get_call_records()
+            call_qa_pairs = monitor.call_records_as_qa_pairs()
             self.llm_call_records = call_records
             self.llm_call_qa_pairs = call_qa_pairs
             if isinstance(target, dict):
@@ -716,371 +749,427 @@ class DataMax(BaseLife):
             logger.info("\n📊 Performance Summary\n{}", _format_performance_table(report))
             return report
 
-        agent_mode_config: dict[str, Any] = {}
-        agent_mode_enabled = False
-        agent_backend = "openai"
-        if isinstance(agent_mode, dict):
-            agent_mode_config = dict(agent_mode)
-            enabled_flag = agent_mode_config.get("enabled")
-            agent_mode_enabled = bool(enabled_flag) if enabled_flag is not None else bool(agent_mode_config)
-            mode_value = agent_mode_config.get("mode") or agent_mode_config.get("type")
-            if isinstance(mode_value, str) and mode_value.lower() == "agent":
-                agent_mode_enabled = True
-            backend_value = (
-                agent_mode_config.get("agent_backend")
-                or agent_mode_config.get("backend")
-                or agent_mode_config.get("strategy")
+        def _finalize_result(final_data: Any) -> QAGenerationResult:
+            _record_performance(final_data)
+            performance_snapshot = getattr(self, "last_performance_report", None)
+            call_records_list = list(getattr(self, "llm_call_records", []))
+
+            qa_pairs_payload: list[dict] = []
+            metadata_payload: dict[str, Any] = {}
+            domain_tree_payload: dict[str, Any] | None = None
+
+            if isinstance(final_data, dict):
+                qa_pairs_payload = list(final_data.get("qa_pairs") or [])
+                metadata_payload = dict(final_data.get("metadata") or {})
+                potential_domain_tree = final_data.get("domain_tree")
+                if isinstance(potential_domain_tree, dict):
+                    domain_tree_payload = potential_domain_tree
+                llm_pairs = final_data.get("llm_call_qa_pairs")
+                if isinstance(llm_pairs, list):
+                    qa_pairs_payload.extend(llm_pairs)
+            elif isinstance(final_data, list):
+                qa_pairs_payload = list(final_data)
+
+            source_file_value: str | None = None
+            if isinstance(self.file_path, (str, Path)):
+                source_file_value = str(self.file_path)
+            elif isinstance(self.file_path, list) and self.file_path:
+                source_file_value = str(self.file_path[0])
+
+            result_obj = QAGenerationResult(
+                qa_pairs=qa_pairs_payload,
+                metadata=metadata_payload,
+                performance=performance_snapshot,
+                raw_content=prepared_text_value,
+                source_file=source_file_value,
+                domain_tree=domain_tree_payload,
+                call_records=call_records_list,
             )
-            if isinstance(backend_value, str) and backend_value.strip():
-                agent_backend = backend_value.strip().lower()
-        elif isinstance(agent_mode, str):
-            normalized_mode = agent_mode.strip().lower()
-            if normalized_mode and normalized_mode not in {"qa", "none", "disabled"}:
+
+            if persistence_handler:
+                persistence_handler.persist(result_obj, monitor)
+
+            if post_process_hooks:
+                for hook in post_process_hooks:
+                    try:
+                        hook(result_obj)
+                    except Exception as hook_exc:  # pragma: no cover - defensive
+                        logger.warning(
+                            "post_process_hook %s raised %s",
+                            getattr(hook, "__name__", repr(hook)),
+                            hook_exc,
+                        )
+            return result_obj
+
+        def _execute_pipeline() -> Any:
+            nonlocal prepared_text_value, base_url, auto_self_review_mode
+            agent_mode_config: dict[str, Any] = {}
+            agent_mode_enabled = False
+            agent_backend = "openai"
+            if isinstance(agent_mode, dict):
+                agent_mode_config = dict(agent_mode)
+                enabled_flag = agent_mode_config.get("enabled")
+                agent_mode_enabled = bool(enabled_flag) if enabled_flag is not None else bool(agent_mode_config)
+                mode_value = agent_mode_config.get("mode") or agent_mode_config.get("type")
+                if isinstance(mode_value, str) and mode_value.lower() == "agent":
+                    agent_mode_enabled = True
+                backend_value = (
+                    agent_mode_config.get("agent_backend")
+                    or agent_mode_config.get("backend")
+                    or agent_mode_config.get("strategy")
+                )
+                if isinstance(backend_value, str) and backend_value.strip():
+                    agent_backend = backend_value.strip().lower()
+            elif isinstance(agent_mode, str):
+                normalized_mode = agent_mode.strip().lower()
+                if normalized_mode and normalized_mode not in {"qa", "none", "disabled"}:
+                    agent_mode_enabled = True
+                    agent_backend = normalized_mode if normalized_mode in {"langgraph", "openai"} else "langgraph"
+                    agent_mode_config = {"agent_backend": agent_backend}
+            elif agent_mode is True:
                 agent_mode_enabled = True
-                agent_backend = normalized_mode if normalized_mode in {"langgraph", "openai"} else "langgraph"
-                agent_mode_config = {"agent_backend": agent_backend}
-        elif agent_mode is True:
-            agent_mode_enabled = True
-        else:
-            agent_mode_config = {}
-
-        if agent_backend not in {"langgraph", "openai"}:
-            dbg.log(f"Unrecognized agent backend '{agent_backend}', defaulting to 'langgraph'")
-            agent_backend = "langgraph"
-        if agent_mode_enabled:
-            agent_mode_config.setdefault("agent_backend", agent_backend)
-        
-        # Log input parameters
-        dbg.log_params(
-            content_provided=content is not None,
-            content_length=len(content) if content else 0,
-            use_mllm=use_mllm,
-            api_key='***' if api_key else None,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            max_qps=max_qps,
-            language=language,
-            use_tree_label=use_tree_label,
-            messages_provided=messages is not None,
-            interactive_tree=interactive_tree,
-            custom_domain_tree_provided=custom_domain_tree is not None,
-            file_path=self.file_path,
-            use_mineru=self.use_mineru,
-            domain=self.domain,
-            checkpoint_path_provided=checkpoint_path is not None,
-            resume_from_checkpoint=resume_from_checkpoint,
-            agent_mode_enabled=agent_mode_enabled,
-            agent_backend=agent_backend if agent_mode_enabled else None,
-        )
-
-        # Prepare content
-        with dbg.section("Content Preparation"):
-            if content is not None:
-                prepared_text = content
-                dbg.log(f"Using external content, length: {len(prepared_text)}")
             else:
-                dbg.log("Fetching content via get_data()")
-                processed = self.get_data()
-                dbg.log_data_structure(processed, "processed_data")
+                agent_mode_config = {}
 
-                # Convert to text
-                if isinstance(processed, list):
-                    parts = [d["content"] if isinstance(d, dict) else d for d in processed]
-                    prepared_text = "\n\n".join(parts)
-                    dbg.log(f"Merged {len(parts)} parts, total length: {len(prepared_text)}")
-                elif isinstance(processed, dict):
-                    prepared_text = processed.get("content", "")
-                    dbg.log(f"Extracted content from dict, length: {len(prepared_text)}")
-                else:
-                    prepared_text = processed
-                    dbg.log(f"Using content as-is, length: {len(prepared_text)}")
-                
-                print(prepared_text)
-
-        # Add lifecycle marker
-        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-            dbg.log("Adding DATA_LABELLING lifecycle entry")
-            self.parsed_data.setdefault("lifecycle", []).append(
-                self.generate_lifecycle(
-                    source_file=self.file_path,
-                    domain=self.domain,
-                    life_type=LifeType.DATA_LABELLING,
-                    usage_purpose="Labeling",
-                ).to_dict()
+            if agent_backend not in {"langgraph", "openai"}:
+                dbg.log(f"Unrecognized agent backend '{agent_backend}', defaulting to 'langgraph'")
+                agent_backend = "langgraph"
+            if agent_mode_enabled:
+                agent_mode_config.setdefault("agent_backend", agent_backend)
+            
+            # Log input parameters
+            dbg.log_params(
+                content_provided=content is not None,
+                content_length=len(content) if content else 0,
+                use_mllm=use_mllm,
+                api_key='***' if api_key else None,
+                    base_url=base_url,
+                model_name=model_name,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                question_number=question_number,
+                max_qps=max_qps,
+                language=language,
+                use_tree_label=use_tree_label,
+                messages_provided=messages is not None,
+                interactive_tree=interactive_tree,
+                custom_domain_tree_provided=custom_domain_tree is not None,
+                file_path=self.file_path,
+                use_mineru=self.use_mineru,
+                domain=self.domain,
+                checkpoint_path_provided=checkpoint_path is not None,
+                resume_from_checkpoint=resume_from_checkpoint,
+                agent_mode_enabled=agent_mode_enabled,
+                agent_backend=agent_backend if agent_mode_enabled else None,
             )
 
-        try:
-            # Complete API URL
-            base_url = qa_generator.complete_api_url(base_url)
-            dbg.log(f"Completed API URL: {base_url}")
-
-            # Generate QA pairs
-            with dbg.section("QA Generation"):
-                if agent_mode_enabled:
-                    logger.info("Using agent training data generator...")
-                    dbg.log("Agent mode enabled; switching to agent training pipeline")
-                    from datamax.generator.agent_qa_generator import (
-                        AgentGenerationConfig,
-                        generate_agent_training_data,
-                    )
-
-                    spec_sources: list[Any] = []
-                    configured_sources = agent_mode_config.get("spec_sources") if isinstance(agent_mode_config, dict) else None
-                    if isinstance(configured_sources, list):
-                        spec_sources.extend(configured_sources)
-                    elif configured_sources:
-                        spec_sources.append(configured_sources)
-
-                    if isinstance(self.file_path, list):
-                        spec_sources.extend(self.file_path)
-                    elif isinstance(self.file_path, str) and self.file_path:
-                        spec_sources.append(self.file_path)
-
-                    spec_sources = [src for src in spec_sources if src]
-
-                    if content is not None and not spec_sources:
-                        parsed_spec: Any | None = None
-                        try:
-                            parsed_spec = json.loads(content)
-                        except json.JSONDecodeError:
-                            try:
-                                import yaml  # type: ignore
-
-                                parsed_spec = yaml.safe_load(content)
-                            except Exception:
-                                parsed_spec = None
-                        if parsed_spec:
-                            spec_sources.append(parsed_spec)
-
-                    if not spec_sources:
-                        raise ValueError(
-                            "Agent mode requires at least one API specification file or content."
-                        )
-
-                    min_interval = agent_mode_config.get("min_request_interval_seconds")
-                    if min_interval is None and max_qps > 0:
-                        min_interval = 1.0 / max_qps
-
-                    agent_question_count = agent_mode_config.get("question_count", question_number)
-                    agent_checkpoint_path = agent_mode_config.get("checkpoint_path", checkpoint_path)
-                    agent_resume_from_checkpoint = agent_mode_config.get(
-                        "resume_from_checkpoint", resume_from_checkpoint
-                    )
-
-                    default_max_retries = AgentGenerationConfig.__dataclass_fields__["max_retries"].default
-                    max_retries_value = agent_mode_config.get("max_retries")
-                    if max_retries_value is None:
-                        max_retries_value = default_max_retries
-                    default_min_interval = AgentGenerationConfig.__dataclass_fields__[
-                        "min_request_interval_seconds"
-                    ].default
-                    min_interval_value = (
-                        float(min_interval)
-                        if isinstance(min_interval, (int, float))
-                        else default_min_interval
-                    )
-
-                    agent_config = AgentGenerationConfig(
-                        api_key=api_key,
-                        base_url=base_url,
-                        agent_question_generate_model=agent_mode_config.get(
-                            "agent_question_generate_model", model_name
-                        ),
-                        classify_model=agent_mode_config.get("classify_model", model_name),
-                        core_agent_answer_generate_model=agent_mode_config.get(
-                            "core_agent_answer_generate_model", model_name
-                        ),
-                        review_model=agent_mode_config.get("review_model", model_name),
-                        question_count=agent_question_count,
-                        max_questions_per_context=agent_mode_config.get("max_questions_per_context", 4),
-                        top_k_tools=agent_mode_config.get("top_k_tools", 5),
-                        max_turns=agent_mode_config.get("max_turns", 8),
-                        langgraph_retry=agent_mode_config.get("langgraph_retry", 1),
-                        checkpoint_path=agent_checkpoint_path,
-                        resume_from_checkpoint=agent_resume_from_checkpoint,
-                        max_retries=int(max_retries_value),
-                        min_request_interval_seconds=min_interval_value,
-                        question_temperature=agent_mode_config.get("question_temperature", 0.5),
-                        classify_temperature=agent_mode_config.get("classify_temperature", 0.3),
-                        agent_temperature=agent_mode_config.get("agent_temperature", 0.7),
-                        review_temperature=agent_mode_config.get("review_temperature", 0.2),
-                        max_workers=agent_mode_config.get("max_workers", 4),
-                        debug=debug,
-                        agent_backend=agent_backend,
-                        auth=agent_mode_config.get("auth"),
-                        default_tool_server=agent_mode_config.get("default_tool_server"),
-                        tool_request_timeout=float(
-                            agent_mode_config.get("tool_request_timeout", 30.0)
-                        ),
-                        require_auth_for_protected_tools=agent_mode_config.get(
-                            "require_auth_for_protected_tools", True
-                        ),
-                    )
-
-                    if isinstance(min_interval, (int, float)):
-                        agent_config.min_request_interval_seconds = float(min_interval)
-                    if agent_mode_config.get("question_temperature") is not None:
-                        agent_config.question_temperature = float(agent_mode_config["question_temperature"])
-                    if agent_mode_config.get("classify_temperature") is not None:
-                        agent_config.classify_temperature = float(agent_mode_config["classify_temperature"])
-                    if agent_mode_config.get("agent_temperature") is not None:
-                        agent_config.agent_temperature = float(agent_mode_config["agent_temperature"])
-                    if agent_mode_config.get("review_temperature") is not None:
-                        agent_config.review_temperature = float(agent_mode_config["review_temperature"])
-                    if agent_mode_config.get("top_k_tools") is not None:
-                        agent_config.top_k_tools = int(agent_mode_config["top_k_tools"])
-                    if agent_mode_config.get("max_turns") is not None:
-                        agent_config.max_turns = int(agent_mode_config["max_turns"])
-                    if agent_mode_config.get("max_workers") is not None:
-                        agent_config.max_workers = int(agent_mode_config["max_workers"])
-                    if agent_mode_config.get("max_questions_per_context") is not None:
-                        agent_config.max_questions_per_context = int(
-                            agent_mode_config["max_questions_per_context"]
-                        )
-                    if agent_mode_config.get("langgraph_retry") is not None:
-                        agent_config.langgraph_retry = int(agent_mode_config["langgraph_retry"])
-                    if agent_mode_config.get("max_retries") is not None:
-                        agent_config.max_retries = int(agent_mode_config["max_retries"])
-                    if agent_mode_config.get("tool_request_timeout") is not None:
-                        agent_config.tool_request_timeout = float(agent_mode_config["tool_request_timeout"])
-                    if agent_mode_config.get("require_auth_for_protected_tools") is not None:
-                        agent_config.require_auth_for_protected_tools = bool(
-                            agent_mode_config["require_auth_for_protected_tools"]
-                        )
-                    if agent_mode_config.get("default_tool_server") is not None:
-                        agent_config.default_tool_server = str(agent_mode_config["default_tool_server"])
-                    if agent_mode_config.get("auth") is not None:
-                        agent_config.auth = agent_mode_config["auth"]
-
-                    dbg.log_params(
-                        agent_backend=agent_backend,
-                        spec_source_count=len(spec_sources),
-                        agent_question_count=agent_config.question_count,
-                        agent_top_k_tools=agent_config.top_k_tools,
-                        agent_max_turns=agent_config.max_turns,
-                    )
-
-                    data = generate_agent_training_data(spec_sources, agent_config)
-                    auto_self_review_mode = False
-                    if isinstance(data, dict):
-                        metadata = data.setdefault("metadata", {})
-                        metadata.setdefault("agent_mode", {})
-                        metadata["agent_mode"].update(
-                            {
-                                "enabled": True,
-                                "agent_backend": agent_backend,
-                            }
-                        )
-                        if isinstance(agent_mode_config, dict):
-                            metadata["agent_mode"]["config"] = agent_mode_config
-                elif use_mllm and self.use_mineru:
-                    logger.info("Using multimodal QA generator...")
-                    
-                    # Prepare file paths
-                    if isinstance(self.file_path, list):
-                        file_names = [os.path.basename(f).replace(".pdf", ".md") for f in self.file_path]
-                    elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                        file_names = [os.path.basename(self.file_path).replace(".pdf", ".md")]
-                    elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
-                        file_names = [
-                            os.path.basename(file).replace(".pdf", ".md")
-                            for file in list(Path(self.file_path).rglob("*.*"))
-                        ]
-                    
-                    dbg.log(f"Generated {len(file_names)} file names")
-                    
-                    file_names = [
-                        os.path.join(
-                            Path(__file__).parent.parent.parent.resolve(),
-                            "__temp__",
-                            "markdown",
-                            f,
-                        )
-                        for f in file_names
-                    ]
-
-                    from datamax.utils import multimodal_qa_generator as generator_module
-
-                    multimodal_file_path = os.path.join(
-                        "__temp__",
-                        "markdown",
-                        os.path.basename(self.file_path).replace(".pdf", ".md"),
-                    )
-                    dbg.log(f"Multimodal file path: {multimodal_file_path}")
-
-                    data = generator_module.generatr_qa_pairs(
-                        file_path=multimodal_file_path,
-                        api_key=api_key,
-                        base_url=base_url,
-                        model_name=model_name,
-                        question_number=question_number,
-                        max_qps=max_qps,
-                    )
+            # Prepare content
+            with dbg.section("Content Preparation"):
+                if content is not None:
+                    prepared_text = content
+                    dbg.log(f"Using external content, length: {len(prepared_text)}")
                 else:
-                    logger.info("Using standard QA generator...")
-                    dbg.log(f"Text length: {len(prepared_text)}")
-                    dbg.log_params(
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap,
-                        question_number=question_number,
-                        max_qps=max_qps,
-                        use_tree_label=use_tree_label
-                    )
+                    dbg.log("Fetching content via get_data()")
+                    processed = self.get_data()
+                    dbg.log_data_structure(processed, "processed_data")
 
-                    data = qa_generator.full_qa_labeling_process(
-                        content=prepared_text,
-                        api_key=api_key,
-                        base_url=base_url,
-                        model_name=model_name,
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap,
-                        question_number=question_number,
-                        max_qps=max_qps,
-                        use_tree_label=use_tree_label,
-                        messages=messages,
-                        interactive_tree=interactive_tree,
-                        custom_domain_tree=custom_domain_tree,
-                        use_mineru=self.use_mineru,
-                        debug=debug,
-                        structured_data=structured_data,
-                        checkpoint_path=checkpoint_path,
-                        resume_from_checkpoint=resume_from_checkpoint,
-                        perf_monitor=perf_monitor,
-                    )
-                
-                dbg.log_data_structure(data, "generated_data")
+                    # Convert to text
+                    if isinstance(processed, list):
+                        parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                        prepared_text = "\n\n".join(parts)
+                        dbg.log(f"Merged {len(parts)} parts, total length: {len(prepared_text)}")
+                    elif isinstance(processed, dict):
+                        prepared_text = processed.get("content", "")
+                        dbg.log(f"Extracted content from dict, length: {len(prepared_text)}")
+                    else:
+                        prepared_text = processed
+                        dbg.log(f"Using content as-is, length: {len(prepared_text)}")
+                    
+                    print(prepared_text)
 
-            # Mark success
+            prepared_text_value = prepared_text
+
+            # Add lifecycle marker
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-                dbg.log("Adding DATA_LABELLED lifecycle entry")
-                self.parsed_data["lifecycle"].append(
+                dbg.log("Adding DATA_LABELLING lifecycle entry")
+                self.parsed_data.setdefault("lifecycle", []).append(
                     self.generate_lifecycle(
                         source_file=self.file_path,
                         domain=self.domain,
-                        life_type=LifeType.DATA_LABELLED,
+                        life_type=LifeType.DATA_LABELLING,
                         usage_purpose="Labeling",
                     ).to_dict()
                 )
 
-            # Review mode processing
-            if auto_self_review_mode:
-                logger.info("🔍 Activating review mode: QA pairs will be reviewed by LLM")
-                dbg.log("Starting QA pair review process")
-                
-                # Extract QA pairs from data structure
-                qa_pairs = []
-                if isinstance(data, dict) and "qa_pairs" in data:
-                    qa_pairs = data["qa_pairs"]
-                elif isinstance(data, list):
-                    qa_pairs = data
-                else:
-                    logger.warning("Unexpected data format for review mode, skipping review")
-                    _record_performance(data)
-                    return data
-                
+            try:
+                # Complete API URL
+                base_url = qa_generator.complete_api_url(base_url)
+                dbg.log(f"Completed API URL: {base_url}")
+
+                # Generate QA pairs
+                with dbg.section("QA Generation"):
+                    if agent_mode_enabled:
+                        logger.info("Using agent training data generator...")
+                        dbg.log("Agent mode enabled; switching to agent training pipeline")
+                        from datamax.generator.agent_qa_generator import (
+                            AgentGenerationConfig,
+                            generate_agent_training_data,
+                        )
+
+                        spec_sources: list[Any] = []
+                        configured_sources = agent_mode_config.get("spec_sources") if isinstance(agent_mode_config, dict) else None
+                        if isinstance(configured_sources, list):
+                            spec_sources.extend(configured_sources)
+                        elif configured_sources:
+                            spec_sources.append(configured_sources)
+
+                        if isinstance(self.file_path, list):
+                            spec_sources.extend(self.file_path)
+                        elif isinstance(self.file_path, str) and self.file_path:
+                            spec_sources.append(self.file_path)
+
+                        spec_sources = [src for src in spec_sources if src]
+
+                        if content is not None and not spec_sources:
+                            parsed_spec: Any | None = None
+                            try:
+                                parsed_spec = json.loads(content)
+                            except json.JSONDecodeError:
+                                try:
+                                    import yaml  # type: ignore
+
+                                    parsed_spec = yaml.safe_load(content)
+                                except Exception:
+                                    parsed_spec = None
+                            if parsed_spec:
+                                spec_sources.append(parsed_spec)
+
+                        if not spec_sources:
+                            raise ValueError(
+                                "Agent mode requires at least one API specification file or content."
+                            )
+
+                        min_interval = agent_mode_config.get("min_request_interval_seconds")
+                        if min_interval is None and max_qps > 0:
+                            min_interval = 1.0 / max_qps
+
+                        agent_question_count = agent_mode_config.get("question_count", question_number)
+                        agent_checkpoint_path = agent_mode_config.get("checkpoint_path", checkpoint_path)
+                        agent_resume_from_checkpoint = agent_mode_config.get(
+                            "resume_from_checkpoint", resume_from_checkpoint
+                        )
+
+                        default_max_retries = AgentGenerationConfig.__dataclass_fields__["max_retries"].default
+                        max_retries_value = agent_mode_config.get("max_retries")
+                        if max_retries_value is None:
+                            max_retries_value = default_max_retries
+                        default_min_interval = AgentGenerationConfig.__dataclass_fields__[
+                            "min_request_interval_seconds"
+                        ].default
+                        min_interval_value = (
+                            float(min_interval)
+                            if isinstance(min_interval, (int, float))
+                            else default_min_interval
+                        )
+
+                        agent_config = AgentGenerationConfig(
+                            api_key=api_key,
+                            base_url=base_url,
+                            agent_question_generate_model=agent_mode_config.get(
+                                "agent_question_generate_model", model_name
+                            ),
+                            classify_model=agent_mode_config.get("classify_model", model_name),
+                            core_agent_answer_generate_model=agent_mode_config.get(
+                                "core_agent_answer_generate_model", model_name
+                            ),
+                            review_model=agent_mode_config.get("review_model", model_name),
+                            question_count=agent_question_count,
+                            max_questions_per_context=agent_mode_config.get("max_questions_per_context", 4),
+                            top_k_tools=agent_mode_config.get("top_k_tools", 5),
+                            max_turns=agent_mode_config.get("max_turns", 8),
+                            langgraph_retry=agent_mode_config.get("langgraph_retry", 1),
+                            checkpoint_path=agent_checkpoint_path,
+                            resume_from_checkpoint=agent_resume_from_checkpoint,
+                            max_retries=int(max_retries_value),
+                            min_request_interval_seconds=min_interval_value,
+                            question_temperature=agent_mode_config.get("question_temperature", 0.5),
+                            classify_temperature=agent_mode_config.get("classify_temperature", 0.3),
+                            agent_temperature=agent_mode_config.get("agent_temperature", 0.7),
+                            review_temperature=agent_mode_config.get("review_temperature", 0.2),
+                            max_workers=agent_mode_config.get("max_workers", 4),
+                            debug=debug,
+                            agent_backend=agent_backend,
+                            auth=agent_mode_config.get("auth"),
+                            default_tool_server=agent_mode_config.get("default_tool_server"),
+                            tool_request_timeout=float(
+                                agent_mode_config.get("tool_request_timeout", 30.0)
+                            ),
+                            require_auth_for_protected_tools=agent_mode_config.get(
+                                "require_auth_for_protected_tools", True
+                            ),
+                        )
+
+                        if isinstance(min_interval, (int, float)):
+                            agent_config.min_request_interval_seconds = float(min_interval)
+                        if agent_mode_config.get("question_temperature") is not None:
+                            agent_config.question_temperature = float(agent_mode_config["question_temperature"])
+                        if agent_mode_config.get("classify_temperature") is not None:
+                            agent_config.classify_temperature = float(agent_mode_config["classify_temperature"])
+                        if agent_mode_config.get("agent_temperature") is not None:
+                            agent_config.agent_temperature = float(agent_mode_config["agent_temperature"])
+                        if agent_mode_config.get("review_temperature") is not None:
+                            agent_config.review_temperature = float(agent_mode_config["review_temperature"])
+                        if agent_mode_config.get("top_k_tools") is not None:
+                            agent_config.top_k_tools = int(agent_mode_config["top_k_tools"])
+                        if agent_mode_config.get("max_turns") is not None:
+                            agent_config.max_turns = int(agent_mode_config["max_turns"])
+                        if agent_mode_config.get("max_workers") is not None:
+                            agent_config.max_workers = int(agent_mode_config["max_workers"])
+                        if agent_mode_config.get("max_questions_per_context") is not None:
+                            agent_config.max_questions_per_context = int(
+                                agent_mode_config["max_questions_per_context"]
+                            )
+                        if agent_mode_config.get("langgraph_retry") is not None:
+                            agent_config.langgraph_retry = int(agent_mode_config["langgraph_retry"])
+                        if agent_mode_config.get("max_retries") is not None:
+                            agent_config.max_retries = int(agent_mode_config["max_retries"])
+                        if agent_mode_config.get("tool_request_timeout") is not None:
+                            agent_config.tool_request_timeout = float(agent_mode_config["tool_request_timeout"])
+                        if agent_mode_config.get("require_auth_for_protected_tools") is not None:
+                            agent_config.require_auth_for_protected_tools = bool(
+                                agent_mode_config["require_auth_for_protected_tools"]
+                            )
+                        if agent_mode_config.get("default_tool_server") is not None:
+                            agent_config.default_tool_server = str(agent_mode_config["default_tool_server"])
+                        if agent_mode_config.get("auth") is not None:
+                            agent_config.auth = agent_mode_config["auth"]
+
+                        dbg.log_params(
+                            agent_backend=agent_backend,
+                            spec_source_count=len(spec_sources),
+                            agent_question_count=agent_config.question_count,
+                            agent_top_k_tools=agent_config.top_k_tools,
+                            agent_max_turns=agent_config.max_turns,
+                        )
+
+                        data = generate_agent_training_data(spec_sources, agent_config)
+                        auto_self_review_mode = False
+                        if isinstance(data, dict):
+                            metadata = data.setdefault("metadata", {})
+                            metadata.setdefault("agent_mode", {})
+                            metadata["agent_mode"].update(
+                                {
+                                    "enabled": True,
+                                    "agent_backend": agent_backend,
+                                }
+                            )
+                            if isinstance(agent_mode_config, dict):
+                                metadata["agent_mode"]["config"] = agent_mode_config
+                    elif use_mllm and self.use_mineru:
+                        logger.info("Using multimodal QA generator...")
+                        
+                        # Prepare file paths
+                        if isinstance(self.file_path, list):
+                            file_names = [os.path.basename(f).replace(".pdf", ".md") for f in self.file_path]
+                        elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
+                            file_names = [os.path.basename(self.file_path).replace(".pdf", ".md")]
+                        elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                            file_names = [
+                                os.path.basename(file).replace(".pdf", ".md")
+                                for file in list(Path(self.file_path).rglob("*.*"))
+                            ]
+                        
+                        dbg.log(f"Generated {len(file_names)} file names")
+                        
+                        file_names = [
+                            os.path.join(
+                                Path(__file__).parent.parent.parent.resolve(),
+                                "__temp__",
+                                "markdown",
+                                f,
+                            )
+                            for f in file_names
+                        ]
+
+                        from datamax.utils import multimodal_qa_generator as generator_module
+
+                        multimodal_file_path = os.path.join(
+                            "__temp__",
+                            "markdown",
+                            os.path.basename(self.file_path).replace(".pdf", ".md"),
+                        )
+                        dbg.log(f"Multimodal file path: {multimodal_file_path}")
+
+                        data = generator_module.generatr_qa_pairs(
+                            file_path=multimodal_file_path,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name,
+                            question_number=question_number,
+                            max_qps=max_qps,
+                        )
+                    else:
+                        logger.info("Using standard QA generator...")
+                        dbg.log(f"Text length: {len(prepared_text)}")
+                        dbg.log_params(
+                            chunk_size=chunk_size,
+                            chunk_overlap=chunk_overlap,
+                            question_number=question_number,
+                            max_qps=max_qps,
+                            use_tree_label=use_tree_label
+                        )
+
+                        data = qa_generator.full_qa_labeling_process(
+                            content=prepared_text,
+                            api_key=api_key,
+                            base_url=base_url,
+                            model_name=model_name,
+                            chunk_size=chunk_size,
+                            chunk_overlap=chunk_overlap,
+                            question_number=question_number,
+                            max_qps=max_qps,
+                            use_tree_label=use_tree_label,
+                            messages=messages,
+                            interactive_tree=interactive_tree,
+                            custom_domain_tree=custom_domain_tree,
+                            use_mineru=self.use_mineru,
+                            debug=debug,
+                            structured_data=structured_data,
+                            checkpoint_path=checkpoint_path,
+                            resume_from_checkpoint=resume_from_checkpoint,
+                            perf_monitor=monitor,
+                        )
+                    
+                    dbg.log_data_structure(data, "generated_data")
+
+                # Mark success
+                if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+                    dbg.log("Adding DATA_LABELLED lifecycle entry")
+                    self.parsed_data["lifecycle"].append(
+                        self.generate_lifecycle(
+                            source_file=self.file_path,
+                            domain=self.domain,
+                            life_type=LifeType.DATA_LABELLED,
+                            usage_purpose="Labeling",
+                        ).to_dict()
+                    )
+
+                # Review mode processing
+                if auto_self_review_mode:
+                    logger.info("🔍 Activating review mode: QA pairs will be reviewed by LLM")
+                    dbg.log("Starting QA pair review process")
+                    
+                    # Extract QA pairs from data structure
+                    qa_pairs = []
+                    if isinstance(data, dict) and "qa_pairs" in data:
+                        qa_pairs = data["qa_pairs"]
+                    elif isinstance(data, list):
+                        qa_pairs = data
+                    else:
+                        logger.warning("Unexpected data format for review mode, skipping review")
+                        structured_result = _finalize_result(data)
+                        return structured_result if return_structured else data
+            
                 from datamax.generator.qa_generator import review_qa_pairs
 
                 reviewed_qa_pairs, rejected_count = review_qa_pairs(
@@ -1088,7 +1177,7 @@ class DataMax(BaseLife):
                     source_text=prepared_text,
                     api_key=api_key,
                     model=model_name,
-                    base_url=base_url,
+                base_url=base_url,
                     score_threshold=review_score_threshold,
                     max_qps=review_max_qps,
                     max_retries=review_max_retries,
@@ -1096,55 +1185,61 @@ class DataMax(BaseLife):
                     user_prompt=review_user_prompt,
                     progress_desc=review_progress_desc,
                     dbg=dbg,
-                    perf_monitor=perf_monitor,
-                )
-                
+                    perf_monitor=monitor,
+            )
+            
                 logger.info(f"✅ Review completed: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
                 dbg.log(f"Review results: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
-                
+            
                 # Update data structure with reviewed QA pairs
                 if isinstance(data, dict) and "qa_pairs" in data:
                     data["qa_pairs"] = reviewed_qa_pairs
                 else:
                     data = reviewed_qa_pairs
-                
-                _record_performance(data)
-                # Preview reviewed QA pairs
+
+                dbg.log("Review completed; proceeding with finalised QA data")
+
+                # Preview QA pairs after persistence/metrics
+                structured_result = _finalize_result(data)
                 dbg.preview_qa_pairs(data, max_preview=10)
                 
-                dbg.log("Returning reviewed data")
-                return data
+                dbg.log("Returning generated data")
+                return structured_result if return_structured else data
+            except ImportError as e:
+                logger.error(f"Cannot import generator module: {e}")
+                dbg.log(f"ImportError: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error occurred while generating pre-labeled data: {e}")
+                dbg.log(f"Exception: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
             
-            # Preview QA pairs
-            _record_performance(data)
-            dbg.preview_qa_pairs(data, max_preview=10)
-            
-            dbg.log("Returning generated data")
-            return data
+                # Mark failure
+                if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+                    dbg.log("Adding DATA_LABEL_FAILED lifecycle entry")
+                    self.parsed_data["lifecycle"].append(
+                        self.generate_lifecycle(
+                            source_file=self.file_path,
+                            domain=self.domain,
+                            life_type=LifeType.DATA_LABEL_FAILED,
+                            usage_purpose="Labeling",
+                        ).to_dict()
+                    )
+                raise
 
-        except ImportError as e:
-            logger.error(f"Cannot import generator module: {e}")
-            dbg.log(f"ImportError: {str(e)}")
+        if persistence_handler:
+            persistence_handler.start()
+        try:
+            result_value = _execute_pipeline()
+        except Exception:
+            if persistence_handler:
+                persistence_handler.finish(*sys.exc_info())
             raise
-        except Exception as e:
-            logger.error(f"Error occurred while generating pre-labeled data: {e}")
-            dbg.log(f"Exception: {type(e).__name__}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            # Mark failure
-            if self.parsed_data is not None and isinstance(self.parsed_data, dict):
-                dbg.log("Adding DATA_LABEL_FAILED lifecycle entry")
-                self.parsed_data["lifecycle"].append(
-                    self.generate_lifecycle(
-                        source_file=self.file_path,
-                        domain=self.domain,
-                        life_type=LifeType.DATA_LABEL_FAILED,
-                        usage_purpose="Labeling",
-                    ).to_dict()
-                )
-            raise
-
+        else:
+            if persistence_handler:
+                persistence_handler.finish(None, None, None)
+            return result_value
     def save_label_data(
         self, label_data: list | dict, save_file_name: str = "qa_pairs"
     ):

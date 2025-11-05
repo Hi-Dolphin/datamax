@@ -375,6 +375,67 @@ def load_and_split_text(
 
 
 # ------------llm generator-------------------
+def _parse_loose_list(output: str) -> list[str] | None:
+    """
+    Parse a list-like payload when inner double quotes are not escaped.
+
+    This is a tolerant fallback that looks for JSONL-style list items, stripping
+    wrapping quotes while preserving any inner quotes verbatim.
+    """
+    if not output:
+        return None
+
+    content = output.strip()
+    if content.startswith("["):
+        content = content[1:]
+    if content.endswith("]"):
+        content = content[:-1]
+
+    items: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped in {"[", "]", ",", "[,", ",]"}:
+            continue
+
+        if stripped.endswith(","):
+            stripped = stripped[:-1].rstrip()
+
+        if stripped.startswith('"') and stripped.endswith('"'):
+            stripped = stripped[1:-1]
+        else:
+            if stripped.startswith('"'):
+                stripped = stripped[1:]
+            if stripped.endswith('"'):
+                stripped = stripped[:-1]
+
+        stripped = stripped.replace('\\"', '"')
+        if stripped:
+            items.append(stripped)
+
+    if items:
+        return items
+
+    inline = content.strip()
+    if not inline:
+        return None
+
+    parts = inline.split('","')
+    recovered: list[str] = []
+    for idx, part in enumerate(parts):
+        fragment = part.strip()
+        if idx == 0 and fragment.startswith('"'):
+            fragment = fragment[1:]
+        if idx == len(parts) - 1 and fragment.endswith('"'):
+            fragment = fragment[:-1]
+        fragment = fragment.replace('\\"', '"')
+        if fragment:
+            recovered.append(fragment)
+
+    return recovered or None
+
+
 def extract_json_from_llm_output(output: str):
     """
     Extract JSON content from LLM output, handling multiple possible formats
@@ -403,10 +464,13 @@ def extract_json_from_llm_output(output: str):
     json_start = output.find("[")
     json_end = output.rfind("]") + 1
     if json_start != -1 and json_end != 0:
+        candidate = output[json_start:json_end]
         try:
-            return json.loads(output[json_start:json_end])
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            pass
+            loose = _parse_loose_list(candidate)
+            if loose is not None:
+                return loose
 
     logger.error(f"Model output not in standard format: {output}")
     return None
@@ -427,6 +491,7 @@ def llm_generator(
     min_interval_seconds: Union[float, None] = None,
     perf_monitor: Optional[PerformanceMonitor] = None,
     perf_stage: Optional[str] = None,
+    call_metadata: Optional[Dict[str, Any]] = None,
 ) -> list:
     """Generate content using LLM API with automatic throttling and retries."""
     attempts = max(1, max_retries)
@@ -502,14 +567,27 @@ def llm_generator(
             result = response.json()
             duration = time.perf_counter() - call_start
             usage = result.get("usage") or {}
+            def _coerce_int(value: Any) -> Optional[int]:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+
+            prompt_tokens_usage = _coerce_int(usage.get("prompt_tokens"))
+            completion_tokens_usage = _coerce_int(usage.get("completion_tokens"))
+            total_tokens_usage = _coerce_int(usage.get("total_tokens"))
+            if total_tokens_usage is None and (
+                prompt_tokens_usage is not None and completion_tokens_usage is not None
+            ):
+                total_tokens_usage = prompt_tokens_usage + completion_tokens_usage
             raw_output = ""
 
             if perf_monitor:
                 perf_monitor.record_request(
                     stage=perf_stage,
                     duration_seconds=duration,
-                    prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens"),
+                    prompt_tokens=prompt_tokens_usage,
+                    completion_tokens=completion_tokens_usage,
                 )
 
             if debug and attempt == 1:
@@ -518,9 +596,9 @@ def llm_generator(
                 logger.debug(f"Status code: {response.status_code}")
                 if usage:
                     logger.debug("Token usage:")
-                    logger.debug(f"  Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
-                    logger.debug(f"  Completion tokens: {usage.get('completion_tokens', 'N/A')}")
-                    logger.debug(f"  Total tokens: {usage.get('total_tokens', 'N/A')}")
+                    logger.debug(f"  Prompt tokens: {prompt_tokens_usage if prompt_tokens_usage is not None else 'N/A'}")
+                    logger.debug(f"  Completion tokens: {completion_tokens_usage if completion_tokens_usage is not None else 'N/A'}")
+                    logger.debug(f"  Total tokens: {total_tokens_usage if total_tokens_usage is not None else 'N/A'}")
                 logger.debug("-" * 40)
 
             if "choices" in result and len(result["choices"]) > 0:
@@ -534,20 +612,31 @@ def llm_generator(
                     logger.debug("-" * 40)
 
                 if perf_monitor:
+                    combined_metadata: Dict[str, Any] = {
+                        "model": model,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "attempt": attempt,
+                        "status_code": response.status_code,
+                        "duration_seconds": duration,
+                    }
+                    if prompt_tokens_usage is not None:
+                        combined_metadata["prompt_tokens"] = prompt_tokens_usage
+                    if completion_tokens_usage is not None:
+                        combined_metadata["completion_tokens"] = completion_tokens_usage
+                    if total_tokens_usage is not None:
+                        combined_metadata["total_tokens"] = total_tokens_usage
+                    extra_metadata = dict(call_metadata or {})
+                    if extra_metadata:
+                        combined_metadata.update(extra_metadata)
                     perf_monitor.record_call(
                         stage=perf_stage,
                         call_type=type or "unknown",
                         messages=messages_payload,
                         response=raw_output,
                         prompt=prompt,
-                        metadata={
-                            "model": model,
-                            "base_url": base_url,
-                            "temperature": temperature,
-                            "top_p": top_p,
-                            "attempt": attempt,
-                            "status_code": response.status_code,
-                        },
+                        metadata=combined_metadata,
                     )
 
                 if type == "question":
@@ -648,10 +737,10 @@ def llm_generator(
                 )
             if attempt < attempts:
                 wait_time = _calculate_retry_delay(attempt, None, retry_backoff_factor)
-                logger.warning(
-                    "LLM request hit a network error "
-                    f"({last_error_message}); retrying in {wait_time:.2f}s"
-                )
+                # logger.warning(
+                #     "LLM request hit a network error "
+                #     f"({last_error_message}); retrying in {wait_time:.2f}s"
+                # )
                 time.sleep(wait_time)
                 continue
             logger.error(f"LLM keyword extraction failed: {last_error_message}")
@@ -1060,6 +1149,19 @@ def process_answers(
         for attempt in range(max_retries):
             try:
                 prompt = get_system_prompt_for_answer(item["page"], item["question"])
+                metadata_payload: Dict[str, Any] = {}
+                question_value = item.get("question")
+                if question_value is not None:
+                    metadata_payload["question"] = question_value
+                qid_value = item.get("qid")
+                if qid_value:
+                    metadata_payload["qid"] = qid_value
+                label_value = item.get("label")
+                if label_value:
+                    metadata_payload["label"] = label_value
+                context_value = item.get("page")
+                if context_value:
+                    metadata_payload["context"] = context_value
                 answer = llm_generator(
                     api_key=api_key,
                     model=model,
@@ -1071,6 +1173,7 @@ def process_answers(
                     perf_monitor=perf_monitor,
                     perf_stage=stage_name,
                     min_interval_seconds=interval,
+                    call_metadata=metadata_payload if metadata_payload else None,
                 )
                 if answer and len(answer) > 0:
                     return item["question"], answer[0]
