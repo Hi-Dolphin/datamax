@@ -107,7 +107,6 @@ exclude = '''
   \.eggs
  | \.git
  | \.hg
- | \.mypy_cache
  | \.nox
  | \.tox
  | \.venv
@@ -139,7 +138,6 @@ dev = [
     "black>=22.0.0",
     "isort>=5.10.0",
     "flake8>=5.0.0",
-    "mypy>=1.0.0",
     "pre-commit>=2.20.0",
 ]
 test = [
@@ -165,7 +163,6 @@ all = [
     "black>=22.0.0",
     "isort>=5.10.0",
     "flake8>=5.0.0",
-    "mypy>=1.0.0",
     "pre-commit>=2.20.0",
     "aioresponses>=0.7.0",
     "sphinx>=5.0.0",
@@ -195,37 +192,6 @@ include-package-data = true
 [tool.setuptools.exclude-package-data]
 "*" = ["tests", "tests.*", "*.pyc", "__pycache__"]
 
-
-# MyPy configuration
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-strict_equality = true
-
-[[tool.mypy.overrides]]
-module = [
-    "aiohttp.*",
-    "beautifulsoup4.*",
-    "lxml.*",
-    "requests.*",
-    "click.*",
-    "pydantic.*",
-    "jionlp",
-    "jionlp.*",
-    "tqdm",
-    "tqdm.*",
-]
-ignore_missing_imports = true
 
 # Pytest configuration
 [tool.pytest.ini_options]

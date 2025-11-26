@@ -1,7 +1,8 @@
 import json
 from typing import Any, Dict, List
-from loguru import logger
+
 from langchain_text_splitters import RecursiveJsonSplitter
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
@@ -47,7 +48,7 @@ class JsonParser(BaseLife):
                 ensure_ascii=False,
             )
             return text_chunks
-        except Exception as e:
+        except Exception:
             # Fallback to simple JSON string if splitting fails
             return [json.dumps(json_data, indent=2, ensure_ascii=False)]
 
@@ -88,7 +89,7 @@ class JsonParser(BaseLife):
 
             # Format chunks as markdown
             content = self.format_chunks_as_markdown(json_chunks)
-            
+
             # # Add metadata about the splitting process
             # chunk_info = f"\n\n---\n\n**JSON Processing Summary:**\n"
             # chunk_info += f"- Total chunks: {len(json_chunks)}\n"

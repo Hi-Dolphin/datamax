@@ -225,62 +225,78 @@ class CrawlerParser(BaseLife):
         """
         parts = []
 
-        # Title from metadata
+        parts.append(self._format_web_title())
+        parts.append(self._format_web_url())
+        parts.append(self._format_web_basic_metadata())
+        parts.append(self._format_web_content())
+        parts.append(self._format_web_links())
+        parts.append(self._format_web_crawl_metadata())
+
+        # Remove None
+        parts = [p for p in parts if p]
+
+        return "\n".join(parts)
+
+    def _format_web_title(self) -> str:
         metadata = self.raw_data.get("metadata", {})
         title = metadata.get("title") or metadata.get("og_title") or "Web Page"
-        parts.append(f"# {title}\n")
+        return f"# {title}\n"
 
-        # URL
+    def _format_web_url(self) -> str | None:
         url = self.raw_data.get("url") or self.raw_data.get("original_url")
-        if url:
-            parts.append(f"**URL:** [{url}]({url})\n")
+        return f"**URL:** [{url}]({url})\n" if url else None
 
-        # Description
-        description = metadata.get("description") or metadata.get("og_description")
-        if description:
-            parts.append(f"**Description:** {description}\n")
+    def _format_web_basic_metadata(self) -> str | None:
+        metadata = self.raw_data.get("metadata", {})
+        parts = []
 
-        # Author
+        desc = metadata.get("description") or metadata.get("og_description")
+        if desc:
+            parts.append(f"**Description:** {desc}\n")
+
         author = metadata.get("author")
         if author:
             parts.append(f"**Author:** {author}\n")
 
-        # Language
-        language = metadata.get("language")
-        if language:
-            parts.append(f"**Language:** {language}\n")
+        lang = metadata.get("language")
+        if lang:
+            parts.append(f"**Language:** {lang}\n")
 
-        # Keywords
         keywords = metadata.get("keywords", [])
         if keywords:
-            keywords_str = ", ".join(keywords)
-            parts.append(f"**Keywords:** {keywords_str}\n")
+            parts.append(f"**Keywords:** {', '.join(keywords)}\n")
 
-        # Content
+        return "".join(parts) if parts else None
+
+    def _format_web_content(self) -> str | None:
         text_content = self.raw_data.get("text_content", "")
-        if text_content:
-            parts.append("## Content\n")
-            parts.append(f"{text_content}\n")
+        if not text_content:
+            return None
 
-        # Links
+        return f"## Content\n\n{text_content}\n"
+
+    def _format_web_links(self) -> str | None:
         links = self.raw_data.get("links", [])
-        if links:
-            parts.append("## Links\n")
-            for link in links[:20]:  # Limit to first 20 links
-                link_url = link.get("url", "")
-                link_text = link.get("text", "Link")
-                if link_url:
-                    parts.append(f"- [{link_text}]({link_url})\n")
+        if not links:
+            return None
 
-            if len(links) > 20:
-                parts.append(f"\n*... and {len(links) - 20} more links*\n")
+        parts = ["## Links\n"]
+        max_links = 20
 
-        # Crawl metadata
+        for link in links[:max_links]:
+            url = link.get("url", "")
+            text = link.get("text", "Link")
+            if url:
+                parts.append(f"- [{text}]({url})\n")
+
+        if len(links) > max_links:
+            parts.append(f"\n*... and {len(links) - max_links} more links*\n")
+
+        return "".join(parts)
+
+    def _format_web_crawl_metadata(self) -> str | None:
         crawled_at = self.raw_data.get("crawled_at")
-        if crawled_at:
-            parts.append(f"\n*Crawled at: {crawled_at}*\n")
-
-        return "\n".join(parts)
+        return f"\n*Crawled at: {crawled_at}*\n" if crawled_at else None
 
     def _parse_search_results(self) -> str:
         """Parse search results to markdown.
@@ -334,47 +350,73 @@ class CrawlerParser(BaseLife):
         parts = []
 
         # Title
-        data_type = self.raw_data.get("type", "Crawler Data")
-        parts.append(f"# {data_type.replace('_', ' ').title()}\n")
+        parts.append(self._format_title())
 
-        # Target
-        target = self.raw_data.get("target")
-        if target:
-            parts.append(f"**Target:** {target}\n")
-
-        # Source
-        source = self.raw_data.get("source")
-        if source:
-            parts.append(f"**Source:** {source}\n")
+        # Target & Source
+        parts.append(self._format_target())
+        parts.append(self._format_source())
 
         # Data content
-        data = self.raw_data.get("data")
-        if data:
-            parts.append("## Data\n")
+        parts.append(self._format_data())
 
-            if isinstance(data, str):
-                parts.append(f"{data}\n")
-            elif isinstance(data, dict):
-                # Format as key-value pairs
-                for key, value in data.items():
-                    if isinstance(value, (str, int, float)):
-                        parts.append(f"**{key.replace('_', ' ').title()}:** {value}\n")
-                    elif isinstance(value, list) and value:
-                        if all(isinstance(item, str) for item in value):
-                            parts.append(
-                                f"**{key.replace('_', ' ').title()}:** {', '.join(value)}\n"
-                            )
-            elif isinstance(data, list):
-                # Format as numbered list
-                for i, item in enumerate(data, 1):
-                    parts.append(f"{i}. {item}\n")
+        # Metadata
+        parts.append(self._format_metadata())
 
-        # Crawl metadata
-        crawled_at = self.raw_data.get("crawled_at")
-        if crawled_at:
-            parts.append(f"\n*Crawled at: {crawled_at}*\n")
+        # Remove None entries
+        parts = [p for p in parts if p]
 
         return "\n".join(parts)
+
+    def _format_title(self) -> str:
+        data_type = self.raw_data.get("type", "Crawler Data")
+        return f"# {data_type.replace('_', ' ').title()}\n"
+
+    def _format_target(self) -> str | None:
+        target = self.raw_data.get("target")
+        return f"**Target:** {target}\n" if target else None
+
+    def _format_source(self) -> str | None:
+        source = self.raw_data.get("source")
+        return f"**Source:** {source}\n" if source else None
+
+    def _format_data(self) -> str | None:
+        data = self.raw_data.get("data")
+        if not data:
+            return None
+
+        parts = ["## Data\n"]
+
+        if isinstance(data, str):
+            parts.append(f"{data}\n")
+
+        elif isinstance(data, dict):
+            parts.extend(self._format_dict_data(data))
+
+        elif isinstance(data, list):
+            parts.extend(self._format_list_data(data))
+
+        return "\n".join(parts)
+
+    def _format_dict_data(self, data: dict) -> list[str]:
+        parts = []
+        for key, value in data.items():
+            title = key.replace("_", " ").title()
+            if isinstance(value, (str, int, float)):
+                parts.append(f"**{title}:** {value}\n")
+            elif (
+                isinstance(value, list)
+                and value
+                and all(isinstance(i, str) for i in value)
+            ):
+                parts.append(f"**{title}:** {', '.join(value)}\n")
+        return parts
+
+    def _format_list_data(self, items: list) -> list[str]:
+        return [f"{i}. {item}\n" for i, item in enumerate(items, 1)]
+
+    def _format_metadata(self) -> str | None:
+        crawled_at = self.raw_data.get("crawled_at")
+        return f"\n*Crawled at: {crawled_at}*\n" if crawled_at else None
 
     def get_parsed_data(self) -> Optional[MarkdownOutputVo]:
         """Get parsed data.

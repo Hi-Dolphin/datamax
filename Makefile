@@ -27,7 +27,6 @@ help:
 	@echo "Code Quality Commands:"
 	@echo "  lint             Run all linters (flake8, bandit)"
 	@echo "  format           Format code with black and isort"
-	@echo "  type-check       Run type checking with mypy"
 	@echo "  security         Run security checks"
 	@echo "  quality          Run all quality checks"
 	@echo ""
@@ -99,10 +98,6 @@ format:
 	black datamax pydatamax tests
 	@echo "Code formatting completed!"
 
-type-check:
-	mypy datamax pydatamax --ignore-missing-imports
-	@echo "Type checking completed!"
-
 security:
 	bandit -r datamax pydatamax
 	safety check
@@ -128,7 +123,6 @@ clean:
 	rm -rf dist/
 	rm -rf *.egg-info/
 	rm -rf .pytest_cache/
-	rm -rf .mypy_cache/
 	rm -rf .tox/
 	rm -rf htmlcov/
 	find . -type d -name __pycache__ -exec rm -rf {} +

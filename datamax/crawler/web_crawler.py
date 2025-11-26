@@ -98,10 +98,10 @@ class WebCrawler(BaseCrawler):
             # Check if it's a valid URL
             parsed = urlparse(target)
             is_url = parsed.scheme in ["http", "https"] and bool(parsed.netloc)
-
-            # For search keywords, ensure they're not just URLs in disguise
-            # Any non-empty string is valid as a search keyword
-            return True
+            if is_url:
+                return True
+            else:
+                return False
         except Exception:
             return False
 
@@ -124,137 +124,124 @@ class WebCrawler(BaseCrawler):
         if self.session and not self.session.closed:
             await self.session.close()
 
-    async def _fetch_page(self, url: str) -> Dict[str, Any]:
-        """Fetch web page content.
-
-        Args:
-            url: URL to fetch
-
-        Returns:
-            Dictionary containing response data
-
-        Raises:
-            NetworkException: If request fails
-        """
-        session = await self._get_session()
-
+    async def _fetch_with_retries(self, session, url: str) -> Dict[str, Any]:
         for attempt in range(self.max_retries):
             try:
-                await asyncio.sleep(self.rate_limit)  # Rate limiting
-
-                async with session.get(
-                    url, allow_redirects=self.follow_redirects, max_redirects=5
-                ) as response:
-                    # Check content length
-                    content_length = response.headers.get("content-length")
-                    if content_length and int(content_length) > self.max_content_length:
-                        raise NetworkException(
-                            f"Content too large: {content_length} bytes"
-                        )
-
-                    # Check content type
-                    content_type = response.headers.get("content-type", "").lower()
-                    if not any(
-                        ct in content_type
-                        for ct in ["text/html", "application/xhtml", "text/plain"]
-                    ):
-                        raise NetworkException(
-                            f"Unsupported content type: {content_type}"
-                        )
-
-                    if response.status == 200:
-                        content = await response.text(encoding="utf-8", errors="ignore")
-
-                        return {
-                            "url": str(response.url),
-                            "status_code": response.status,
-                            "headers": dict(response.headers),
-                            "content": content,
-                            "content_type": content_type,
-                            "encoding": response.charset or "utf-8",
-                        }
-                    else:
-                        raise NetworkException(
-                            f"HTTP {response.status}: {response.reason}"
-                        )
-
-            except asyncio.TimeoutError:
+                return await self._attempt_fetch(session, url)
+            except (asyncio.TimeoutError, aiohttp.ClientError, Exception) as e:
                 if attempt == self.max_retries - 1:
-                    raise NetworkException(f"Timeout fetching {url}")
-                await asyncio.sleep(2**attempt)  # Exponential backoff
-            except aiohttp.ClientError as e:
-                if attempt == self.max_retries - 1:
-                    raise NetworkException(f"Client error fetching {url}: {str(e)}")
+                    raise self._format_fetch_error(url, e)
                 await asyncio.sleep(2**attempt)
-            except Exception as e:
-                if attempt == self.max_retries - 1:
-                    raise NetworkException(f"Failed to fetch {url}: {str(e)}")
-                await asyncio.sleep(2**attempt)
+
+    async def _attempt_fetch(self, session, url: str) -> Dict[str, Any]:
+        await asyncio.sleep(self.rate_limit)
+
+        async with session.get(
+            url, allow_redirects=self.follow_redirects, max_redirects=5
+        ) as response:
+
+            self._validate_content_length(response)
+            content_type = self._validate_content_type(response)
+
+            if response.status != 200:
+                raise NetworkException(f"HTTP {response.status}: {response.reason}")
+
+            content = await response.text(encoding="utf-8", errors="ignore")
+
+            return {
+                "url": str(response.url),
+                "status_code": response.status,
+                "headers": dict(response.headers),
+                "content": content,
+                "content_type": content_type,
+                "encoding": response.charset or "utf-8",
+            }
+
+    def _validate_content_length(self, response):
+        content_length = response.headers.get("content-length")
+        if content_length and int(content_length) > self.max_content_length:
+            raise NetworkException(f"Content too large: {content_length} bytes")
+
+    def _validate_content_type(self, response) -> str:
+        content_type = response.headers.get("content-type", "").lower()
+        allowed = ["text/html", "application/xhtml", "text/plain"]
+
+        if not any(t in content_type for t in allowed):
+            raise NetworkException(f"Unsupported content type: {content_type}")
+
+        return content_type
+
+    def _format_fetch_error(self, url: str, exception: Exception) -> Exception:
+        msg = str(exception)
+        if isinstance(exception, asyncio.TimeoutError):
+            return NetworkException(f"Timeout fetching {url}")
+        if isinstance(exception, aiohttp.ClientError):
+            return NetworkException(f"Client error fetching {url}: {msg}")
+        return NetworkException(f"Failed to fetch {url}: {msg}")
+
+    async def _fetch_page(self, url: str) -> Dict[str, Any]:
+        """Fetch web page content."""
+        session = await self._get_session()
+        return await self._fetch_with_retries(session, url)
 
     async def _search_web_api(self, query: str) -> Dict[str, Any]:
-        """Perform web search using search API.
-
-        Args:
-            query: Search query
-
-        Returns:
-            Dictionary containing search results
-
-        Raises:
-            NetworkException: If search API request fails
-        """
+        """Perform web search using search API."""
         if not self.search_api_key:
             raise NetworkException("Search API key not configured")
 
         session = await self._get_session()
 
-        # Prepare search request
         search_data = {"query": query, "summary": True, "count": 10}
-
         headers = {
             "Authorization": f"Bearer {self.search_api_key}",
             "Content-Type": "application/json",
         }
 
+        return await self._perform_search_with_retries(
+            session, search_data, headers, query
+        )
+
+    async def _perform_search_with_retries(self, session, search_data, headers, query):
+        """Retry wrapper for web API search."""
         for attempt in range(self.max_retries):
             try:
-                await asyncio.sleep(self.rate_limit)  # Rate limiting
-
-                async with session.post(
-                    self.search_api_url, json=search_data, headers=headers
-                ) as response:
-                    if response.status == 200:
-                        response_data = await response.json()
-
-                        # Check if response has data
-                        if response_data.get("code") == 200 and response_data.get(
-                            "data"
-                        ):
-                            return response_data["data"]
-                        else:
-                            error_msg = response_data.get(
-                                "msg", "Unknown search API error"
-                            )
-                            raise NetworkException(f"Search API error: {error_msg}")
-                    else:
-                        raise NetworkException(
-                            f"Search API HTTP {response.status}: {response.reason}"
-                        )
-
-            except asyncio.TimeoutError:
+                return await self._attempt_search(session, search_data, headers, query)
+            except (asyncio.TimeoutError, aiohttp.ClientError, Exception) as e:
                 if attempt == self.max_retries - 1:
-                    raise NetworkException(f"Timeout searching for '{query}'")
-                await asyncio.sleep(2**attempt)  # Exponential backoff
-            except aiohttp.ClientError as e:
-                if attempt == self.max_retries - 1:
-                    raise NetworkException(
-                        f"Client error searching for '{query}': {str(e)}"
-                    )
+                    raise self._raise_final_search_error(query, e)
                 await asyncio.sleep(2**attempt)
-            except Exception as e:
-                if attempt == self.max_retries - 1:
-                    raise NetworkException(f"Failed to search for '{query}': {str(e)}")
-                await asyncio.sleep(2**attempt)
+
+    async def _attempt_search(self, session, search_data, headers, query):
+        """Single attempt to call the search API."""
+        await asyncio.sleep(self.rate_limit)
+
+        async with session.post(
+            self.search_api_url, json=search_data, headers=headers
+        ) as response:
+            if response.status != 200:
+                raise NetworkException(
+                    f"Search API HTTP {response.status}: {response.reason}"
+                )
+
+            data = await response.json()
+            return self._parse_search_response(data)
+
+    def _parse_search_response(self, data):
+        """Validate and extract search results."""
+        if data.get("code") == 200 and data.get("data"):
+            return data["data"]
+
+        msg = data.get("msg", "Unknown search API error")
+        raise NetworkException(f"Search API error: {msg}")
+
+    def _raise_final_search_error(self, query, exception):
+        """Format exception for final failure after retries."""
+        msg = str(exception)
+        if isinstance(exception, asyncio.TimeoutError):
+            return NetworkException(f"Timeout searching for '{query}'")
+        elif isinstance(exception, aiohttp.ClientError):
+            return NetworkException(f"Client error searching for '{query}': {msg}")
+        return NetworkException(f"Failed to search for '{query}': {msg}")
 
     def _extract_text_content(self, html_content: str) -> str:
         """Extract clean text content from HTML.
@@ -295,16 +282,29 @@ class WebCrawler(BaseCrawler):
             raise ParseException(f"Failed to extract text content: {str(e)}")
 
     def _extract_metadata(self, html_content: str, url: str) -> Dict[str, Any]:
-        """Extract metadata from HTML.
+        """Extract metadata from HTML."""
+        metadata = self._init_metadata(url)
 
-        Args:
-            html_content: Raw HTML content
-            url: Page URL
+        try:
+            from bs4 import BeautifulSoup
 
-        Returns:
-            Dictionary containing extracted metadata
-        """
-        metadata = {
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            self._extract_title(soup, metadata)
+            self._extract_meta_tags(soup, metadata)
+            self._extract_canonical_url(soup, metadata, url)
+            self._extract_language(soup, metadata)
+
+            return metadata
+
+        except ImportError:
+            return self._extract_basic_regex_metadata(html_content, metadata)
+
+        except Exception:
+            return metadata
+
+    def _init_metadata(self, url: str) -> Dict[str, Any]:
+        return {
             "title": "",
             "description": "",
             "keywords": [],
@@ -318,77 +318,82 @@ class WebCrawler(BaseCrawler):
             "twitter_description": "",
         }
 
-        try:
-            from bs4 import BeautifulSoup
+    def _extract_title(self, soup, metadata: Dict[str, Any]):
+        title_tag = soup.find("title")
+        if title_tag:
+            metadata["title"] = title_tag.get_text(strip=True)
 
-            soup = BeautifulSoup(html_content, "html.parser")
+    def _extract_meta_tags(self, soup, metadata: Dict[str, Any]):
+        # Map for simple name-based meta tags
+        name_map = {
+            "description": "description",
+            "keywords": "keywords",
+            "author": "author",
+            "language": "language",
+            "lang": "language",
+            "twitter:title": "twitter_title",
+            "twitter:description": "twitter_description",
+        }
 
-            # Title
-            title_tag = soup.find("title")
-            if title_tag:
-                metadata["title"] = title_tag.get_text().strip()
+        # Map for property-based Open Graph tags
+        property_map = {
+            "og:title": "og_title",
+            "og:description": "og_description",
+            "og:image": "og_image",
+        }
 
-            # Meta tags
-            for meta in soup.find_all("meta"):
-                name = meta.get("name", "").lower()
-                property_attr = meta.get("property", "").lower()
-                content = meta.get("content", "")
+        for meta in soup.find_all("meta"):
+            content = meta.get("content")
+            if not content:
+                continue
 
-                if name == "description":
-                    metadata["description"] = content
-                elif name == "keywords":
-                    metadata["keywords"] = [k.strip() for k in content.split(",")]
-                elif name == "author":
-                    metadata["author"] = content
-                elif name == "language" or name == "lang":
-                    metadata["language"] = content
-                elif property_attr == "og:title":
-                    metadata["og_title"] = content
-                elif property_attr == "og:description":
-                    metadata["og_description"] = content
-                elif property_attr == "og:image":
-                    metadata["og_image"] = content
-                elif name == "twitter:title":
-                    metadata["twitter_title"] = content
-                elif name == "twitter:description":
-                    metadata["twitter_description"] = content
+            name = (meta.get("name") or "").lower()
+            prop = (meta.get("property") or "").lower()
 
-            # Canonical URL
-            canonical = soup.find("link", rel="canonical")
-            if canonical and canonical.get("href"):
-                metadata["canonical_url"] = urljoin(url, canonical["href"])
+            # Handle simple name-based meta tags
+            if name in name_map:
+                key = name_map[name]
+                if key == "keywords":
+                    metadata[key] = [k.strip() for k in content.split(",")]
+                else:
+                    metadata[key] = content
+                continue
 
-            # Language from html tag
-            if not metadata["language"]:
-                html_tag = soup.find("html")
-                if html_tag:
-                    metadata["language"] = html_tag.get("lang", "")
+            # Handle Open Graph property tags
+            if prop in property_map:
+                metadata[property_map[prop]] = content
 
-            return metadata
+    def _extract_canonical_url(self, soup, metadata: Dict[str, Any], url: str):
+        canonical = soup.find("link", rel="canonical")
+        if canonical and canonical.get("href"):
+            from urllib.parse import urljoin
 
-        except ImportError:
-            # Fallback: basic regex extraction
-            import re
+            metadata["canonical_url"] = urljoin(url, canonical["href"])
 
-            title_match = re.search(
-                r"<title[^>]*>([^<]+)</title>", html_content, re.IGNORECASE
-            )
-            if title_match:
-                metadata["title"] = title_match.group(1).strip()
+    def _extract_language(self, soup, metadata: Dict[str, Any]):
+        if metadata["language"]:
+            return
 
-            desc_match = re.search(
-                r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\'>]+)["\']',
-                html_content,
-                re.IGNORECASE,
-            )
-            if desc_match:
-                metadata["description"] = desc_match.group(1)
+        html_tag = soup.find("html")
+        if html_tag:
+            metadata["language"] = html_tag.get("lang", "")
 
-            return metadata
+    def _extract_basic_regex_metadata(self, html: str, metadata: Dict[str, Any]):
+        import re
 
-        except Exception as e:
-            # Return basic metadata on error
-            return metadata
+        title = re.search(r"<title[^>]*>([^<]+)</title>", html, re.IGNORECASE)
+        if title:
+            metadata["title"] = title.group(1).strip()
+
+        desc = re.search(
+            r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\'>]+)["\']',
+            html,
+            re.IGNORECASE,
+        )
+        if desc:
+            metadata["description"] = desc.group(1)
+
+        return metadata
 
     def _extract_links(self, html_content: str, base_url: str) -> List[Dict[str, str]]:
         """Extract links from HTML content.

@@ -247,7 +247,7 @@ install_python_deps() {
             redis celery \
             elasticsearch \
             pytest pytest-cov \
-            black isort flake8 mypy \
+            black isort flake8 \
             pre-commit
     fi
     
@@ -259,7 +259,7 @@ install_python_deps() {
         log_info "Installing common development tools..."
         pip install \
             pytest pytest-cov pytest-mock pytest-asyncio \
-            black isort flake8 mypy bandit safety \
+            black isort flake8 bandit safety \
             pre-commit \
             sphinx sphinx-rtd-theme \
             jupyter notebook ipython \
@@ -456,7 +456,6 @@ setup_vscode() {
     "python.terminal.activateEnvironment": true,
     "python.linting.enabled": true,
     "python.linting.flake8Enabled": true,
-    "python.linting.mypyEnabled": true,
     "python.linting.banditEnabled": true,
     "python.formatting.provider": "black",
     "python.sortImports.args": ["--profile", "black"],
@@ -468,7 +467,6 @@ setup_vscode() {
         "**/__pycache__": true,
         "**/*.pyc": true,
         "**/.pytest_cache": true,
-        "**/.mypy_cache": true,
         "**/venv": true,
         "**/node_modules": true
     },
@@ -537,7 +535,6 @@ EOF
     "recommendations": [
         "ms-python.python",
         "ms-python.flake8",
-        "ms-python.mypy-type-checker",
         "ms-python.black-formatter",
         "ms-python.isort",
         "charliermarsh.ruff",
@@ -600,7 +597,6 @@ case "$1" in
         flake8 datamax tests
         black --check datamax tests
         isort --check-only datamax tests
-        mypy datamax
         ;;
     format)
         echo "Formatting code..."
@@ -611,7 +607,6 @@ case "$1" in
         echo "Cleaning up..."
         find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
         find . -type f -name "*.pyc" -delete 2>/dev/null || true
-        rm -rf .pytest_cache .mypy_cache .coverage htmlcov
         ;;
     install)
         echo "Installing dependencies..."
@@ -653,7 +648,7 @@ verify_installation() {
     fi
     
     # Check development tools
-    local tools=("pytest" "black" "isort" "flake8" "mypy" "pre-commit")
+    local tools=("pytest" "black" "isort" "flake8" "pre-commit")
     for tool in "${tools[@]}"; do
         if command -v "$tool" >/dev/null 2>&1; then
             log_debug "✓ $tool is available"

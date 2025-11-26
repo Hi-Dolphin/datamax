@@ -1,9 +1,9 @@
 import html
 import os
 import re
+import shlex
 import shutil
 import subprocess
-import shlex
 import tempfile
 import zipfile
 from pathlib import Path
@@ -52,19 +52,19 @@ class DocxParser(BaseLife):
         if use_uno and HAS_UNO:
             self.use_uno = True
             logger.info(
-                f"🚀 DocxParser initialized - Using UNO API for single-threaded efficient processing"
+                "🚀 DocxParser initialized - Using UNO API for single-threaded efficient processing"
             )
         else:
             self.use_uno = False
             if use_uno and not HAS_UNO:
                 logger.warning(
-                    f"⚠️ UNO unavailable, falling back to traditional command line method\n"
-                    f"💡 Tip: UNO conversion is faster and more stable, strongly recommend installing and configuring UNO\n"
-                    f"📖 Please refer to the installation guide in the error message above"
+                    "⚠️ UNO unavailable, falling back to traditional command line method\n"
+                    "💡 Tip: UNO conversion is faster and more stable, strongly recommend installing and configuring UNO\n"
+                    "📖 Please refer to the installation guide in the error message above"
                 )
             else:
                 logger.info(
-                    f"🚀 DocxParser initialized - Using traditional command line method"
+                    "🚀 DocxParser initialized - Using traditional command line method"
                 )
 
         logger.info(f"📄 File path: {file_path}, Convert to markdown: {to_markdown}")
@@ -398,34 +398,9 @@ class DocxParser(BaseLife):
                 if (
                     "word/header" in filename or "word/footer" in filename
                 ) and filename.endswith(".xml"):
-                    logger.debug(f"📄 Processing header/footer: {filename}")
-                    content = docx_zip.read(filename).decode("utf-8", errors="replace")
-
-                    # Decode XML entities
-                    content = html.unescape(content)
-
-                    # Extract text content - using more lenient pattern
-                    text_pattern = r"<[^:>]*:t[^>]*>([^<]*)</[^:>]*:t>"
-                    text_matches = re.findall(text_pattern, content)
-                    text_matches.extend(re.findall(r"<t[^>]*>([^<]*)</t>", content))
-
-                    if text_matches:
-                        # Clean and combine text
-                        cleaned_texts = []
-                        for text in text_matches:
-                            text = html.unescape(text)
-                            text = re.sub(r"\s+", " ", text.strip())
-                            if text:
-                                cleaned_texts.append(text)
-
-                        if cleaned_texts:
-                            # Merge text fragments
-                            header_footer_text = " ".join(cleaned_texts)
-                            header_footer_text = re.sub(
-                                r"\s+", " ", header_footer_text.strip()
-                            )
-                            if header_footer_text:
-                                header_footer_content.append(header_footer_text)
+                    text = self._process_header_footer_file(docx_zip, filename)
+                    if text:
+                        header_footer_content.append(text)
 
             if header_footer_content:
                 logger.info(
@@ -436,6 +411,30 @@ class DocxParser(BaseLife):
         except Exception as e:
             logger.error(f"💥 Failed to extract headers/footers: {str(e)}")
             return ""
+
+    def _process_header_footer_file(
+        self, docx_zip: zipfile.ZipFile, filename: str
+    ) -> str:
+        """Helper to process a single header/footer file"""
+        logger.debug(f"📄 Processing header/footer: {filename}")
+        content = docx_zip.read(filename).decode("utf-8", errors="replace")
+        content = html.unescape(content)
+
+        text_pattern = r"<[^:>]*:t[^>]*>([^<]*)</[^:>]*:t>"
+        text_matches = re.findall(text_pattern, content)
+        text_matches.extend(re.findall(r"<t[^>]*>([^<]*)</t>", content))
+
+        if text_matches:
+            cleaned_texts = [
+                re.sub(r"\s+", " ", html.unescape(t).strip())
+                for t in text_matches
+                if t.strip()
+            ]
+
+            if cleaned_texts:
+                text = " ".join(cleaned_texts)
+                return re.sub(r"\s+", " ", text.strip())
+        return ""
 
     def _extract_comments(self, docx_zip: zipfile.ZipFile) -> str:
         """Extract comments and annotations content - only extract plain text"""
@@ -480,41 +479,11 @@ class DocxParser(BaseLife):
         try:
             textbox_content = []
 
-            # Look for files that might contain text boxes
             for filename in docx_zip.namelist():
                 if "word/" in filename and filename.endswith(".xml"):
-                    content = docx_zip.read(filename).decode("utf-8", errors="replace")
-
-                    # Decode XML entities
-                    content = html.unescape(content)
-
-                    # Look for text box content (w:txbxContent)
-                    textbox_matches = re.findall(
-                        r"<[^:>]*:txbxContent[^>]*>(.*?)</[^:>]*:txbxContent>",
-                        content,
-                        re.DOTALL,
-                    )
-
-                    for match in textbox_matches:
-                        # Extract text from text box content
-                        text_pattern = r"<[^:>]*:t[^>]*>([^<]*)</[^:>]*:t>"
-                        text_matches = re.findall(text_pattern, match)
-                        text_matches.extend(re.findall(r"<t[^>]*>([^<]*)</t>", match))
-
-                        if text_matches:
-                            # Clean and combine text
-                            cleaned_texts = []
-                            for text in text_matches:
-                                text = html.unescape(text)
-                                text = re.sub(r"\s+", " ", text.strip())
-                                if text:
-                                    cleaned_texts.append(text)
-
-                            if cleaned_texts:
-                                textbox_text = " ".join(cleaned_texts)
-                                textbox_text = re.sub(r"\s+", " ", textbox_text.strip())
-                                if textbox_text:
-                                    textbox_content.append(textbox_text)
+                    text = self._process_textbox_file(docx_zip, filename)
+                    if text:
+                        textbox_content.append(text)
 
             if textbox_content:
                 logger.info(
@@ -526,11 +495,40 @@ class DocxParser(BaseLife):
             logger.error(f"💥 Failed to extract text box content: {str(e)}")
             return ""
 
+    def _process_textbox_file(self, docx_zip: zipfile.ZipFile, filename: str) -> str:
+        """Helper to process textboxes in a single file"""
+        content = docx_zip.read(filename).decode("utf-8", errors="replace")
+        content = html.unescape(content)
+
+        textbox_matches = re.findall(
+            r"<[^:>]*:txbxContent[^>]*>(.*?)</[^:>]*:txbxContent>",
+            content,
+            re.DOTALL,
+        )
+
+        file_textbox_texts = []
+        for match in textbox_matches:
+            text_pattern = r"<[^:>]*:t[^>]*>([^<]*)</[^:>]*:t>"
+            text_matches = re.findall(text_pattern, match)
+            text_matches.extend(re.findall(r"<t[^>]*>([^<]*)</t>", match))
+
+            if text_matches:
+                cleaned_texts = [
+                    re.sub(r"\s+", " ", html.unescape(t).strip())
+                    for t in text_matches
+                    if t.strip()
+                ]
+                if cleaned_texts:
+                    text = " ".join(cleaned_texts)
+                    text = re.sub(r"\s+", " ", text.strip())
+                    if text:
+                        file_textbox_texts.append(text)
+
+        return "\n".join(file_textbox_texts) if file_textbox_texts else ""
+
     def _combine_extracted_content(self, content_list: list) -> str:
         """Combine extracted various content - output clear plain text"""
         combined = []
-
-        # Sort content by importance
         priority_order = [
             "altChunk",
             "standard",
@@ -540,86 +538,57 @@ class DocxParser(BaseLife):
             "embedded",
         ]
 
+        # Process priority items
         for content_type in priority_order:
             for item_type, content in content_list:
-                if item_type == content_type and content.strip():
-                    # Clean excess whitespace in content
-                    cleaned_content = re.sub(r"\s+", " ", content.strip())
-                    cleaned_content = re.sub(r"\n\s*\n", "\n\n", cleaned_content)
+                if item_type == content_type:
+                    self._append_cleaned_content(
+                        combined, item_type, content, content_list
+                    )
 
-                    if cleaned_content:
-                        # Add simple markers based on content type (only when there are multiple content types)
-                        if len([1 for t, c in content_list if c.strip()]) > 1:
-                            if item_type == "header_footer":
-                                combined.append(f"[Header/Footer]\n{cleaned_content}")
-                            elif item_type == "comments":
-                                combined.append(f"[Comments]\n{cleaned_content}")
-                            elif item_type == "textboxes":
-                                combined.append(f"[Text Boxes]\n{cleaned_content}")
-                            else:
-                                combined.append(cleaned_content)
-                        else:
-                            combined.append(cleaned_content)
-
-        # Add other uncategorized content
+        # Process remaining items
         for item_type, content in content_list:
-            if item_type not in priority_order and content.strip():
-                cleaned_content = re.sub(r"\s+", " ", content.strip())
-                cleaned_content = re.sub(r"\n\s*\n", "\n\n", cleaned_content)
-                if cleaned_content:
-                    combined.append(cleaned_content)
+            if item_type not in priority_order:
+                self._append_cleaned_content(
+                    combined, item_type, content, content_list, add_marker=False
+                )
 
-        # Combine all content, use double line breaks to separate different sections
         final_content = "\n\n".join(combined) if combined else ""
-
-        # Final cleanup: ensure no excessive empty lines
         final_content = re.sub(r"\n{3,}", "\n\n", final_content)
-        final_content = final_content.strip()
+        return final_content.strip()
 
-        return final_content
+    def _append_cleaned_content(
+        self,
+        combined: list,
+        item_type: str,
+        content: str,
+        content_list: list,
+        add_marker: bool = True,
+    ):
+        """Helper to clean and append content"""
+        if not content.strip():
+            return
+
+        cleaned_content = re.sub(r"\s+", " ", content.strip())
+        cleaned_content = re.sub(r"\n\s*\n", "\n\n", cleaned_content)
+
+        if cleaned_content:
+            if add_marker and len([1 for t, c in content_list if c.strip()]) > 1:
+                marker_map = {
+                    "header_footer": "[Header/Footer]",
+                    "comments": "[Comments]",
+                    "textboxes": "[Text Boxes]",
+                }
+                if item_type in marker_map:
+                    combined.append(f"{marker_map[item_type]}\n{cleaned_content}")
+                    return
+
+            combined.append(cleaned_content)
 
     def _extract_html_from_mht(self, mht_content: str) -> str:
         """Extract HTML part from MHT content and convert to clean text"""
         try:
-            # MHT files use MIME format, look for HTML part
-            lines = mht_content.split("\n")
-            in_html_section = False
-            html_lines = []
-            skip_headers = True
-
-            for line in lines:
-                # Detect HTML section start
-                if "Content-Type: text/html" in line:
-                    in_html_section = True
-                    skip_headers = True
-                    continue
-
-                # In HTML section
-                if in_html_section:
-                    # Skip Content-* headers
-                    if (
-                        skip_headers
-                        and line.strip()
-                        and not line.startswith("Content-")
-                    ):
-                        skip_headers = False
-
-                    # Empty line indicates end of headers, content starts
-                    if skip_headers and not line.strip():
-                        skip_headers = False
-                        continue
-
-                    # Check if reached next MIME part
-                    if line.startswith("------=") and len(html_lines) > 0:
-                        # HTML section ends
-                        break
-
-                    # Collect HTML content
-                    if not skip_headers:
-                        html_lines.append(line)
-
-            # Combine all HTML lines
-            html_content = "\n".join(html_lines)
+            html_content = self._parse_mht_html_section(mht_content)
 
             # Decode quoted-printable encoding
             if "=3D" in html_content or "=\n" in html_content:
@@ -637,12 +606,40 @@ class DocxParser(BaseLife):
                 f"📄 Extracted HTML content length: {len(html_content)} characters"
             )
 
-            # Convert to clean text
             return self._html_to_clean_text(html_content)
 
         except Exception as e:
             logger.error(f"💥 Failed to extract HTML from MHT: {str(e)}")
             return ""
+
+    def _parse_mht_html_section(self, mht_content: str) -> str:
+        """Helper to parse lines and extract HTML section from MHT"""
+        lines = mht_content.split("\n")
+        in_html_section = False
+        html_lines = []
+        skip_headers = True
+
+        for line in lines:
+            if "Content-Type: text/html" in line:
+                in_html_section = True
+                skip_headers = True
+                continue
+
+            if in_html_section:
+                if skip_headers and line.strip() and not line.startswith("Content-"):
+                    skip_headers = False
+
+                if skip_headers and not line.strip():
+                    skip_headers = False
+                    continue
+
+                if line.startswith("------=") and len(html_lines) > 0:
+                    break
+
+                if not skip_headers:
+                    html_lines.append(line)
+
+        return "\n".join(html_lines)
 
     def _html_to_clean_text(self, html_content: str) -> str:
         """Convert HTML content to clean plain text, specifically optimized for MHT content"""

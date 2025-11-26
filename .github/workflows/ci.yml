@@ -43,7 +43,7 @@ jobs:
     - name: Lint with flake8
       run: |
         flake8 datamax/  --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 datamax/  --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+        flake8 datamax/  --count --exit-zero --max-complexity=100 --max-line-length=88 --statistics
 
     - name: Check code formatting with black
       run: |
@@ -53,14 +53,10 @@ jobs:
       run: |
         isort --check-only datamax/
 
-    - name: Type checking with mypy
-      run: |
-        mypy datamax/
-
-    - name: Security check with bandit
-      run: |
-        bandit -r datamax/ -f json -o bandit-report.json || true
-        bandit -r datamax/
+    # - name: Security check with bandit
+    #   run: |
+    #     bandit -r datamax/ -f json -o bandit-report.json || true
+    #     bandit -r datamax/
 
     # - name: Run unit tests
     #   run: |

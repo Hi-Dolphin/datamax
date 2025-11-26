@@ -3,11 +3,13 @@
 import os
 import pathlib
 import sys
+import traceback
 from copy import deepcopy
 from datetime import datetime
 
 import cv2
 import numpy as np
+from loguru import logger
 from PIL import Image
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
@@ -103,7 +105,8 @@ def recovery(img_path, output, use_gpu, gpu_id):
         output_file = pathlib.Path(output) / f"{img_name}_ocr.docx"
         new_name = pathlib.Path(output) / f"{pathlib.Path(img_path).stem}_ocr.docx"
         output_file.rename(new_name)
-    except Exception as e:
+    except Exception:
+        logger.error("Error converting docx:\n" + traceback.format_exc())
         raise
 
 

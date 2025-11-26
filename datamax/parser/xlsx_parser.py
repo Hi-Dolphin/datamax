@@ -26,112 +26,109 @@ class XlsxParser(BaseLife):
         logger.info(f"🐼 Start reading Excel file with pandas: {file_path}")
 
         try:
-            # Verify file exists
-            if not os.path.exists(file_path):
-                logger.error(f"🚫 Excel file does not exist: {file_path}")
-                raise FileNotFoundError(f"File does not exist: {file_path}")
-
-            # Verify file size
-            file_size = os.path.getsize(file_path)
-            logger.info(f"📏 File size: {file_size} bytes")
-
-            if file_size == 0:
-                logger.warning(f"⚠️ File size is 0 bytes: {file_path}")
-                return "*File is empty*"
-
-            # Use pandas to read Excel file
-            logger.debug("📊 Reading Excel data...")
-            df = pd.read_excel(file_path, sheet_name=None)  # Read all worksheets
-
-            markdown_content = ""
-
-            if isinstance(df, dict):
-                # Multiple worksheets
-                logger.info(f"📑 Detected multiple worksheets, total: {len(df)}")
-                for sheet_name, sheet_df in df.items():
-                    logger.debug(
-                        f"📋 Processing worksheet: {sheet_name}, shape: {sheet_df.shape}"
-                    )
-                    markdown_content += f"## Worksheet: {sheet_name}\n\n"
-
-                    if not sheet_df.empty:
-                        # Clean data: remove completely empty rows and columns
-                        sheet_df = sheet_df.dropna(how="all").dropna(axis=1, how="all")
-
-                        if not sheet_df.empty:
-                            sheet_markdown = sheet_df.to_markdown(index=False)
-                            markdown_content += sheet_markdown + "\n\n"
-                            logger.debug(
-                                f"✅ Worksheet {sheet_name} conversion complete, valid data shape: {sheet_df.shape}"
-                            )
-                        else:
-                            markdown_content += "*This worksheet has no valid data*\n\n"
-                            logger.warning(
-                                f"⚠️ Worksheet {sheet_name} has no valid data after cleaning"
-                            )
-                    else:
-                        markdown_content += "*This worksheet is empty*\n\n"
-                        logger.warning(f"⚠️ Worksheet {sheet_name} is empty")
-            else:
-                # Single worksheet
-                logger.info(f"📄 Single worksheet, shape: {df.shape}")
-                if not df.empty:
-                    # Clean data: remove completely empty rows and columns
-                    df = df.dropna(how="all").dropna(axis=1, how="all")
-
-                    if not df.empty:
-                        markdown_content = df.to_markdown(index=False)
-                        logger.info(
-                            f"✅ Worksheet conversion complete, valid data shape: {df.shape}"
-                        )
-                    else:
-                        markdown_content = "*Worksheet has no valid data*"
-                        logger.warning("⚠️ Worksheet has no valid data after cleaning")
-                else:
-                    markdown_content = "*Worksheet is empty*"
-                    logger.warning("⚠️ Worksheet is empty")
+            self._validate_file(file_path)
+            df = self._read_excel(file_path)
+            markdown = self._convert_excel_to_markdown(df)
 
             logger.info(
-                f"🎊 Pandas conversion complete, markdown content length: {len(markdown_content)} characters"
+                f"🎊 Pandas conversion complete, markdown content length: {len(markdown)} characters"
             )
-            logger.debug(
-                f"👀 First 200 characters preview: {markdown_content[:200]}..."
-            )
+            logger.debug(f"👀 First 200 characters preview: {markdown[:200]}...")
 
-            return markdown_content
+            return markdown
 
-        except FileNotFoundError as e:
-            logger.error(f"🚫 File not found: {str(e)}")
+        except (FileNotFoundError, PermissionError, pd.errors.EmptyDataError):
             raise
+        except Exception as e:
+            self._handle_pandas_parse_error(e, file_path)
+            raise
+
+    def _validate_file(self, file_path: str):
+        """Check file existence and size."""
+        if not os.path.exists(file_path):
+            logger.error(f"🚫 Excel file does not exist: {file_path}")
+            raise FileNotFoundError(f"File does not exist: {file_path}")
+
+        file_size = os.path.getsize(file_path)
+        logger.info(f"📏 File size: {file_size} bytes")
+
+        if file_size == 0:
+            logger.warning(f"⚠️ File size is 0 bytes: {file_path}")
+            raise pd.errors.EmptyDataError("Empty file")
+
+    def _read_excel(self, file_path: str):
+        """Read Excel file using pandas."""
+        try:
+            logger.debug("📊 Reading Excel data...")
+            return pd.read_excel(file_path, sheet_name=None)
         except PermissionError as e:
             logger.error(f"🔒 File permission error: {str(e)}")
-            raise Exception(f"No permission to access file: {file_path}")
+            raise PermissionError(f"No permission to access file: {file_path}")
         except pd.errors.EmptyDataError as e:
             logger.error(f"📭 Excel file is empty: {str(e)}")
-            raise Exception(f"Excel file is empty or cannot be read: {file_path}")
-        except Exception as e:
-            lc_fail = None
-            try:
-                lc_fail = self.generate_lifecycle(
-                    source_file=file_path,
-                    domain=self.domain,
-                    usage_purpose="Documentation",
-                    life_type=LifeType.DATA_PROCESS_FAILED,
-                )
-                logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
-            except Exception as lifecycle_error:
-                logger.debug(
-                    f"Failed to generate DATA_PROCESS_FAILED lifecycle: {lifecycle_error}"
-                )
-
-            logger.error(f"💀 Excel file parsing failed: {file_path}, error: {str(e)}")
-            error_result = {
-                "error": str(e),
-                "file_path": file_path,
-                "lifecycle": [lc_fail.to_dict()] if lc_fail else [],
-            }
-            result_queue.put(error_result)
             raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error reading Excel: {e}")
+            raise
+
+    def _convert_excel_to_markdown(self, df) -> str:
+        """Convert entire Excel file (single or multiple sheets) to markdown."""
+        if isinstance(df, dict):
+            return self._convert_multi_sheet(df)
+        return self._convert_single_sheet(df)
+
+    def _convert_multi_sheet(self, df_dict: dict) -> str:
+        """Convert multiple Excel sheets to markdown."""
+        logger.info(f"📑 Detected multiple worksheets, total: {len(df_dict)}")
+
+        markdown = ""
+        for sheet_name, sheet_df in df_dict.items():
+            markdown += f"## Worksheet: {sheet_name}\n\n"
+            markdown += self._convert_sheet(sheet_df)
+
+        return markdown
+
+    def _convert_single_sheet(self, df) -> str:
+        """Convert a single Excel sheet to markdown."""
+        logger.info(f"📄 Single worksheet, shape: {df.shape}")
+        return self._convert_sheet(df)
+
+    def _convert_sheet(self, sheet_df: pd.DataFrame) -> str:
+        """Clean and convert a single sheet to markdown."""
+        if sheet_df.empty:
+            logger.warning("⚠️ Worksheet is empty")
+            return "*This worksheet is empty*\n\n"
+
+        # Clean data: remove empty rows/columns
+        cleaned = sheet_df.dropna(how="all").dropna(axis=1, how="all")
+
+        if cleaned.empty:
+            logger.warning("⚠️ Worksheet has no valid data after cleaning")
+            return "*This worksheet has no valid data*\n\n"
+
+        logger.debug(f"📋 Converting cleaned sheet, shape: {cleaned.shape}")
+        return cleaned.to_markdown(index=False) + "\n\n"
+
+    def _handle_pandas_parse_error(self, e: Exception, file_path: str):
+        """Generate lifecycle and log error."""
+        lc_fail = None
+
+        try:
+            lc_fail = self.generate_lifecycle(
+                source_file=file_path,
+                domain=self.domain,
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESS_FAILED,
+            )
+            logger.debug("⚙️ DATA_PROCESS_FAILED lifecycle generated")
+        except Exception as lifecycle_error:
+            logger.debug(
+                f"Failed to generate DATA_PROCESS_FAILED lifecycle: {lifecycle_error}"
+            )
+
+        logger.error(
+            f"💀 Excel file parsing failed: {file_path}, error: {str(e)}, lifecycle: {lc_fail}"
+        )
 
     def _parse(self, file_path: str, result_queue: Queue) -> dict:
         """Core method for parsing Excel files"""

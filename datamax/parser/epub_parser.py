@@ -62,7 +62,7 @@ class EpubParser(BaseLife):
         except Exception as e:
             loguru.logger.error(f"Failed to parse epub file {file_path}: {e}")
             # Record a failure lifecycle when failed (optional)
-            fail_lc = self.generate_lifecycle(
+            lc_fail = self.generate_lifecycle(
                 source_file=file_path,
                 domain=self.domain,
                 usage_purpose="Documentation",
@@ -70,5 +70,5 @@ class EpubParser(BaseLife):
             )
             # If need to return VO:
             # output_vo = MarkdownOutputVo(self.get_file_extension(file_path), "")
-            # output_vo.add_lifecycle(fail_lc)
+            output_vo.add_lifecycle(lc_fail)
             raise

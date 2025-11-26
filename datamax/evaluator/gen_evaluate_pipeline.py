@@ -36,14 +36,16 @@ class PipelineConfig:
         questions_per_chunk: int = 2,
         max_workers: int = 4,
         clip_score_threshold: float = 0.2,
-        output_base_dir: str = "intermodality/eva_multimodal"
+        output_base_dir: str = "intermodality/eva_multimodal",
     ):
         """Initialize pipeline configuration with customizable parameters."""
         self.SEARCH_QUERY = search_query
         self.MAX_PAPERS_TO_CRAWL = max_papers_to_crawl
-        
+
         # Use provided API key or fall back to environment variable or default
-        self.DASHSCOPE_API_KEY = dashscope_api_key or os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
+        self.DASHSCOPE_API_KEY = dashscope_api_key or os.getenv(
+            "DASHSCOPE_API_KEY", "YOUR OWN KEY"
+        )
         self.DASHSCOPE_BASE_URL = dashscope_base_url
         self.QA_MODEL_NAME = qa_model_name
         self.CLIP_MODEL_NAME = clip_model_name
@@ -51,7 +53,7 @@ class PipelineConfig:
         self.QUESTIONS_PER_CHUNK = questions_per_chunk
         self.MAX_WORKERS = max_workers
         self.CLIP_SCORE_THRESHOLD = clip_score_threshold
-        
+
         self.OUTPUT_BASE_DIR = Path(output_base_dir)
         self.RAW_DATA_DIR = self.OUTPUT_BASE_DIR / "01_raw_data"
         self.PARSED_MD_DIR = self.OUTPUT_BASE_DIR / "02_parsed_markdown"
@@ -78,6 +80,108 @@ class IntermodalityPipeline:
         self.text_evaluator = TextQualityEvaluator()  # Initialize TextQualityEvaluator
         self._setup_directories()
 
+    def _extract_conversation(self, qa_item: dict) -> tuple[str, str] | None:
+        if "conversations" in qa_item:
+            conv = qa_item["conversations"]
+            if conv and len(conv) >= 2:
+                return conv[0].get("value", ""), conv[1].get("value", "")
+            return None
+        if "messages" in qa_item:
+            conv = qa_item["messages"]
+            if conv and len(conv) >= 2:
+                return conv[0].get("content", ""), conv[1].get("content", "")
+            return None
+        return None
+
+    def _validate_image(self, qa_item: dict) -> str | None:
+        images = qa_item.get("images", [])
+        if not images:
+            return None
+        image_path = images[0]
+        return image_path if os.path.exists(image_path) else None
+
+    def _compute_scores(
+        self, image_path: str, question: str, answer: str
+    ) -> tuple[float, float, float, list]:
+        clip_q = self.evaluator.evaluate_clip_score(image_path, question)
+        clip_a = self.evaluator.evaluate_clip_score(image_path, answer)
+
+        similarity_q = clip_q.get("cosine_similarity", 0)
+        similarity_a = clip_a.get("cosine_similarity", 0)
+        avg_similarity = (similarity_q + similarity_a) / 2
+
+        vqa_scores = self.evaluator.evaluate_vqa_score(image_path, [question, answer])
+        return similarity_q, similarity_a, avg_similarity, vqa_scores
+
+    def _evaluate_single_item(self, idx: int, qa_item: dict):
+        try:
+            convo = self._extract_conversation(qa_item)
+            if not convo:
+                logger.warning(
+                    f"QA pair #{idx} has unrecognized or incomplete format, skipping."
+                )
+                return None
+
+            user_msg, assistant_msg = convo
+            image_path = self._validate_image(qa_item)
+
+            if not image_path:
+                logger.warning(
+                    f"QA pair #{idx} has missing or invalid image, skipping."
+                )
+                return None
+
+            question = user_msg.replace("<image>", "").strip()
+
+            sim_q, sim_a, avg, vqa = self._compute_scores(
+                image_path, question, assistant_msg
+            )
+
+            report_entry = {
+                "qa_index": idx,
+                "source_file": qa_item.get("source_file"),
+                "image": image_path,
+                "question": question,
+                "answer": assistant_msg,
+                "question_clip_score": sim_q,
+                "answer_clip_score": sim_a,
+                "average_clip_score": avg,
+                "vqa_score_question": vqa[0] if vqa else "N/A",
+                "vqa_score_answer": vqa[1] if len(vqa) > 1 else "N/A",
+                "passed": avg > self.config.CLIP_SCORE_THRESHOLD,
+            }
+
+            if report_entry["passed"]:
+                qa_item["evaluation_scores"] = {
+                    "question_clip_score": sim_q,
+                    "answer_clip_score": sim_a,
+                    "average_clip_score": avg,
+                    "vqa_score_question": report_entry["vqa_score_question"],
+                    "vqa_score_answer": report_entry["vqa_score_answer"],
+                }
+
+            return report_entry, report_entry["passed"]
+
+        except Exception as e:
+            logger.error(f"Error evaluating QA pair #{idx}: {e}", exc_info=True)
+            return {"qa_index": idx, "error": str(e)}, False
+
+    def _save_evaluation_results(self, high_quality_data, evaluation_report):
+        report_path = self.config.EVALUATED_DATA_DIR / "evaluation_report.json"
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(evaluation_report, f, indent=2, ensure_ascii=False)
+        logger.info(f"Evaluation report saved to: {report_path}")
+
+        final_path = (
+            self.config.EVALUATED_DATA_DIR / "high_quality_multimodal_data.jsonl"
+        )
+        with open(final_path, "w", encoding="utf-8") as f:
+            for item in high_quality_data:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        logger.success(
+            f"Saved {len(high_quality_data)} high-quality data entries to: {final_path}"
+        )
+
     def _setup_directories(self):
         """Create all necessary output directories."""
         logger.info(
@@ -94,19 +198,18 @@ class IntermodalityPipeline:
 
     def _cleanup_temp_directories(self):
         """Clean up temporary directories created during processing."""
-        temp_dirs = [
-            Path("__temp__"),
-            Path("temp"),
-            Path("tmp")
-        ]
+        temp_dirs = [Path("__temp__"), Path("temp"), Path("tmp")]
         for temp_dir in temp_dirs:
             if temp_dir.exists() and temp_dir.is_dir():
                 try:
                     import shutil
+
                     shutil.rmtree(temp_dir)
                     logger.info(f"Cleaned up temporary directory: {temp_dir}")
                 except Exception as e:
-                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
+                    logger.warning(
+                        f"Failed to clean up temporary directory {temp_dir}: {e}"
+                    )
 
     async def step_1_crawl_data(self) -> list[Path]:
         """Step 1: Crawl papers from ArXiv and download the actual PDF files."""
@@ -251,8 +354,6 @@ class IntermodalityPipeline:
     ) -> tuple[list[dict], list[dict]]:
         """Step 4: Quantitatively evaluate and filter the generated QA pairs."""
         logger.info("--- Step 4: Starting data evaluation and filtering ---")
-        high_quality_data = []
-        evaluation_report = []
 
         if not generated_qa:
             logger.warning("No data to evaluate.")
@@ -262,118 +363,23 @@ class IntermodalityPipeline:
             f"Evaluation threshold (CLIP Score) > {self.config.CLIP_SCORE_THRESHOLD}"
         )
 
-        for i, qa_item in enumerate(generated_qa):
-            # Handle both conversation formats: "conversations" (from/to) and "messages" (role/content)
-            conversation = []
-            if "conversations" in qa_item:
-                # Format: {"from": "user", "value": "..."}
-                conversation = qa_item["conversations"]
-                if conversation and len(conversation) >= 2:
-                    user_message = conversation[0].get("value", "")
-                    assistant_message = conversation[1].get("value", "")
-                else:
-                    continue
-            elif "messages" in qa_item:
-                # Format: {"role": "user", "content": "..."}
-                conversation = qa_item["messages"]
-                if conversation and len(conversation) >= 2:
-                    user_message = conversation[0].get("content", "")
-                    assistant_message = conversation[1].get("content", "")
-                else:
-                    continue
-            else:
-                logger.warning(f"QA pair #{i+1} has unrecognized format, skipping evaluation.")
+        high_quality_data = []
+        evaluation_report = []
+
+        for i, qa_item in enumerate(generated_qa, start=1):
+            result = self._evaluate_single_item(i, qa_item)
+
+            if result is None:
+                # Item was skipped (bad format or missing data)
                 continue
 
-            images = qa_item.get("images", [])
+            report_entry, passed = result
+            evaluation_report.append(report_entry)
 
-            if not images:
-                logger.warning(
-                    f"QA pair #{i+1} is missing images, skipping evaluation."
-                )
-                continue
+            if passed:
+                high_quality_data.append(qa_item)
 
-            image_path = images[0]
-            
-            # Validate that the image file exists
-            if not os.path.exists(image_path):
-                logger.warning(
-                    f"QA pair #{i+1} references non-existent image '{image_path}', skipping evaluation."
-                )
-                continue
-                
-            try:
-                question_text = user_message.replace("<image>", "").strip()
-
-                # clipscore [question and answer]
-                clip_score_q = self.evaluator.evaluate_clip_score(
-                    image_path, question_text
-                )
-                clip_score_a = self.evaluator.evaluate_clip_score(
-                    image_path, assistant_message
-                )
-
-                vqa_scores = self.evaluator.evaluate_vqa_score(
-                    image_path, [question_text, assistant_message]
-                )
-                logger.debug(f"VQA scores for QA #{i+1}: {vqa_scores}")
-
-                similarity_q = clip_score_q.get("cosine_similarity", 0)
-                similarity_a = clip_score_a.get("cosine_similarity", 0)
-                avg_similarity = (similarity_q + similarity_a) / 2
-
-                report_entry = {
-                    "qa_index": i + 1,
-                    "source_file": qa_item.get("source_file"),
-                    "image": image_path,
-                    "question": question_text,
-                    "answer": assistant_message,
-                    "question_clip_score": similarity_q,
-                    "answer_clip_score": similarity_a,
-                    "average_clip_score": avg_similarity,
-                    "vqa_score_question": vqa_scores[0] if vqa_scores else "N/A",
-                    "vqa_score_answer": vqa_scores[1] if len(vqa_scores) > 1 else "N/A",
-                    "passed": avg_similarity > self.config.CLIP_SCORE_THRESHOLD,
-                }
-                evaluation_report.append(report_entry)
-
-                if report_entry["passed"]:
-                    qa_item["evaluation_scores"] = {
-                        "question_clip_score": similarity_q,
-                        "answer_clip_score": similarity_a,
-                        "average_clip_score": avg_similarity,
-                        "vqa_score_question": vqa_scores[0] if vqa_scores else "N/A",
-                        "vqa_score_answer": (
-                            vqa_scores[1] if len(vqa_scores) > 1 else "N/A"
-                        ),
-                    }
-                    high_quality_data.append(qa_item)
-                    logger.debug(
-                        f"QA #{i+1} PASSED evaluation, average score: {avg_similarity:.4f}"
-                    )
-                else:
-                    logger.debug(
-                        f"QA #{i+1} FAILED evaluation, average score: {avg_similarity:.4f}"
-                    )
-
-            except Exception as e:
-                logger.error(f"Error evaluating QA pair #{i+1}: {e}", exc_info=True)
-                evaluation_report.append({"qa_index": i + 1, "error": str(e)})
-
-        report_path = self.config.EVALUATED_DATA_DIR / "evaluation_report.json"
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(evaluation_report, f, indent=2, ensure_ascii=False)
-        logger.info(f"Evaluation report saved to: {report_path}")
-
-        final_data_path = (
-            self.config.EVALUATED_DATA_DIR / "high_quality_multimodal_data.jsonl"
-        )
-        with open(final_data_path, "w", encoding="utf-8") as f:
-            for item in high_quality_data:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
-        logger.success(
-            f"Saved {len(high_quality_data)} high-quality data entries to: {final_data_path}"
-        )
+        self._save_evaluation_results(high_quality_data, evaluation_report)
 
         return high_quality_data, evaluation_report
 
@@ -420,7 +426,7 @@ class IntermodalityPipeline:
             f"The final dataset is saved in: {self.config.EVALUATED_DATA_DIR}"
         )
         logger.info("🎉 Pipeline execution complete!")
-        
+
         # Clean up temporary directories
         self._cleanup_temp_directories()
 

@@ -151,79 +151,78 @@ class DomainTree:
         return False
 
 
-if __name__ == "__main__":
-    import json
+# if __name__ == "__main__":
 
-    print("[DomainTree Main Interface Demo]")
+#     print("[DomainTree Main Interface Demo]")
 
-    # 1. Create empty tree
-    tree = DomainTree()
-    print("***1. Empty tree: Create an empty tree structure.***", tree.to_json())
+#     # 1. Create empty tree
+#     tree = DomainTree()
+#     print("***1. Empty tree: Create an empty tree structure.***", tree.to_json())
 
-    # 2. Add root nodes
-    tree.add_node("Computer Science")
-    tree.add_node("Mathematics")
-    print(
-        "***2. Add root nodes: Add root nodes 'Computer Science' and 'Mathematics'.***",
-        json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
-    )
+#     # 2. Add root nodes
+#     tree.add_node("Computer Science")
+#     tree.add_node("Mathematics")
+#     print(
+#         "***2. Add root nodes: Add root nodes 'Computer Science' and 'Mathematics'.***",
+#         json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
+#     )
 
-    # 3. Add child nodes
-    tree.add_node("Artificial Intelligence", "Computer Science")
-    tree.add_node("Machine Learning", "Artificial Intelligence")
-    tree.add_node("Deep Learning", "Machine Learning")
-    print(
-        "***3. Add child nodes: Add child nodes under the corresponding parent nodes.***",
-        json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
-    )
+#     # 3. Add child nodes
+#     tree.add_node("Artificial Intelligence", "Computer Science")
+#     tree.add_node("Machine Learning", "Artificial Intelligence")
+#     tree.add_node("Deep Learning", "Machine Learning")
+#     print(
+#         "***3. Add child nodes: Add child nodes under the corresponding parent nodes.***",
+#         json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
+#     )
 
-    # 4. Find node
-    node = tree.find_node("Machine Learning")
-    print(
-        "***4. Find node: Find node 'Machine Learning', if not exist return None.***",
-        node,
-    )
+#     # 4. Find node
+#     node = tree.find_node("Machine Learning")
+#     print(
+#         "***4. Find node: Find node 'Machine Learning', if not exist return None.***",
+#         node,
+#     )
 
-    # 5. Find path
-    path = tree.find_path("Deep Learning")
-    print(
-        "***5. Find path: Find the path of node 'Deep Learning', return path string or None.***",
-        path,
-    )
+#     # 5. Find path
+#     path = tree.find_path("Deep Learning")
+#     print(
+#         "***5. Find path: Find the path of node 'Deep Learning', return path string or None.***",
+#         path,
+#     )
 
-    # 6. Update node
-    tree.update_node("Machine Learning", "ML")
-    print(
-        "***6. Update node: Update node label from 'Machine Learning' to 'ML'.***",
-        json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
-    )
+#     # 6. Update node
+#     tree.update_node("Machine Learning", "ML")
+#     print(
+#         "***6. Update node: Update node label from 'Machine Learning' to 'ML'.***",
+#         json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
+#     )
 
-    # 7. Remove node
-    tree.remove_node("ML")
-    print(
-        "***7. Remove node: Remove node 'ML', if not exist do nothing.***",
-        json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
-    )
+#     # 7. Remove node
+#     tree.remove_node("ML")
+#     print(
+#         "***7. Remove node: Remove node 'ML', if not exist do nothing.***",
+#         json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
+#     )
 
-    # 8. Export as JSON
-    print(
-        "***8. Export as JSON: Export the tree structure as a JSON-serializable list.***",
-        json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
-    )
+#     # 8. Export as JSON
+#     print(
+#         "***8. Export as JSON: Export the tree structure as a JSON-serializable list.***",
+#         json.dumps(tree.to_json(), ensure_ascii=False, indent=2),
+#     )
 
-    # 9. Import from JSON
-    json_data = [
-        {
-            "label": "Technology",
-            "child": [
-                {
-                    "label": "Programming Language",
-                    "child": [{"label": "Python"}, {"label": "Java"}],
-                }
-            ],
-        }
-    ]
-    tree.from_json(json_data)
-    print(
-        "9. Import from JSON:", json.dumps(tree.to_json(), ensure_ascii=False, indent=2)
-    )
+#     # 9. Import from JSON
+#     json_data = [
+#         {
+#             "label": "Technology",
+#             "child": [
+#                 {
+#                     "label": "Programming Language",
+#                     "child": [{"label": "Python"}, {"label": "Java"}],
+#                 }
+#             ],
+#         }
+#     ]
+#     tree.from_json(json_data)
+#     print(
+#         "9. Import from JSON:", json.dumps(tree.to_json(), ensure_ascii=False, indent=2)
+#     )

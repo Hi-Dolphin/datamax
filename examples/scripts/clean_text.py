@@ -1,6 +1,7 @@
 """
 Clean text using DataMax cleaner pipeline.
 """
+
 from datamax import DataMax
 
 
@@ -14,4 +15,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

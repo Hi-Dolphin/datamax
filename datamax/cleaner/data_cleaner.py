@@ -286,9 +286,7 @@ class PrivacyDesensitization:
             self.parsed_data, self.DEFAULT_NUMBER_TOKEN
         )
         # QQ
-        self.parsed_data = jio.replace_qq(
-            self.parsed_data, self.DEFAULT_NUMBER_TOKEN
-        )
+        self.parsed_data = jio.replace_qq(self.parsed_data, self.DEFAULT_NUMBER_TOKEN)
         # ID card
         self.parsed_data = jio.replace_id_card(
             self.parsed_data, self.DEFAULT_NUMBER_TOKEN

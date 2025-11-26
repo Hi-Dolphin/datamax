@@ -17,6 +17,7 @@ if sys.version_info < (3, 8):
 here = Path(__file__).parent.resolve()
 long_description = (here / "README.md").read_text(encoding="utf-8")
 
+
 # Read version from __init__.py
 def get_version():
     """Extract version from datamax/__init__.py"""
@@ -27,6 +28,7 @@ def get_version():
                 if line.startswith("__version__"):
                     return line.split("=")[1].strip().strip('"').strip("'")
     return "0.2.0"  # fallback version
+
 
 # Core dependencies
 core_requirements = [
@@ -90,7 +92,6 @@ dev_requirements = [
     "black>=22.0.0",
     "isort>=5.10.0",
     "flake8>=5.0.0",
-    "mypy>=1.0.0",
     "pre-commit>=2.20.0",
 ]
 
@@ -113,12 +114,7 @@ docs_requirements = [
 ]
 
 # All dependencies for complete development setup
-all_requirements = list(set(
-    core_requirements + 
-    dev_requirements + 
-    test_requirements + 
-    docs_requirements
-))
+all_requirements = list(set(core_requirements + dev_requirements + test_requirements + docs_requirements))
 
 setup(
     # Basic package information
@@ -127,13 +123,11 @@ setup(
     description="Advanced Data Crawling and Processing Framework - A library for parsing and converting various file formats.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    
     # Author and contact information
     author="ccy",
     author_email="cy.kron@foxmail.com",
     maintainer="DataMax Team",
     maintainer_email="cy.kron@foxmail.com",
-    
     # URLs
     url="https://github.com/Hi-Dolphin/datamax",
     project_urls={
@@ -143,11 +137,9 @@ setup(
         "Bug Reports": "https://github.com/Hi-Dolphin/datamax/issues",
         "Source": "https://github.com/Hi-Dolphin/datamax",
     },
-    
     # Package discovery
     packages=find_packages(exclude=["tests", "tests.*", "docs", "docs.*"]),
     package_dir={"": "."},
-    
     # Include additional files
     include_package_data=True,
     package_data={
@@ -158,7 +150,6 @@ setup(
             "*.yml",
         ],
     },
-    
     # Dependencies
     python_requires=">=3.10",
     install_requires=core_requirements,
@@ -168,71 +159,70 @@ setup(
         "docs": docs_requirements,
         "all": all_requirements,
     },
-    
     # Entry points for command-line tools
     entry_points={
         "console_scripts": [
             "pydatamax=pydatamax.cli.main:main",
         ],
     },
-    
     # Classification
     classifiers=[
         # Development status
         "Development Status :: 4 - Beta",
-        
         # Intended audience
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Intended Audience :: Information Technology",
-        
         # Topic
         "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
         "Topic :: Scientific/Engineering :: Information Analysis",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Topic :: Text Processing :: General",
         "Topic :: Utilities",
-        
         # License
         "License :: OSI Approved :: MIT License",
-        
         # Programming language
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3 :: Only",
-        
         # Operating system
         "Operating System :: OS Independent",
         "Operating System :: POSIX",
         "Operating System :: Microsoft :: Windows",
         "Operating System :: MacOS",
-        
         # Environment
         "Environment :: Console",
         "Environment :: Web Environment",
-        
         # Framework
         "Framework :: AsyncIO",
-        
         # Natural language
         "Natural Language :: English",
         "Natural Language :: Chinese (Simplified)",
     ],
-    
     # Keywords for PyPI search
     keywords=[
-        "crawler", "scraping", "data-processing", "arxiv", "web-scraping",
-        "data-extraction", "parsing", "async", "cli", "framework",
-        "academic-papers", "research", "automation", "data-collection",
-        "file-conversion", "document-processing"
+        "crawler",
+        "scraping",
+        "data-processing",
+        "arxiv",
+        "web-scraping",
+        "data-extraction",
+        "parsing",
+        "async",
+        "cli",
+        "framework",
+        "academic-papers",
+        "research",
+        "automation",
+        "data-collection",
+        "file-conversion",
+        "document-processing",
     ],
-    
     # Additional metadata
     zip_safe=False,
     platforms=["any"],
-    
     # Test configuration
     test_suite="tests",
     tests_require=test_requirements,

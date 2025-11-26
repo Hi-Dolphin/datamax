@@ -217,9 +217,7 @@ class PerformanceMonitor:
                 content = message.get("content", "")
                 if content is None:
                     content = ""
-                normalized_messages.append(
-                    {"role": role, "content": str(content)}
-                )
+                normalized_messages.append({"role": role, "content": str(content)})
 
         record = LLMCallRecord(
             id=str(uuid.uuid4()),
@@ -281,9 +279,7 @@ class PerformanceMonitor:
             total_tokens = sum(stats.total_tokens for stats in self._stages.values())
             total_requests = sum(stats.request_count for stats in self._stages.values())
 
-            overall_duration = max(
-                time.perf_counter() - self._workflow_started_at, 0.0
-            )
+            overall_duration = max(time.perf_counter() - self._workflow_started_at, 0.0)
 
             overall_tokens_per_second = (
                 total_tokens / overall_duration if overall_duration > 0 else 0.0
@@ -314,19 +310,13 @@ class PerformanceMonitor:
         request_count = stats.request_count
 
         items_per_second = (items / duration) if duration > 0 else 0.0
-        effective_qpm = (
-            (request_count / duration) * 60 if duration > 0 else 0.0
-        )
-        tokens_per_second = (
-            (stats.total_tokens / duration) if duration > 0 else 0.0
-        )
+        effective_qpm = (request_count / duration) * 60 if duration > 0 else 0.0
+        tokens_per_second = (stats.total_tokens / duration) if duration > 0 else 0.0
         tokens_per_request = (
             (stats.total_tokens / request_count) if request_count > 0 else 0.0
         )
         average_request_duration = (
-            stats.total_request_duration / request_count
-            if request_count > 0
-            else 0.0
+            stats.total_request_duration / request_count if request_count > 0 else 0.0
         )
         effective_concurrency = (
             (stats.total_request_duration / duration) if duration > 0 else 0.0

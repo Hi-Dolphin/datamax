@@ -138,40 +138,38 @@ class MinIOClient:
 
     def update_object_tag(self, bucket_name, object_name, tags):
         try:
-            tags_obj = Tags.new_object_tags()
+            # existing tags or empty dict
             tag_info = self.get_object_tag(
                 bucket_name=bucket_name, object_name=object_name
             )
-            if tag_info is None:
-                tag_info = {}
-                for tag_dict in tags:
-                    for tag_key, tag_value in tag_dict.items():
-                        if tag_key in tag_info:
-                            tag_info[tag_key] = tag_value
-                        else:
-                            tag_info[tag_key] = tag_value
+            tag_info = tag_info or {}
 
-                for k, v in tag_info.items():
-                    tags_obj[k] = v
-                self.client.set_object_tags(
-                    bucket_name=bucket_name, object_name=object_name, tags=tags_obj
-                )
-            else:
-                for tag_dict in tags:
-                    for tag_key, tag_value in tag_dict.items():
-                        if tag_key in tag_info:
-                            tag_info[tag_key] = tag_value
-                        else:
-                            tag_info[tag_key] = tag_value
+            # merge user-provided tags
+            self._merge_tags(tag_info, tags)
 
-                for k, v in tag_info.items():
-                    tags_obj[k] = v
-                self.client.set_object_tags(
-                    bucket_name=bucket_name, object_name=object_name, tags=tags_obj
-                )
+            # write back to MinIO
+            self._apply_tags_to_minio(bucket_name, object_name, tag_info)
+
             return tag_info
+
         except Exception:
             raise
+
+    def _merge_tags(self, tag_info: dict, new_tags: list[dict]):
+        """Merge list of dict tags into tag_info."""
+        for tag_dict in new_tags:
+            for key, value in tag_dict.items():
+                tag_info[key] = value
+
+    def _apply_tags_to_minio(self, bucket_name: str, object_name: str, tag_info: dict):
+        """Apply merged tags to MinIO object."""
+        tags_obj = Tags.new_object_tags()
+        for k, v in tag_info.items():
+            tags_obj[k] = v
+
+        self.client.set_object_tags(
+            bucket_name=bucket_name, object_name=object_name, tags=tags_obj
+        )
 
     def reset_object_tag(self, bucket_name, object_name):
         try:

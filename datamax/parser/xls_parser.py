@@ -1,6 +1,7 @@
 import warnings
 
 import pandas as pd
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
@@ -42,7 +43,7 @@ class XlsParser(BaseLife):
             output_vo.add_lifecycle(lc_end)
             return output_vo.to_dict()
 
-        except Exception as e:
+        except Exception:
             # ❌ Parsing failed
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
@@ -51,4 +52,6 @@ class XlsParser(BaseLife):
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
             # Don't return empty VO here, throw directly, framework can catch and report
-            raise e
+            logger.error(f"❌ Unexpected parsing error with: {str(lc_fail)}")
+            output_vo.add_lifecycle(lc_fail)
+            raise

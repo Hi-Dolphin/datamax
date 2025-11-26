@@ -1,7 +1,7 @@
 import os
+import shlex
 import shutil
 import subprocess
-import shlex
 import tempfile
 from pathlib import Path
 
@@ -73,9 +73,7 @@ class PptParser(BaseLife):
         cmd_display = " ".join(shlex.quote(part) for part in cmd)
         logger.debug(f"⚡ Executing PPT conversion command: {cmd_display}")
 
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
         exit_code = process.returncode
         if exit_code == 0:

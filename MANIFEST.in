@@ -81,7 +81,6 @@ global-exclude .git*
 global-exclude .DS_Store
 global-exclude .coverage
 global-exclude .pytest_cache
-global-exclude .mypy_cache
 global-exclude .tox
 global-exclude .venv
 global-exclude venv

@@ -54,12 +54,12 @@ class MultimodalConsistencyEvaluator:
     def _extract_message_text(self, message_content) -> str:
         """Normalizes message content into a plain string."""
         if isinstance(message_content, list):
-            return ''.join(
-                part.get('text', '')
+            return "".join(
+                part.get("text", "")
                 for part in message_content
                 if isinstance(part, dict)
             ).strip()
-        return (message_content or '').strip()
+        return (message_content or "").strip()
 
     def _request_alignment_score(self, image_path: str, text: str) -> float:
         """Requests an OpenAI model to estimate image-text similarity as a cosine score."""

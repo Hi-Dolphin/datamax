@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import uuid
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from urllib.parse import urljoin
 
-from loguru import logger
 import requests
+from loguru import logger
 
 try:
     import yaml
@@ -44,25 +46,14 @@ from .agent.models import (
 from .agent.progress import AgentProgressTracker
 from .agent.questions import AgentQuestionGenerator
 from .agent.review import AgentReviewPipeline
-from .agent.runners import (
-    LangGraphAgent,
-    OpenAIAgent,
-    ToolRegistry,
-    build_agent_plan,
-    generate_agent_final_answer,
-)
+from .agent.runners import LangGraphAgent, OpenAIAgent, ToolRegistry, build_agent_plan, generate_agent_final_answer, ensure_langgraph_available, SPEC_EXTENSIONS
 from .agent.spec import ApiGraph, ApiSpecLoader
 from .qa_generator import (
     QAProgressTracker,
     extract_json_from_llm_output,
     llm_generator,
 )
-from .auth import AuthManager, AuthContext
-
-SPEC_EXTENSIONS: Tuple[str, ...] = (".json", ".yaml", ".yml")
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
+from .auth import AuthManager
 
 
 class AgentTrainingDataGenerator:
@@ -82,20 +73,11 @@ class AgentTrainingDataGenerator:
         api_graph = ApiGraph(specs)
         tool_catalog = api_graph.tool_catalog()
         if self.config.require_auth_for_protected_tools and not self.config.auth:
-            protected_schemes = sorted(
-                {
-                    scheme
-                    for tool in tool_catalog
-                    for requirement in tool.security
-                    if isinstance(requirement, dict)
-                    for scheme in requirement.keys()
-                }
-            )
+            protected_schemes = sorted({scheme for tool in tool_catalog for requirement in tool.security if isinstance(requirement, dict) for scheme in requirement.keys()})
             if protected_schemes:
                 raise RuntimeError(
                     "Authentication is required for the loaded API specifications. "
-                    "Provide credentials for the following security schemes via AgentGenerationConfig.auth: "
-                    + ", ".join(protected_schemes)
+                    "Provide credentials for the following security schemes via AgentGenerationConfig.auth: " + ", ".join(protected_schemes)
                 )
         auth_manager = AuthManager(self.config.auth)
         tool_registry = ToolRegistry(
@@ -115,9 +97,7 @@ class AgentTrainingDataGenerator:
 
         tracker: Optional[AgentProgressTracker] = None
         if self.config.checkpoint_path:
-            tracker = AgentProgressTracker(
-                self.config.checkpoint_path, resume=self.config.resume_from_checkpoint
-            )
+            tracker = AgentProgressTracker(self.config.checkpoint_path, resume=self.config.resume_from_checkpoint)
 
         questions = self.question_generator.generate(api_graph, self.monitor)
         episodes: List[AgentEpisode] = []
@@ -302,13 +282,7 @@ def episode_to_sharegpt(
         question.get("prompt")
         or question.get("question")
         or next(
-            (
-                turn.get("content")
-                for turn in (episode.get("turns") or [])
-                if isinstance(turn, dict)
-                and turn.get("role") == "user"
-                and turn.get("content")
-            ),
+            (turn.get("content") for turn in (episode.get("turns") or []) if isinstance(turn, dict) and turn.get("role") == "user" and turn.get("content")),
             "",
         )
     )
@@ -335,14 +309,7 @@ def episode_to_sharegpt(
     final_answer = ensure_text(episode.get("final_answer"))
     if not final_answer:
         fallback = next(
-            (
-                turn.get("content")
-                for turn in reversed(episode.get("turns") or [])
-                if isinstance(turn, dict)
-                and turn.get("role") == "assistant"
-                and turn.get("content")
-                and not turn.get("tool_name")
-            ),
+            (turn.get("content") for turn in reversed(episode.get("turns") or []) if isinstance(turn, dict) and turn.get("role") == "assistant" and turn.get("content") and not turn.get("tool_name")),
             "",
         )
         final_answer = ensure_text(fallback)

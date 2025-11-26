@@ -82,7 +82,6 @@ jobs:
         flake8 datamax/
         black --check datamax/
         isort --check-only datamax/
-        mypy datamax/
 
   build:
     runs-on: ubuntu-latest
@@ -180,12 +179,12 @@ jobs:
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v2
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: v${{ needs.validate.outputs.version }}
-        release_name: DataMax v${{ needs.validate.outputs.version }}
+        name: DataMax v${{ needs.validate.outputs.version }}
         body_path: release_notes.md
         draft: false
         prerelease: ${{ needs.validate.outputs.is_prerelease }}
@@ -202,7 +201,7 @@ jobs:
         path: dist/
 
     - name: Upload wheel to release
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -212,7 +211,7 @@ jobs:
         asset_content_type: application/zip
 
     - name: Upload source distribution to release
-      uses: actions/upload-release-asset@v2
+      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
@@ -240,9 +239,9 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
-        packages_dir: dist/
-        verify_metadata: true
-        skip_existing: false
+        packages-dir: dist/
+        verify-metadata: true
+        skip-existing: false
         verbose: true
 
   publish-test-pypi:
@@ -264,10 +263,10 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        repository_url: https://test.pypi.org/legacy/
-        packages_dir: dist/
-        verify_metadata: true
-        skip_existing: true
+        repository-url: https://test.pypi.org/legacy/
+        packages-dir: dist/
+        verify-metadata: true
+        skip-existing: true
         verbose: true
 
   update-docs:

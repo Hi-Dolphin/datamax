@@ -81,6 +81,8 @@ def crawl(ctx, target, output, format, storage, config, engine, async_mode):
 
         storage_adapter = create_storage_adapter(storage_config)
 
+        # Create factory with config
+        factory = CrawlerFactory(config=crawler_config)
         if not ctx.obj.get("quiet"):
             click.echo(f"Crawling target: {target}")
             if engine == "auto":
@@ -385,7 +387,7 @@ def web(
                     for i, res in enumerate(results[:3]):  # Show first 3 results
                         title = res.get("title", "No title")
                         url = res.get("url", "No URL")
-                        click.echo(f"  {i+1}. {title}")
+                        click.echo(f"  {i + 1}. {title}")
                         click.echo(f"     {url}")
             else:
                 text_length = len(result.get("text_content", ""))
@@ -746,7 +748,7 @@ def qa(
 
         if not ctx.obj.get("quiet"):
             qa_count = len(result.get("qa_pairs", []))
-            click.echo(f"QA generation completed successfully!")
+            click.echo("QA generation completed successfully!")
             click.echo(f"Generated {qa_count} QA pairs")
             click.echo(f"Results saved to: {saved_path}")
 
@@ -825,7 +827,7 @@ def multimodal(
 
         if not ctx.obj.get("quiet"):
             qa_count = len(result)
-            click.echo(f"Multimodal QA generation completed successfully!")
+            click.echo("Multimodal QA generation completed successfully!")
             click.echo(f"Generated {qa_count} QA pairs")
             click.echo(f"Results saved to: {saved_path}")
 
@@ -948,7 +950,7 @@ def parse(
             click.echo(f"Output will be saved to: {output_file}")
 
         # Parse the file
-        result = parser.parse_file(
+        _ = parser.parse_file(
             input_file=input_file,
             output_file=output_file,
             format=format,
@@ -1075,7 +1077,7 @@ def batch(
         if not ctx.obj.get("verbose") and not ctx.obj.get("quiet"):
             successful = len([r for r in results if r.get("success", False)])
             failed = len(results) - successful
-            click.echo(f"\n📊 Batch processing completed!")
+            click.echo("\n📊 Batch processing completed!")
             click.echo(f"   ✅ Successful: {successful}")
             click.echo(f"   ❌ Failed: {failed}")
             click.echo(f"   📁 Results saved to: {output_dir}")

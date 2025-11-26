@@ -281,15 +281,7 @@ class UnoManager:
         output_format: str,
         filter_name: str | None = None,
     ):
-        """
-        Convert document format.
-
-        Args:
-            input_path: Input file path
-            output_path: Output file path
-            output_format: Output format (e.g., 'txt', 'pdf', 'docx', etc.)
-            filter_name: Filter name (optional)
-        """
+        """Convert document format."""
         logger.info(
             f"Converting document: {input_path} -> {output_path} ({output_format})"
         )
@@ -298,86 +290,94 @@ class UnoManager:
             if document is None:
                 raise Exception(f"Unable to open document: {input_path}")
 
-            # Prepare output properties
-            properties = []
-
-            # Set filter
-            if filter_name:
-                properties.append(self._make_property("FilterName", filter_name))
-            else:
-                # Select filter by format
-                if output_format == "txt":
-                    # Multiple filters for different text formats
-                    filter_options = [
-                        ("Text (encoded)", "UTF8"),
-                        ("Text", None),
-                        ("HTML (StarWriter)", None),
-                    ]
-
-                    # Ensure output directory exists before trying filters
-                    output_dir = os.path.dirname(output_path)
-                    if output_dir and not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-
-                    success = False
-                    for filter_name, filter_option in filter_options:
-                        try:
-                            properties = []
-                            properties.append(
-                                self._make_property("FilterName", filter_name)
-                            )
-                            if filter_option:
-                                properties.append(
-                                    self._make_property("FilterOptions", filter_option)
-                                )
-
-                            # Convert to URL
-                            output_url = uno.systemPathToFileUrl(
-                                os.path.abspath(output_path)
-                            )
-
-                            # Convert document
-                            document.storeToURL(output_url, properties)
-                            logger.info(
-                                f"Document conversion successful (using filter: {filter_name}): {output_path}"
-                            )
-                            success = True
-                            break
-                        except Exception as e:
-                            logger.debug(f"Filter {filter_name} failed: {e}")
-                            continue
-
-                    if not success:
-                        raise Exception(
-                            f"All text filters failed, unable to convert document: {input_path}"
-                        )
-
-                    return  # Conversion complete
-                else:
-                    # Other formats use default filters
-                    filter_map = {
-                        "pdf": "writer_pdf_Export",
-                        "docx": "MS Word 2007 XML",
-                        "pptx": "Impress MS PowerPoint 2007 XML",
-                        "xlsx": "Calc MS Excel 2007 XML",
-                    }
-                    if output_format in filter_map:
-                        properties.append(
-                            self._make_property("FilterName", filter_map[output_format])
-                        )
-
             # Ensure output directory exists
-            output_dir = os.path.dirname(output_path)
-            if output_dir and not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            self._ensure_output_dir(output_path)
 
-            # Convert to URL
+            # Prepare properties (or early convert for txt)
+            properties = self._build_properties(
+                output_format, filter_name, output_path, document
+            )
+            if properties is None:
+                # txt 格式已完成转换
+                return
+
+            # Convert normally
             output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
-
-            # Convert document
             document.storeToURL(output_url, properties)
             logger.info(f"Document conversion successful: {output_path}")
 
+    # ============================================================
+    # Helper functions
+    # ============================================================
+
+    def _ensure_output_dir(self, output_path: str):
+        """Ensure output directory exists."""
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+    def _build_properties(
+        self,
+        output_format: str,
+        filter_name: str | None,
+        output_path: str,
+        document,
+    ):
+        """Build property list or run text-filters conversion."""
+        if filter_name:
+            return [self._make_property("FilterName", filter_name)]
+
+        if output_format == "txt":
+            # Try multiple text filters → conversion happens inside
+            return self._try_text_filters(output_path, document)
+
+        # Other formats
+        return self._properties_for_standard_format(output_format)
+
+    def _try_text_filters(self, output_path: str, document):
+        """Try multiple text filters; on success convert and return None."""
+        filter_options = [
+            ("Text (encoded)", "UTF8"),
+            ("Text", None),
+            ("HTML (StarWriter)", None),
+        ]
+
+        self._ensure_output_dir(output_path)
+        output_url = uno.systemPathToFileUrl(os.path.abspath(output_path))
+
+        for fname, fopt in filter_options:
+            try:
+                props = [self._make_property("FilterName", fname)]
+                if fopt:
+                    props.append(self._make_property("FilterOptions", fopt))
+
+                document.storeToURL(output_url, props)
+                logger.info(
+                    f"Document conversion successful (filter: {fname}): {output_path}"
+                )
+                return None  # Conversion done
+            except Exception as e:
+                logger.debug(f"Filter {fname} failed: {e}")
+
+        raise Exception(f"All text filters failed for: {output_path}")
+
+    def _properties_for_standard_format(self, output_format: str):
+        """Build filterName for standard formats."""
+        filter_map = {
+            "pdf": "writer_pdf_Export",
+            "docx": "MS Word 2007 XML",
+            "pptx": "Impress MS PowerPoint 2007 XML",
+            "xlsx": "Calc MS Excel 2007 XML",
+        }
+
+        if output_format in filter_map:
+            return [self._make_property("FilterName", filter_map[output_format])]
+
+        return []  # No special filter → default conversion
+
+    # ============================================================
+    # Basic utility
+    # ============================================================
     def _make_property(self, name: str, value):
         """Create a property object"""
         prop = PropertyValue()

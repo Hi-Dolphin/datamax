@@ -79,9 +79,6 @@ python -m pytest
 
 # Check code style
 make lint
-
-# Run type checking
-mypy datamax/
 ```
 
 ## Contributing Process
@@ -155,12 +152,6 @@ isort datamax/
 flake8 datamax/
 ```
 
-### Type Checking
-
-```bash
-# Run mypy for type checking
-mypy datamax/
-```
 
 ### Example Code Style
 

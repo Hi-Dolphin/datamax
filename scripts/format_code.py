@@ -8,6 +8,7 @@ import sys
 import argparse
 from pathlib import Path
 
+
 def run_command(cmd, description):
     """运行命令并显示结果"""
     print(f"\n🔄 {description}...")
@@ -26,21 +27,21 @@ def run_command(cmd, description):
         return False
     return True
 
+
 def main():
-    parser = argparse.ArgumentParser(description='代码格式化和检查工具')
-    parser.add_argument('--check-only', action='store_true', 
-                       help='仅检查，不自动修复')
+    parser = argparse.ArgumentParser(description="代码格式化和检查工具")
+    parser.add_argument("--check-only", action="store_true", help="仅检查，不自动修复")
     args = parser.parse_args()
-    
+
     # 确保在项目根目录
     project_root = Path(__file__).parent.parent
     sys.path.insert(0, str(project_root))
-    
+
     print("🚀 DataMax 代码质量工具")
     print("=" * 50)
-    
+
     success = True
-    
+
     if args.check_only:
         # 仅检查模式
         commands = [
@@ -57,11 +58,11 @@ def main():
             ("autopep8 --in-place --recursive datamax/", "AutoPEP8自动修复"),
             ("flake8 datamax/ --max-line-length=88 --extend-ignore=E203,W503", "Flake8最终检查"),
         ]
-    
+
     for cmd, desc in commands:
         if not run_command(cmd, desc):
             success = False
-    
+
     print("\n" + "=" * 50)
     if success:
         print("🎉 所有检查通过！代码质量良好。")
@@ -69,5 +70,6 @@ def main():
         print("⚠️ 发现问题，请查看上述输出并修复。")
         sys.exit(1)
 
+
 if __name__ == "__main__":
-    main() 
+    main()

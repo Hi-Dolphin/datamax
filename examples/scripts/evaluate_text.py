@@ -2,6 +2,7 @@
 Evaluate generated text quality with BERTScore.
 Requires bert-score installed.
 """
+
 from datamax.evaluator import TextQualityEvaluator
 
 
@@ -15,4 +16,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

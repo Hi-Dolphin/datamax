@@ -1,6 +1,7 @@
 """
 Parse a single file with DataMax and print summary.
 """
+
 from datamax import DataMax
 
 
@@ -19,4 +20,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

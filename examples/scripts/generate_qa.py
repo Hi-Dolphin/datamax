@@ -10,10 +10,19 @@ from pathlib import Path
 from datamax import DataMax
 from datamax.loader.core import DataLoader
 
-api_key = os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
-base_url = os.getenv("DASHSCOPE_BASE_URL", "YOUR BASE URL")
-model = os.getenv("QA_MODEL", "YOUR QA MODEL")
+# choose local or obs
 qa_input_source = os.getenv("QA_INPUT_SOURCE", "local").lower()
+
+# local
+root_dir = Path(os.getenv("DATAMAX_ROOT", "/mnt/f/datamax"))
+if not root_dir.is_absolute():
+    root_dir = Path(__file__).resolve().parents[2] / root_dir
+train_dir_name = "train"
+local_dataset_dir = root_dir / "data" / "Step1"
+default_obs_download_dir = root_dir / "obs_downloads"
+save_parent_path = root_dir / train_dir_name
+
+# obs
 obs_endpoint = os.getenv("OBS_ENDPOINT")
 obs_access_key = os.getenv("OBS_ACCESS_KEY_ID")
 obs_secret_key = os.getenv("OBS_ACCESS_KEY_SECRET")
@@ -21,15 +30,10 @@ obs_bucket_name = os.getenv("OBS_BUCKET_NAME")
 obs_download_dir_env = os.getenv("OBS_DOWNLOAD_DIR")
 obs_prefix = os.getenv("OBS_PREFIX", "")
 
-root_dir = Path(os.getenv("DATAMAX_ROOT", "/mnt/f/datamax"))
-if not root_dir.is_absolute():
-    root_dir = Path(__file__).resolve().parents[2] / root_dir
-
-train_dir_name = "train"
-local_dataset_dir = root_dir / "data" / "Step1"
-default_obs_download_dir = root_dir / "obs_downloads"
-
-save_parent_path = root_dir / train_dir_name
+# model
+api_key = os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
+base_url = os.getenv("DASHSCOPE_BASE_URL", "YOUR BASE URL")
+model = os.getenv("QA_MODEL", "YOUR QA MODEL")
 
 
 def discover_local_files() -> list[Path]:
@@ -114,12 +118,12 @@ def main() -> None:
             api_key=api_key,
             base_url=base_url,
             model_name=model,
-            question_number=50,  # question_number_per_chunk
-            max_qps=100.0,
+            question_number=10,  # question_number_per_chunk
+            max_qps=10.0,
             debug=False,
             structured_data=True,  # enable structured output
-            auto_self_review_mode=True,
-            review_max_qps=100.0,
+            auto_self_review_mode=True,  # auto save score is 4 and 5, drop score is 1, 2 and 3.
+            review_max_qps=10.0,
         )
 
         dm.save_label_data(qa, str(save_path))

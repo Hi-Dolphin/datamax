@@ -8,7 +8,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 import requests
 from loguru import logger
@@ -96,8 +96,7 @@ class OAuthClientCredentialsProvider(AuthProvider):
             self._token_cache[scope_key] = (token, expires_at)
             return token
 
-    def _fetch_token(self, scope_key: Tuple[str, ...]) -> Tuple[str, float]:
-        token_url = self._resolve_token_url()
+    def _build_request_data(self, scope_key: Tuple[str, ...]) -> Dict[str, str]:
         data = {
             "grant_type": "client_credentials",
             "client_id": self.client_id,
@@ -111,39 +110,60 @@ class OAuthClientCredentialsProvider(AuthProvider):
             data.setdefault("tenant_id", self.tenant_id)
         if self.extra_params:
             data.update(self.extra_params)
+        return data
 
+    def _build_request_headers(self) -> Dict[str, str]:
         headers = {"Accept": "application/json"}
         if self.extra_headers:
             headers.update(self.extra_headers)
+        return headers
 
-        response = requests.post(token_url, data=data, headers=headers, timeout=self.timeout)
+    def _request_token(
+        self, token_url: str, data: Dict[str, str], headers: Dict[str, str]
+    ) -> requests.Response:
+        response = requests.post(
+            token_url, data=data, headers=headers, timeout=self.timeout
+        )
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:  # pragma: no cover - defensive logging
-            logger.error(f"OAuth token request failed for provider '{self.name}': {exc}")
+            logger.error(
+                f"OAuth token request failed for provider '{self.name}': {exc}"
+            )
             raise
+        return response
 
+    def _parse_json_response(self, response: requests.Response) -> Dict[str, Any]:
         try:
-            payload = response.json()
+            return response.json()
         except ValueError as exc:
             raise RuntimeError("OAuth token response is not valid JSON") from exc
 
+    def _extract_token(self, payload: Dict[str, Any]) -> str:
         token = payload.get(self.token_field)
         if not token:
             raise RuntimeError(
                 f"OAuth token response missing '{self.token_field}' field for provider '{self.name}'"
             )
+        return str(token)
+
+    def _compute_expiration(self, payload: Dict[str, Any]) -> float:
         expires_in = payload.get("expires_in")
         if isinstance(expires_in, (int, float)):
-            expires_at = time.time() + float(expires_in) - 30.0
-        else:
-            expires_at = time.time() + 300.0
-        return str(token), expires_at
+            return time.time() + float(expires_in) - 30.0
+        return time.time() + 300.0
 
-    def _resolve_token_url(self) -> str:
-        if "{tenant_id}" in self.token_url and self.tenant_id:
-            return self.token_url.replace("{tenant_id}", self.tenant_id)
-        return self.token_url
+    def _fetch_token(self, scope_key: Tuple[str, ...]) -> Tuple[str, float]:
+        token_url = self._resolve_token_url()
+        data = self._build_request_data(scope_key)
+        headers = self._build_request_headers()
+
+        response = self._request_token(token_url, data, headers)
+        payload = self._parse_json_response(response)
+        token = self._extract_token(payload)
+
+        expires_at = self._compute_expiration(payload)
+        return token, expires_at
 
 
 class UrlKeyAuthProvider(AuthProvider):
@@ -173,7 +193,11 @@ class UrlKeyAuthProvider(AuthProvider):
 
         if scheme and not name:
             name = scheme.get("name") or name
-        if scheme and header_name is None and (scheme.get("in") or "").lower() == "header":
+        if (
+            scheme
+            and header_name is None
+            and (scheme.get("in") or "").lower() == "header"
+        ):
             header_name = scheme.get("name")
         if not name and not header_name:
             raise RuntimeError(
@@ -193,7 +217,9 @@ class UrlKeyAuthProvider(AuthProvider):
 class BasicAuthProvider(AuthProvider):
     def __init__(self, name: str, username: str, password: str):
         super().__init__(name)
-        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("utf-8")
+        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode(
+            "utf-8"
+        )
         self._header = {"Authorization": f"Basic {token}"}
 
     def get_context(
@@ -216,13 +242,17 @@ class AuthManager:
 
         options = {}
         if isinstance(config, dict):
-            options = config.get("options") if isinstance(config.get("options"), dict) else {}
+            options = (
+                config.get("options") if isinstance(config.get("options"), dict) else {}
+            )
             providers_block = config.get("providers")
             if isinstance(providers_block, dict):
                 items = providers_block.items()
             else:
                 reserved = {"default", "options", "providers"}
-                items = ((name, cfg) for name, cfg in config.items() if name not in reserved)
+                items = (
+                    (name, cfg) for name, cfg in config.items() if name not in reserved
+                )
             self._default_provider_name = config.get("default")
         else:
             items = []
@@ -244,7 +274,10 @@ class AuthManager:
                         )
                     self._scheme_to_provider[scheme_name] = name
 
-        if self._default_provider_name and self._default_provider_name not in self._providers:
+        if (
+            self._default_provider_name
+            and self._default_provider_name not in self._providers
+        ):
             logger.warning(
                 "Default auth provider '%s' is not defined; ignoring default.",
                 self._default_provider_name,
@@ -333,7 +366,9 @@ class AuthManager:
                         requirement_supported = False
                         missing_schemes.append(scheme_name)
                         continue
-                    scheme_def = security_schemes.get(scheme_name) if security_schemes else None
+                    scheme_def = (
+                        security_schemes.get(scheme_name) if security_schemes else None
+                    )
                     context = provider.get_context(scopes=scopes, scheme=scheme_def)
                     requirement_context.merge(context)
                 if requirement_supported:
@@ -346,7 +381,11 @@ class AuthManager:
                     f"No auth provider configured for required security schemes: {unique_missing}."
                 )
 
-        default_provider = self._providers.get(self._default_provider_name) if self._default_provider_name else None
+        default_provider = (
+            self._providers.get(self._default_provider_name)
+            if self._default_provider_name
+            else None
+        )
         if default_provider:
             return default_provider.get_context()
         return AuthContext()

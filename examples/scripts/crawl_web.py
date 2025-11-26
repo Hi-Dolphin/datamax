@@ -1,6 +1,7 @@
 """
 Crawl a web page or search query and save result to a file.
 """
+
 import json
 from datamax.crawler import crawl
 
@@ -17,4 +18,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -130,7 +130,7 @@ class ParserCLI:
             result = datamax.get_data()
 
             if self.verbose:
-                logger.info(f"Parsing completed successfully")
+                logger.info("Parsing completed successfully")
 
             # Save result if output file specified
             if output_file:
@@ -277,13 +277,13 @@ class ParserCLI:
             failed = len(results) - successful
 
             if self.verbose or not continue_on_error:
-                click.echo(f"\n📊 Batch Processing Summary:")
+                click.echo("\n📊 Batch Processing Summary:")
                 click.echo(f"   📁 Files processed: {len(results)}")
                 click.echo(f"   ✅ Successful: {successful}")
                 click.echo(f"   ❌ Failed: {failed}")
                 click.echo(f"   ⏱️  Total time: {total_time:.2f}s")
                 click.echo(
-                    f"   📈 Average speed: {len(results)/total_time:.2f} files/s"
+                    f"   📈 Average speed: {len(results) / total_time:.2f} files/s"
                 )
 
             return results

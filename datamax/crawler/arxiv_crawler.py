@@ -150,96 +150,63 @@ class ArxivCrawler(BaseCrawler):
                 await asyncio.sleep(2**attempt)
 
     def _parse_arxiv_response(self, xml_content: str) -> Dict[str, Any]:
-        """Parse ArXiv API XML response.
-
-        Args:
-            xml_content: XML response from ArXiv API
-
-        Returns:
-            Parsed paper metadata
-
-        Raises:
-            ParseException: If XML parsing fails
-        """
+        """Parse ArXiv API XML response."""
         try:
             root = ET.fromstring(xml_content)
-
-            # Define namespaces
-            namespaces = {
-                "atom": "http://www.w3.org/2005/Atom",
-                "arxiv": "http://arxiv.org/schemas/atom",
-            }
-
-            entry = root.find("atom:entry", namespaces)
-            if entry is None:
-                raise ParseException("No entry found in ArXiv response")
-
-            # Extract basic information
-            title = entry.find("atom:title", namespaces)
-            title_text = title.text.strip() if title is not None else "Unknown Title"
-
-            summary = entry.find("atom:summary", namespaces)
-            summary_text = summary.text.strip() if summary is not None else ""
-
-            # Extract authors
-            authors = []
-            for author in entry.findall("atom:author", namespaces):
-                name_elem = author.find("atom:name", namespaces)
-                if name_elem is not None:
-                    authors.append(name_elem.text.strip())
-
-            # Extract categories
-            categories = []
-            for category in entry.findall("atom:category", namespaces):
-                term = category.get("term")
-                if term:
-                    categories.append(term)
-
-            # Extract dates
-            published = entry.find("atom:published", namespaces)
-            published_date = published.text if published is not None else None
-
-            updated = entry.find("atom:updated", namespaces)
-            updated_date = updated.text if updated is not None else None
-
-            # Extract ArXiv ID
-            id_elem = entry.find("atom:id", namespaces)
-            arxiv_id = None
-            if id_elem is not None:
-                id_url = id_elem.text
-                arxiv_id = id_url.split("/")[-1] if id_url else None
-
-            # Extract PDF link
-            pdf_url = None
-            for link in entry.findall("atom:link", namespaces):
-                if link.get("type") == "application/pdf":
-                    pdf_url = link.get("href")
-                    break
-
-            # Extract DOI if available
-            doi = None
-            doi_elem = entry.find("arxiv:doi", namespaces)
-            if doi_elem is not None:
-                doi = doi_elem.text
-
-            return {
-                "arxiv_id": arxiv_id,
-                "title": title_text,
-                "authors": authors,
-                "summary": summary_text,
-                "categories": categories,
-                "published_date": published_date,
-                "updated_date": updated_date,
-                "pdf_url": pdf_url,
-                "doi": doi,
-                "source": "arxiv",
-                "crawled_at": datetime.now().isoformat(),
-            }
-
         except ET.ParseError as e:
             raise ParseException(f"Failed to parse ArXiv XML response: {str(e)}")
-        except Exception as e:
-            raise ParseException(f"Error processing ArXiv response: {str(e)}")
+
+        namespaces = {
+            "atom": "http://www.w3.org/2005/Atom",
+            "arxiv": "http://arxiv.org/schemas/atom",
+        }
+
+        entry = root.find("atom:entry", namespaces)
+        if entry is None:
+            raise ParseException("No entry found in ArXiv response")
+
+        return {
+            "arxiv_id": self._extract_arxiv_id(entry, namespaces),
+            "title": self._extract_text(
+                entry, "atom:title", namespaces, default="Unknown Title"
+            ),
+            "authors": self._extract_authors(entry, namespaces),
+            "summary": self._extract_text(
+                entry, "atom:summary", namespaces, default=""
+            ),
+            "categories": self._extract_categories(entry, namespaces),
+            "published_date": self._extract_text(entry, "atom:published", namespaces),
+            "updated_date": self._extract_text(entry, "atom:updated", namespaces),
+            "pdf_url": self._extract_pdf_url(entry, namespaces),
+            "doi": self._extract_text(entry, "arxiv:doi", namespaces),
+            "source": "arxiv",
+            "crawled_at": datetime.now().isoformat(),
+        }
+
+    def _extract_text(self, parent, path, ns, default=None):
+        elem = parent.find(path, ns)
+        return elem.text.strip() if elem is not None and elem.text else default
+
+    def _extract_authors(self, entry, ns):
+        authors = []
+        for author in entry.findall("atom:author", ns):
+            name = self._extract_text(author, "atom:name", ns)
+            if name:
+                authors.append(name)
+        return authors
+
+    def _extract_categories(self, entry, ns):
+        return [
+            cat.get("term")
+            for cat in entry.findall("atom:category", ns)
+            if cat.get("term")
+        ]
+
+    def _extract_pdf_url(self, entry, ns):
+        for link in entry.findall("atom:link", ns):
+            if link.get("type") == "application/pdf":
+                return link.get("href")
+        return None
 
     async def _search_papers(
         self, query: str, max_results: int = 10

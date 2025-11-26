@@ -3,17 +3,17 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Literal, TypedDict, overload, cast, Any
+from typing import Any, Literal, TypedDict, cast, overload
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 
 import datamax.generator.qa_generator as qa_generator
 from datamax.cleaner import data_cleaner
-from datamax.parser.base import BaseLife
-from datamax.utils.lifecycle_types import LifeType
-from datamax.utils.debug_logger import DebugContext
 from datamax.generator import PerformanceMonitor
+from datamax.parser.base import BaseLife
+from datamax.utils.debug_logger import DebugContext
+from datamax.utils.lifecycle_types import LifeType
 
 
 class LifecycleMetadata(TypedDict):
@@ -41,30 +41,18 @@ class ParsedDocument(TypedDict, total=False):
 class ParsedDataList(list[ParsedDocument]):
     """List wrapper that exposes dict-like get access for tooling."""
 
-    @overload
-    def get(self, key: Literal["content"], default: str | None = None) -> str | None:
-        ...
-
-    @overload
-    def get(self, key: Literal["extension"], default: str | None = None) -> str | None:
-        ...
-
-    @overload
     def get(
-        self, key: Literal["lifecycle"], default: list[LifecycleRecord] | None = None
-    ) -> list[LifecycleRecord] | None:
-        ...
-
-    @overload
-    def get(self, key: str, default: ParsedFieldValue | None = None) -> ParsedFieldValue | None:
-        ...
-
-    def get(self, key: str, default: ParsedFieldValue | None = None) -> ParsedFieldValue | None:
+        self,
+        key: str,
+        default: ParsedFieldValue | None = None,
+    ) -> ParsedFieldValue | None:
         if not self:
             return default
+
         first = self[0]
         if key not in first:
             return default
+
         value = first[key]
         return cast(ParsedFieldValue, value)
 
@@ -150,7 +138,7 @@ class ParserFactory:
             ".xlsx": "XlsxParser",
             ".xls": "XlsParser",
             ".csv": "CsvParser",
-            ".json": "JsonParser"
+            ".json": "JsonParser",
         }
         for ext, class_name in document_parsers.items():
             module_name = f"datamax.parser.{ext[1:]}_parser"
@@ -303,7 +291,9 @@ class DataMax(BaseLife):
                         }
                         res_data = self._parse_file(f)
                         if res_data is None:
-                            logger.warning(f"[Parse Warning] Parser returned no data for {file_name}, skipping.")
+                            logger.warning(
+                                f"[Parse Warning] Parser returned no data for {file_name}, skipping."
+                            )
                             continue
                         parsed_value = cast(ParsedData, res_data)
                         parsed_items.append(parsed_value)
@@ -330,7 +320,9 @@ class DataMax(BaseLife):
                     }
                     parsed_data = self._parse_file(self.file_path)
                     if parsed_data is None:
-                        raise ValueError(f"Parser returned no data for {self.file_path}.")
+                        raise ValueError(
+                            f"Parser returned no data for {self.file_path}."
+                        )
                     if isinstance(parsed_data, list):
                         parsed_list = ParsedDataList(parsed_data)
                         self.parsed_data = parsed_list
@@ -368,7 +360,9 @@ class DataMax(BaseLife):
                             }
                             res_data = self._parse_file(f)
                             if res_data is None:
-                                logger.warning(f"[Parse Warning] Parser returned no data for {file_name}, skipping.")
+                                logger.warning(
+                                    f"[Parse Warning] Parser returned no data for {file_name}, skipping."
+                                )
                                 continue
                             parsed_value = cast(ParsedData, res_data)
                             parsed_items.append(parsed_value)
@@ -390,12 +384,15 @@ class DataMax(BaseLife):
 
         :return: Cleaned data
         """
+
         def _require_str(value: Any, label: str) -> str:
             if isinstance(value, str):
                 return value
             if value is None:
                 raise ValueError(f"{label} produced no text.")
-            raise TypeError(f"{label} expected string output, got {type(value).__name__}")
+            raise TypeError(
+                f"{label} expected string output, got {type(value).__name__}"
+            )
 
         # 1) Prepare original content
         if text is not None:
@@ -431,10 +428,7 @@ class DataMax(BaseLife):
             # 3) Execute cleaning steps
             for method in method_list:
                 if method == "abnormal":
-                    result = (
-                        data_cleaner.AbnormalCleaner(cleaned_text)
-                        .to_clean()
-                    )
+                    result = data_cleaner.AbnormalCleaner(cleaned_text).to_clean()
                     cleaned_text = _require_str(
                         result.get("text"),
                         "AbnormalCleaner",
@@ -446,10 +440,9 @@ class DataMax(BaseLife):
                         "TextFilter",
                     )
                 elif method == "private":
-                    result = (
-                        data_cleaner.PrivacyDesensitization(cleaned_text)
-                        .to_private()
-                    )
+                    result = data_cleaner.PrivacyDesensitization(
+                        cleaned_text
+                    ).to_private()
                     cleaned_text = _require_str(
                         result.get("text"),
                         "PrivacyDesensitization",
@@ -466,7 +459,7 @@ class DataMax(BaseLife):
                 ).to_dict(),
             )
 
-        except Exception as e:
+        except Exception:
             # 5) Cleaning failed, trigger "cleaning failed"
             lc_fail = cast(
                 LifecycleRecord,
@@ -512,6 +505,7 @@ class DataMax(BaseLife):
             2. Only add version if not already present in path
         """
         from datamax.generator.qa_generator import complete_api_url
+
         return complete_api_url(base_url)
 
     def get_pre_label(
@@ -528,7 +522,7 @@ class DataMax(BaseLife):
         max_qps: float = 5.0,
         language: str = "zh",
         use_tree_label: bool = False,
-        messages: list | None= None,
+        messages: list | None = None,
         interactive_tree: bool = False,
         custom_domain_tree: list[dict[str, Any]] | None = None,
         debug: bool = False,
@@ -588,8 +582,6 @@ class DataMax(BaseLife):
                            or a shorthand string backend ("langgraph", "openai").
         :return: List of QA pairs
         """
-        import datamax.generator.qa_generator as qa_generator
-
         # Initialize debug context
         dbg = DebugContext(enabled=debug, context_name="get_pre_label")
         perf_monitor = PerformanceMonitor()
@@ -691,7 +683,11 @@ class DataMax(BaseLife):
             return "\n".join(table_lines)
 
         def _record_performance(target):
-            if isinstance(target, dict) and "performance" in target and target["performance"]:
+            if (
+                isinstance(target, dict)
+                and "performance" in target
+                and target["performance"]
+            ):
                 report = target["performance"]
                 if isinstance(report, dict):
                     self.last_performance_report = report
@@ -700,7 +696,10 @@ class DataMax(BaseLife):
                     self.llm_call_records = call_records
                     self.llm_call_qa_pairs = call_qa_pairs
                     _log_performance_report(report)
-                    logger.info("\n📊 Performance Summary\n{}", _format_performance_table(report))
+                    logger.info(
+                        "\n📊 Performance Summary\n{}",
+                        _format_performance_table(report),
+                    )
                     return report
             report = perf_monitor.build_report()
             self.last_performance_report = report
@@ -713,7 +712,9 @@ class DataMax(BaseLife):
                 target["llm_call_records"] = call_records
                 target["llm_call_qa_pairs"] = call_qa_pairs
             _log_performance_report(report)
-            logger.info("\n📊 Performance Summary\n{}", _format_performance_table(report))
+            logger.info(
+                "\n📊 Performance Summary\n{}", _format_performance_table(report)
+            )
             return report
 
         agent_mode_config: dict[str, Any] = {}
@@ -722,7 +723,11 @@ class DataMax(BaseLife):
         if isinstance(agent_mode, dict):
             agent_mode_config = dict(agent_mode)
             enabled_flag = agent_mode_config.get("enabled")
-            agent_mode_enabled = bool(enabled_flag) if enabled_flag is not None else bool(agent_mode_config)
+            agent_mode_enabled = (
+                bool(enabled_flag)
+                if enabled_flag is not None
+                else bool(agent_mode_config)
+            )
             mode_value = agent_mode_config.get("mode") or agent_mode_config.get("type")
             if isinstance(mode_value, str) and mode_value.lower() == "agent":
                 agent_mode_enabled = True
@@ -737,7 +742,11 @@ class DataMax(BaseLife):
             normalized_mode = agent_mode.strip().lower()
             if normalized_mode and normalized_mode not in {"qa", "none", "disabled"}:
                 agent_mode_enabled = True
-                agent_backend = normalized_mode if normalized_mode in {"langgraph", "openai"} else "langgraph"
+                agent_backend = (
+                    normalized_mode
+                    if normalized_mode in {"langgraph", "openai"}
+                    else "langgraph"
+                )
                 agent_mode_config = {"agent_backend": agent_backend}
         elif agent_mode is True:
             agent_mode_enabled = True
@@ -745,17 +754,19 @@ class DataMax(BaseLife):
             agent_mode_config = {}
 
         if agent_backend not in {"langgraph", "openai"}:
-            dbg.log(f"Unrecognized agent backend '{agent_backend}', defaulting to 'langgraph'")
+            dbg.log(
+                f"Unrecognized agent backend '{agent_backend}', defaulting to 'langgraph'"
+            )
             agent_backend = "langgraph"
         if agent_mode_enabled:
             agent_mode_config.setdefault("agent_backend", agent_backend)
-        
+
         # Log input parameters
         dbg.log_params(
             content_provided=content is not None,
             content_length=len(content) if content else 0,
             use_mllm=use_mllm,
-            api_key='***' if api_key else None,
+            api_key="***" if api_key else None,
             base_url=base_url,
             model_name=model_name,
             chunk_size=chunk_size,
@@ -788,16 +799,22 @@ class DataMax(BaseLife):
 
                 # Convert to text
                 if isinstance(processed, list):
-                    parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                    parts = [
+                        d["content"] if isinstance(d, dict) else d for d in processed
+                    ]
                     prepared_text = "\n\n".join(parts)
-                    dbg.log(f"Merged {len(parts)} parts, total length: {len(prepared_text)}")
+                    dbg.log(
+                        f"Merged {len(parts)} parts, total length: {len(prepared_text)}"
+                    )
                 elif isinstance(processed, dict):
                     prepared_text = processed.get("content", "")
-                    dbg.log(f"Extracted content from dict, length: {len(prepared_text)}")
+                    dbg.log(
+                        f"Extracted content from dict, length: {len(prepared_text)}"
+                    )
                 else:
                     prepared_text = processed
                     dbg.log(f"Using content as-is, length: {len(prepared_text)}")
-                
+
                 print(prepared_text)
 
         # Add lifecycle marker
@@ -828,7 +845,11 @@ class DataMax(BaseLife):
                     )
 
                     spec_sources: list[Any] = []
-                    configured_sources = agent_mode_config.get("spec_sources") if isinstance(agent_mode_config, dict) else None
+                    configured_sources = (
+                        agent_mode_config.get("spec_sources")
+                        if isinstance(agent_mode_config, dict)
+                        else None
+                    )
                     if isinstance(configured_sources, list):
                         spec_sources.extend(configured_sources)
                     elif configured_sources:
@@ -864,13 +885,19 @@ class DataMax(BaseLife):
                     if min_interval is None and max_qps > 0:
                         min_interval = 1.0 / max_qps
 
-                    agent_question_count = agent_mode_config.get("question_count", question_number)
-                    agent_checkpoint_path = agent_mode_config.get("checkpoint_path", checkpoint_path)
+                    agent_question_count = agent_mode_config.get(
+                        "question_count", question_number
+                    )
+                    agent_checkpoint_path = agent_mode_config.get(
+                        "checkpoint_path", checkpoint_path
+                    )
                     agent_resume_from_checkpoint = agent_mode_config.get(
                         "resume_from_checkpoint", resume_from_checkpoint
                     )
 
-                    default_max_retries = AgentGenerationConfig.__dataclass_fields__["max_retries"].default
+                    default_max_retries = AgentGenerationConfig.__dataclass_fields__[
+                        "max_retries"
+                    ].default
                     max_retries_value = agent_mode_config.get("max_retries")
                     if max_retries_value is None:
                         max_retries_value = default_max_retries
@@ -889,13 +916,17 @@ class DataMax(BaseLife):
                         agent_question_generate_model=agent_mode_config.get(
                             "agent_question_generate_model", model_name
                         ),
-                        classify_model=agent_mode_config.get("classify_model", model_name),
+                        classify_model=agent_mode_config.get(
+                            "classify_model", model_name
+                        ),
                         core_agent_answer_generate_model=agent_mode_config.get(
                             "core_agent_answer_generate_model", model_name
                         ),
                         review_model=agent_mode_config.get("review_model", model_name),
                         question_count=agent_question_count,
-                        max_questions_per_context=agent_mode_config.get("max_questions_per_context", 4),
+                        max_questions_per_context=agent_mode_config.get(
+                            "max_questions_per_context", 4
+                        ),
                         top_k_tools=agent_mode_config.get("top_k_tools", 5),
                         max_turns=agent_mode_config.get("max_turns", 8),
                         langgraph_retry=agent_mode_config.get("langgraph_retry", 1),
@@ -903,15 +934,25 @@ class DataMax(BaseLife):
                         resume_from_checkpoint=agent_resume_from_checkpoint,
                         max_retries=int(max_retries_value),
                         min_request_interval_seconds=min_interval_value,
-                        question_temperature=agent_mode_config.get("question_temperature", 0.5),
-                        classify_temperature=agent_mode_config.get("classify_temperature", 0.3),
-                        agent_temperature=agent_mode_config.get("agent_temperature", 0.7),
-                        review_temperature=agent_mode_config.get("review_temperature", 0.2),
+                        question_temperature=agent_mode_config.get(
+                            "question_temperature", 0.5
+                        ),
+                        classify_temperature=agent_mode_config.get(
+                            "classify_temperature", 0.3
+                        ),
+                        agent_temperature=agent_mode_config.get(
+                            "agent_temperature", 0.7
+                        ),
+                        review_temperature=agent_mode_config.get(
+                            "review_temperature", 0.2
+                        ),
                         max_workers=agent_mode_config.get("max_workers", 4),
                         debug=debug,
                         agent_backend=agent_backend,
                         auth=agent_mode_config.get("auth"),
-                        default_tool_server=agent_mode_config.get("default_tool_server"),
+                        default_tool_server=agent_mode_config.get(
+                            "default_tool_server"
+                        ),
                         tool_request_timeout=float(
                             agent_mode_config.get("tool_request_timeout", 30.0)
                         ),
@@ -923,13 +964,21 @@ class DataMax(BaseLife):
                     if isinstance(min_interval, (int, float)):
                         agent_config.min_request_interval_seconds = float(min_interval)
                     if agent_mode_config.get("question_temperature") is not None:
-                        agent_config.question_temperature = float(agent_mode_config["question_temperature"])
+                        agent_config.question_temperature = float(
+                            agent_mode_config["question_temperature"]
+                        )
                     if agent_mode_config.get("classify_temperature") is not None:
-                        agent_config.classify_temperature = float(agent_mode_config["classify_temperature"])
+                        agent_config.classify_temperature = float(
+                            agent_mode_config["classify_temperature"]
+                        )
                     if agent_mode_config.get("agent_temperature") is not None:
-                        agent_config.agent_temperature = float(agent_mode_config["agent_temperature"])
+                        agent_config.agent_temperature = float(
+                            agent_mode_config["agent_temperature"]
+                        )
                     if agent_mode_config.get("review_temperature") is not None:
-                        agent_config.review_temperature = float(agent_mode_config["review_temperature"])
+                        agent_config.review_temperature = float(
+                            agent_mode_config["review_temperature"]
+                        )
                     if agent_mode_config.get("top_k_tools") is not None:
                         agent_config.top_k_tools = int(agent_mode_config["top_k_tools"])
                     if agent_mode_config.get("max_turns") is not None:
@@ -941,17 +990,26 @@ class DataMax(BaseLife):
                             agent_mode_config["max_questions_per_context"]
                         )
                     if agent_mode_config.get("langgraph_retry") is not None:
-                        agent_config.langgraph_retry = int(agent_mode_config["langgraph_retry"])
+                        agent_config.langgraph_retry = int(
+                            agent_mode_config["langgraph_retry"]
+                        )
                     if agent_mode_config.get("max_retries") is not None:
                         agent_config.max_retries = int(agent_mode_config["max_retries"])
                     if agent_mode_config.get("tool_request_timeout") is not None:
-                        agent_config.tool_request_timeout = float(agent_mode_config["tool_request_timeout"])
-                    if agent_mode_config.get("require_auth_for_protected_tools") is not None:
+                        agent_config.tool_request_timeout = float(
+                            agent_mode_config["tool_request_timeout"]
+                        )
+                    if (
+                        agent_mode_config.get("require_auth_for_protected_tools")
+                        is not None
+                    ):
                         agent_config.require_auth_for_protected_tools = bool(
                             agent_mode_config["require_auth_for_protected_tools"]
                         )
                     if agent_mode_config.get("default_tool_server") is not None:
-                        agent_config.default_tool_server = str(agent_mode_config["default_tool_server"])
+                        agent_config.default_tool_server = str(
+                            agent_mode_config["default_tool_server"]
+                        )
                     if agent_mode_config.get("auth") is not None:
                         agent_config.auth = agent_mode_config["auth"]
 
@@ -978,20 +1036,29 @@ class DataMax(BaseLife):
                             metadata["agent_mode"]["config"] = agent_mode_config
                 elif use_mllm and self.use_mineru:
                     logger.info("Using multimodal QA generator...")
-                    
+
                     # Prepare file paths
                     if isinstance(self.file_path, list):
-                        file_names = [os.path.basename(f).replace(".pdf", ".md") for f in self.file_path]
-                    elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
-                        file_names = [os.path.basename(self.file_path).replace(".pdf", ".md")]
-                    elif isinstance(self.file_path, str) and os.path.isdir(self.file_path):
+                        file_names = [
+                            os.path.basename(f).replace(".pdf", ".md")
+                            for f in self.file_path
+                        ]
+                    elif isinstance(self.file_path, str) and os.path.isfile(
+                        self.file_path
+                    ):
+                        file_names = [
+                            os.path.basename(self.file_path).replace(".pdf", ".md")
+                        ]
+                    elif isinstance(self.file_path, str) and os.path.isdir(
+                        self.file_path
+                    ):
                         file_names = [
                             os.path.basename(file).replace(".pdf", ".md")
                             for file in list(Path(self.file_path).rglob("*.*"))
                         ]
-                    
+
                     dbg.log(f"Generated {len(file_names)} file names")
-                    
+
                     file_names = [
                         os.path.join(
                             Path(__file__).parent.parent.parent.resolve(),
@@ -1002,7 +1069,9 @@ class DataMax(BaseLife):
                         for f in file_names
                     ]
 
-                    from datamax.utils import multimodal_qa_generator as generator_module
+                    from datamax.utils import (
+                        multimodal_qa_generator as generator_module,
+                    )
 
                     multimodal_file_path = os.path.join(
                         "__temp__",
@@ -1027,7 +1096,7 @@ class DataMax(BaseLife):
                         chunk_overlap=chunk_overlap,
                         question_number=question_number,
                         max_qps=max_qps,
-                        use_tree_label=use_tree_label
+                        use_tree_label=use_tree_label,
                     )
 
                     data = qa_generator.full_qa_labeling_process(
@@ -1050,7 +1119,7 @@ class DataMax(BaseLife):
                         resume_from_checkpoint=resume_from_checkpoint,
                         perf_monitor=perf_monitor,
                     )
-                
+
                 dbg.log_data_structure(data, "generated_data")
 
             # Mark success
@@ -1067,9 +1136,11 @@ class DataMax(BaseLife):
 
             # Review mode processing
             if auto_self_review_mode:
-                logger.info("🔍 Activating review mode: QA pairs will be reviewed by LLM")
+                logger.info(
+                    "🔍 Activating review mode: QA pairs will be reviewed by LLM"
+                )
                 dbg.log("Starting QA pair review process")
-                
+
                 # Extract QA pairs from data structure
                 qa_pairs = []
                 if isinstance(data, dict) and "qa_pairs" in data:
@@ -1077,10 +1148,12 @@ class DataMax(BaseLife):
                 elif isinstance(data, list):
                     qa_pairs = data
                 else:
-                    logger.warning("Unexpected data format for review mode, skipping review")
+                    logger.warning(
+                        "Unexpected data format for review mode, skipping review"
+                    )
                     _record_performance(data)
                     return data
-                
+
                 from datamax.generator.qa_generator import review_qa_pairs
 
                 reviewed_qa_pairs, rejected_count = review_qa_pairs(
@@ -1098,27 +1171,31 @@ class DataMax(BaseLife):
                     dbg=dbg,
                     perf_monitor=perf_monitor,
                 )
-                
-                logger.info(f"✅ Review completed: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
-                dbg.log(f"Review results: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected")
-                
+
+                logger.info(
+                    f"✅ Review completed: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected"
+                )
+                dbg.log(
+                    f"Review results: {len(reviewed_qa_pairs)} passed, {rejected_count} rejected"
+                )
+
                 # Update data structure with reviewed QA pairs
                 if isinstance(data, dict) and "qa_pairs" in data:
                     data["qa_pairs"] = reviewed_qa_pairs
                 else:
                     data = reviewed_qa_pairs
-                
+
                 _record_performance(data)
                 # Preview reviewed QA pairs
                 dbg.preview_qa_pairs(data, max_preview=10)
-                
+
                 dbg.log("Returning reviewed data")
                 return data
-            
+
             # Preview QA pairs
             _record_performance(data)
             dbg.preview_qa_pairs(data, max_preview=10)
-            
+
             dbg.log("Returning generated data")
             return data
 
@@ -1130,8 +1207,9 @@ class DataMax(BaseLife):
             logger.error(f"Error occurred while generating pre-labeled data: {e}")
             dbg.log(f"Exception: {type(e).__name__}: {str(e)}")
             import traceback
+
             traceback.print_exc()
-            
+
             # Mark failure
             if self.parsed_data is not None and isinstance(self.parsed_data, dict):
                 dbg.log("Adding DATA_LABEL_FAILED lifecycle entry")

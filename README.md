@@ -44,13 +44,26 @@ LLM_TRAIN_OUTPUT_FILE_NAME = "train"
 # init client
 client = DataMax(file_path=FILE_PATHS)
 
+# get data
+data = dm.get_data()
+
+# get content
+content = data.get("content")
+
 # get pre label. return trainable qa list
-qa_list = client.get_pre_label(
-    api_key=LABEL_LLM_API_KEY,
-    base_url=LABEL_LLM_BASE_URL,
-    model_name=LABEL_LLM_MODEL_NAME,
-    question_number=10,
-    max_qps=5.0)
+qa = dm.get_pre_label(
+    content=content,
+    api_key=api_key,
+    base_url=base_url,
+    model_name=model,
+    question_number=50,  # question_number_per_chunk
+    max_qps=100.0,
+    debug=False,
+    structured_data=True,  # enable structured output
+    auto_self_review_mode=True,  # auto review qa, pass with 4 and 5 score, drop with 1, 2 and 3 score.
+    review_max_qps=100.0,
+)
+
 
 # save label data
 client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
@@ -72,7 +85,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## 📞 Contact Us
 
-- 📧 Email: cy.kron@foxmail.com
+- 📧 Email: cy.kron@foxmail.com, wang.xiangyuxy@outlook.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
 - 💬 Wechat Group: <br><img src='wechat.jpg' width=300>

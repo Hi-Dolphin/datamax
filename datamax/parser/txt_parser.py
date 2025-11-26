@@ -1,4 +1,5 @@
 import chardet
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
@@ -63,7 +64,7 @@ class TxtParser(BaseLife):
 
             return output_vo.to_dict()
 
-        except Exception as e:
+        except Exception:
             # 5) Processing failed
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
@@ -72,4 +73,6 @@ class TxtParser(BaseLife):
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
             # (Optional) If you want to return VO even on failure, you can construct VO with empty content here and add lc_fail
+            logger.error(f"❌ Unexpected parsing error with: {str(lc_fail)}")
+            output_vo.add_lifecycle(lc_fail)
             raise

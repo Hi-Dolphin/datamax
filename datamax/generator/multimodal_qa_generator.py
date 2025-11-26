@@ -22,6 +22,138 @@ _qps_lock = threading.Lock()
 _last_request_ts = 0.0
 
 
+def _consume_futures_tqdm(futures, results):
+    with tqdm(
+        as_completed(futures), total=len(futures), desc="Generating multimodal QA"
+    ) as pbar:
+        for future in pbar:
+            chunk_output = future.result()
+            if chunk_output:
+                with lock:
+                    results.extend(chunk_output)
+                pbar.set_postfix({"Generated": len(results)})
+
+
+def _log_initial_params(
+    debug,
+    file_path,
+    api_key,
+    model_name,
+    chunk_size,
+    chunk_overlap,
+    question_number,
+    max_qps,
+    kwargs,
+):
+    if not debug:
+        return
+    logger.debug("generatr_qa_pairs called with parameters:")
+    logger.debug(f"  file_path: {file_path}")
+    logger.debug(f"  api_key: {'***' if api_key else None}")
+    logger.debug(f"  model_name: {model_name}")
+    logger.debug(f"  chunk_size: {chunk_size}")
+    logger.debug(f"  chunk_overlap: {chunk_overlap}")
+    logger.debug(f"  question_number: {question_number}")
+    logger.debug(f"  max_qps: {max_qps}")
+    logger.debug(f"  kwargs: {kwargs}")
+
+
+def _calc_min_interval(max_qps: float) -> float:
+    return 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+
+
+def _process_all_chunks(
+    chunks, api_key, model_name, question_number, min_interval, worker_count, debug
+):
+    final_results = []
+    executor_workers = max(1, worker_count)
+
+    def task(chunk):
+        return _process_single_chunk(
+            chunk, api_key, model_name, question_number, min_interval, debug
+        )
+
+    with ThreadPoolExecutor(max_workers=executor_workers) as executor:
+        futures = [executor.submit(task, chunk) for chunk in chunks]
+
+        if debug:
+            _consume_futures_debug(futures, final_results)
+        else:
+            _consume_futures_tqdm(futures, final_results)
+
+    logger.success(
+        f"Processing completed! Generated a total of {len(final_results)} multimodal Q&A pairs."
+    )
+    return final_results
+
+
+def _process_single_chunk(
+    chunk_data, api_key, model_name, question_number, min_interval, debug
+):
+    context_text = chunk_data["text"]
+    images = chunk_data["images"]
+
+    if debug:
+        logger.debug(
+            f"Processing chunk: text_len={len(context_text)}, image_count={len(images)}"
+        )
+
+    instruction_prompt = get_instruction_prompt(question_number)
+
+    _respect_qps_limit(min_interval)
+
+    dialogs = generate_multimodal_qa_with_openai(
+        api_key=api_key,
+        model=model_name,
+        instruction_prompt=instruction_prompt,
+        context_text=context_text,
+        image_paths=images,
+    )
+
+    return _format_dialogs(dialogs, images, debug)
+
+
+def _format_dialogs(dialogs, images, debug):
+    if not dialogs or not isinstance(dialogs, list):
+        if debug:
+            logger.debug("No valid dialogs returned")
+        return []
+
+    qa_pairs = []
+    img_tokens = "<image>" * len(images)
+
+    for dialog in dialogs:
+        if (
+            not isinstance(dialog, dict)
+            or "user" not in dialog
+            or "assistant" not in dialog
+        ):
+            continue
+
+        qa_pairs.append(
+            {
+                "messages": [
+                    {"role": "user", "content": img_tokens + dialog["user"]},
+                    {"role": "assistant", "content": dialog["assistant"]},
+                ],
+                "images": images,
+            }
+        )
+
+    return qa_pairs
+
+
+def _consume_futures_debug(futures, results):
+    for i, future in enumerate(as_completed(futures), 1):
+        chunk_output = future.result()
+        if chunk_output:
+            with lock:
+                results.extend(chunk_output)
+        logger.debug(
+            f"Processed chunk {i}/{len(futures)}; total results={len(results)}"
+        )
+
+
 def _respect_qps_limit(min_interval: float) -> None:
     """Throttle outbound multimodal requests to honor the configured QPS budget."""
     if min_interval <= 0:
@@ -43,6 +175,7 @@ def _derive_worker_count(max_qps: float, total_items: int) -> int:
         return 1
     scaled = max(1, int(math.ceil(max_qps * 3)))
     return max(1, min(total_items, 32, scaled))
+
 
 from .prompt_templates import get_instruction_prompt
 
@@ -214,16 +347,18 @@ def generatr_qa_pairs(
     """
     Generate multimodal QA pairs from a Markdown file with associated images.
     """
-    if debug:
-        logger.debug(f"generatr_qa_pairs called with parameters:")
-        logger.debug(f"  file_path: {file_path}")
-        logger.debug(f"  api_key: {'***' if api_key else None}")
-        logger.debug(f"  model_name: {model_name}")
-        logger.debug(f"  chunk_size: {chunk_size}")
-        logger.debug(f"  chunk_overlap: {chunk_overlap}")
-        logger.debug(f"  question_number: {question_number}")
-        logger.debug(f"  max_qps: {max_qps}")
-        logger.debug(f"  kwargs: {kwargs}")
+
+    _log_initial_params(
+        debug,
+        file_path,
+        api_key,
+        model_name,
+        chunk_size,
+        chunk_overlap,
+        question_number,
+        max_qps,
+        kwargs,
+    )
 
     chunks_with_images = parse_markdown_and_associate_images(
         file_path, chunk_size, chunk_overlap
@@ -233,112 +368,22 @@ def generatr_qa_pairs(
         logger.warning(
             "Failed to parse any text blocks containing images from the file."
         )
-        if debug:
-            logger.debug("No chunks with images found, returning empty list")
         return []
 
-    if debug:
-        logger.debug(f"Found {len(chunks_with_images)} chunks with images")
+    logger.info(
+        f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks "
+        f"(max_qps={max_qps})..."
+    )
 
-    final_qa_list = []
-    min_interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+    min_interval = _calc_min_interval(max_qps)
     worker_count = _derive_worker_count(max_qps, len(chunks_with_images))
 
-    def _process_chunk(chunk_data):
-        context_text = chunk_data["text"]
-        images = chunk_data["images"]
-
-        if debug:
-            logger.debug(
-                f"Processing chunk with text length: {len(context_text)}, images: {len(images)}"
-            )
-
-        instruction_prompt = get_instruction_prompt(question_number)
-
-        if debug:
-            logger.debug(f"Generated instruction prompt: {instruction_prompt[:100]}...")
-
-        _respect_qps_limit(min_interval)
-        generated_dialogs = generate_multimodal_qa_with_openai(
-            api_key=api_key,
-            model=model_name,
-            instruction_prompt=instruction_prompt,
-            context_text=context_text,
-            image_paths=images,
-        )
-
-        chunk_qas = []
-        if generated_dialogs and isinstance(generated_dialogs, list):
-            if debug:
-                logger.debug(f"Generated {len(generated_dialogs)} dialogs for chunk")
-            for dialog in generated_dialogs:
-                if (
-                    isinstance(dialog, dict)
-                    and "user" in dialog
-                    and "assistant" in dialog
-                ):
-                    formatted_qa = {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": "<image>" * len(images) + dialog["user"],
-                            },
-                            {"role": "assistant", "content": dialog["assistant"]},
-                        ],
-                        "images": images,
-                    }
-                    chunk_qas.append(formatted_qa)
-        elif debug:
-            logger.debug(f"No valid dialogs generated for chunk")
-
-        if debug:
-            logger.debug(
-                f"Chunk processing completed, generated {len(chunk_qas)} QA pairs"
-            )
-        return chunk_qas
-
-    logger.info(
-        f"Starting to generate Q&A pairs for {len(chunks_with_images)} text blocks (max_qps={max_qps}, worker_count={worker_count})..."
+    return _process_all_chunks(
+        chunks_with_images,
+        api_key,
+        model_name,
+        question_number,
+        min_interval,
+        worker_count,
+        debug,
     )
-    if debug:
-        logger.debug(f"Using ThreadPoolExecutor with {max(1, worker_count)} workers")
-
-    with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
-        futures = [
-            executor.submit(_process_chunk, chunk) for chunk in chunks_with_images
-        ]
-
-        # Disable tqdm progress bar in debug mode to avoid conflict with log output
-        if debug:
-            for i, future in enumerate(as_completed(futures), 1):
-                result = future.result()
-                if result:
-                    with lock:
-                        final_qa_list.extend(result)
-                        logger.debug(
-                            f"Processed chunk {i}/{len(futures)}: Added {len(result)} QA pairs, total: {len(final_qa_list)}"
-                        )
-                else:
-                    logger.debug(
-                        f"Processed chunk {i}/{len(futures)}: Future returned empty result"
-                    )
-        else:
-            with tqdm(
-                as_completed(futures),
-                total=len(futures),
-                desc="Generating multimodal QA",
-            ) as pbar:
-                for future in pbar:
-                    result = future.result()
-                    if result:
-                        with lock:
-                            final_qa_list.extend(result)
-                        pbar.set_postfix({"Generated QA": len(final_qa_list)})
-
-    logger.success(
-        f"Processing completed! Generated a total of {len(final_qa_list)} multimodal Q&A pairs."
-    )
-    if debug:
-        logger.debug(f"Returning {len(final_qa_list)} multimodal QA pairs")
-    return final_qa_list
-

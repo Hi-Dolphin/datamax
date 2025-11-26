@@ -131,15 +131,8 @@ class CleanerCLI:
             raise
 
     def clean_full(self, text: str, **kwargs) -> Dict[str, Any]:
-        """Perform complete cleaning pipeline.
+        """Perform complete cleaning pipeline."""
 
-        Args:
-            text: Input text to clean
-            **kwargs: Filtering parameters
-
-        Returns:
-            Dictionary with fully cleaned text
-        """
         try:
             if self.verbose:
                 logger.info("Performing full cleaning pipeline...")
@@ -159,8 +152,11 @@ class CleanerCLI:
             ):
                 return cleaned
 
-            # Step 2: Filtering
+            # Step 2: Filtering (NOW USING THE PARAMETERS)
             filter_obj = TextFilter(cleaned["text"])
+            filter_obj.filter_by_word_repetition(filter_threshold)
+            filter_obj.filter_by_char_count(min_chars, max_chars)
+            filter_obj.filter_by_numeric_content(numeric_threshold)
             filtered = filter_obj.to_filter()
 
             if not (
@@ -176,6 +172,7 @@ class CleanerCLI:
                 logger.info("Full cleaning pipeline completed successfully")
 
             return result
+
         except Exception as e:
             logger.error(f"Full cleaning failed: {str(e)}")
             raise

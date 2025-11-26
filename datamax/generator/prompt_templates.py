@@ -24,22 +24,18 @@ def get_instruction_prompt(question_number: int) -> str:
 
         ## 输出格式
         请严格按照以下JSON格式输出，不要包含任何其他内容：
-        ```json
-        [
-            {
-                "conversations": [
-                    {
-                        "from": "user",
-                        "value": "<image>\n问题内容"
-                    },
-                    {
-                        "from": "assistant",
-                        "value": "回答内容"
-                    }
-                ]
-            }
-        ]
-        ```
+```json
+[{"conversations": [
+        {
+        "from": "user",
+        "value": "<image>\n问题内容"
+        },
+        {
+        "from": "assistant",
+        "value": "回答内容"
+        }
+]}]
+```
     """
     return prompt
 
@@ -69,14 +65,14 @@ def get_system_prompt_for_match_label(tags_json, question):
     2. label 字段必须是根据标签数组匹配到的标签，若无法匹配则打上"其他"标签。
     3. 输出格式必须是JSON格式，不能包含任何其他内容。
     4. 输出的JSON数组必须严格符合以下结构：
-    ```json
-    [
-        {
-            "question": "问题内容",
-            "label": "匹配到的标签"
-        }
-    ]
-    ```
+```json
+[
+    {
+        "question": "问题内容",
+        "label": "匹配到的标签"
+    }
+]
+```
 
     ## 标签数组:
     {tags_json}
@@ -117,7 +113,6 @@ def get_system_prompt_for_domain_tree(text):
         5. 为适当的一级标签添加二级标签
         6. 检查分类逻辑的合理性
         7. 生成符合格式的JSON输出
-        
 
         ## 需要分析的目录
         {text}
@@ -132,22 +127,24 @@ def get_system_prompt_for_domain_tree(text):
 
         ## 输出格式
         严格按照以下JSON格式输出，不要包含任何其他内容：
-        ```json
-        [
-            {
-                "label": "一级标签名称",
-                "children": [
-                    "二级标签1",
-                    "二级标签2"
-                ]
-            }
+```json
+[
+    {
+        "label": "一级标签名称",
+        "children": [
+            "二级标签1",
+            "二级标签2"
         ]
-        ```
+    }
+]
+```
     """
     return system_prompt
 
 
-def get_system_prompt_for_question(query_text, question_number, prefer_industry: str = '航运'):
+def get_system_prompt_for_question(
+    query_text, question_number, prefer_industry: str = "航运"
+):
     """Generate system prompt for question generation task"""
     system_prompt = f"""
 你是一个高质量问题生成器。你的任务是根据输入的主题或参考材料，生成一组高质量的问题。这些问题将用于构建合成数据集中的问答对。请严格遵循以下规范：
@@ -209,7 +206,7 @@ def get_system_prompt_for_question(query_text, question_number, prefer_industry:
     return system_prompt
 
 
-def get_system_prompt_for_answer(text, query_question, prefer_industry: str = '航运'):
+def get_system_prompt_for_answer(text, query_question, prefer_industry: str = "航运"):
     """Generate system prompt for answer generation task"""
     system_prompt = f"""
 你是一个高质量答案生成器。你的任务是根据给定的问题，生成自然、准确、完整的答案。请严格遵循以下规范：
@@ -276,7 +273,9 @@ def get_system_prompt_for_answer(text, query_question, prefer_industry: str = '�
     return system_prompt
 
 
-def get_system_prompt_for_review(text: str, qa_pair_json_string: str, prefer_industry: str = '航运'):
+def get_system_prompt_for_review(
+    text: str, qa_pair_json_string: str, prefer_industry: str = "航运"
+):
     system_prompt = f"""
 你是一个问答对质量评估助手。请严格检查输入的 JSON 对话与参考资料之间是否符合以下要求，并给出 **1–5 分**的评分。
 

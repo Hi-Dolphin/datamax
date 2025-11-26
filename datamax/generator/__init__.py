@@ -1,5 +1,9 @@
+from datamax.utils.performance_monitor import PerformanceMonitor
+
 from .domain_tree import DomainTree
-from .multimodal_qa_generator import generate_multimodal_qa_with_openai
+from .multimodal_qa_generator import (
+    generate_multimodal_qa_with_openai,
+)
 from .multimodal_qa_generator import generatr_qa_pairs as generate_multimodal_qa_pairs
 from .multimodal_qa_generator import (
     get_instruction_prompt,
@@ -25,7 +29,6 @@ from .qa_generator import (
     process_match_tags,
     process_questions,
 )
-from datamax.utils.performance_monitor import PerformanceMonitor
 
 __all__ = [
     # QA Generator
