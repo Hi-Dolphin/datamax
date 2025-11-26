@@ -245,19 +245,20 @@ jobs:
         echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
         
         if [ -n "$PREVIOUS_TAG" ]; then
+          CURRENT_VERSION_TAG="v${{ needs.validate-and-test.outputs.version }}"
+
           # 收集提交信息
-          echo "=== COMMITS ===" > changes_raw.txt
-          git log --pretty=format:"COMMIT: %s%nAUTHOR: %an <%ae>%nDATE: %ad%nHASH: %h%nBODY: %b%n---" --date=short $PREVIOUS_TAG..HEAD >> changes_raw.txt
-          
+          git log --pretty=format:"COMMIT: %s%nAUTHOR: %an <%ae>%nDATE: %ad%nHASH: %h%nBODY: %b%n---" --date=short $PREVIOUS_TAG..$CURRENT_VERSION_TAG >> changes_raw.txt
+
           # 收集文件变更
           echo "" >> changes_raw.txt
           echo "=== FILE CHANGES ===" >> changes_raw.txt
-          git diff --name-status $PREVIOUS_TAG..HEAD >> changes_raw.txt
-          
+          git diff --name-status $PREVIOUS_TAG..$CURRENT_VERSION_TAG >> changes_raw.txt
+
           # 收集详细的文件变更（限制大小）
           echo "" >> changes_raw.txt
           echo "=== DETAILED CHANGES ===" >> changes_raw.txt
-          git diff --stat $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          git diff --stat $PREVIOUS_TAG..$CURRENT_VERSION_TAG >> changes_raw.txt
           
           # 获取仓库信息
           echo "" >> changes_raw.txt

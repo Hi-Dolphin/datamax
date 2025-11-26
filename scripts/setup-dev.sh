@@ -485,7 +485,7 @@ EOF
     if [ ! -f ".vscode/launch.json" ]; then
         cat > .vscode/launch.json << EOF
 {
-    "version": "0.2.0",
+    "version": "0.2.1",
     "configurations": [
         {
             "name": "DataMax Server",

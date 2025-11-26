@@ -27,7 +27,7 @@ def get_version():
             for line in f:
                 if line.startswith("__version__"):
                     return line.split("=")[1].strip().strip('"').strip("'")
-    return "0.2.0"  # fallback version
+    return "0.2.1"  # fallback version
 
 
 # Core dependencies
