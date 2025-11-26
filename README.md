@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="logo.png" alt="DataMax logo" width="140" />
+
 [中文](README_zh.md) | **English** | [中文文档](https://hi-dolphin.github.io/datamax) | [最佳实践](https://github.com/Hi-Dolphin/datamax/blob/main/examples/scripts/generate_qa.py)
 
 [![PyPI version](https://badge.fury.io/py/pydatamax.svg)](https://badge.fury.io/py/pydatamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

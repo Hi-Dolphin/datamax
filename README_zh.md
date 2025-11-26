@@ -1,6 +1,8 @@
-# DataMax
+# 数据工厂
 
 <div align="center">
+
+<img src="logo_zh.png" alt="DataMax logo" width="130" />
 
 **中文** | [English](README.md) | [中文文档](https://hi-dolphin.github.io/datamax) | [最佳实践](https://github.com/Hi-Dolphin/datamax/blob/main/examples/scripts/generate_qa.py)
 
