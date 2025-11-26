@@ -12,12 +12,13 @@ A powerful multi-format file parsing, data cleaning, and AI annotation toolkit b
 
 ## ✨ Key Features
 
-- 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
-- 🧹 **Intelligent Cleaning**: Advanced data cleaning with anomaly detection, privacy protection, and text filtering
-- 🤖 **AI Annotation**: LLM-powered automatic annotation and QA generation
-- ⚡ **High Performance**: Efficient batch processing with caching and parallel execution
-- 🎯 **Developer Friendly**: Modern SDK design with type hints, configuration management, and comprehensive error handling
-- ☁️ **Cloud Ready**: Built-in support for OSS, MinIO, and other cloud storage providers
+- 🔁 **Full QA Pipeline**: Single-script automation chains parsing, QA generation, and quality evaluation, so datasets are curated end-to-end without manual orchestration.
+- 🔄 **Multi-format Support**: Unified loaders handle PDF, DOC/DOCX, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, and mainstream image formats without extra plugins.
+- 🧹 **Intelligent Cleaning**: Built-in anomaly detection, privacy-aware redaction, and customizable filters normalize noisy enterprise documents.
+- 🤖 **AI Annotation**: LLM-powered workflows auto-generate Q&A pairs, summaries, and structured labels for downstream model training.
+- ⚡ **High Performance**: Streaming chunkers, caching, and parallel execution keep large batch jobs fast and resource-efficient.
+- 🎯 **Developer Friendly**: Type-hinted SDK with declarative configs, pluggable pipelines, and rich error handling simplifies integration.
+- ☁️ **Cloud Ready**: Native connectors for OSS, MinIO, and S3-compatible storage make hybrid or fully managed deployments straightforward.
 
 ## 🚀 Quick Start
 
@@ -67,12 +68,6 @@ qa = dm.get_pre_label(
 client.save_label_data(qa_list, LLM_TRAIN_OUTPUT_FILE_NAME)
 ```
 
-## 📚 Documentation
-
-- See docs: `docs/index.md`
-- Sections: Getting Started, Parsing, Cleaning, Labeling, Crawling, Evaluation, CLI, API, Extending, FAQ
-- For the complete text-modal QA generation pipeline, see [examples/scripts/generate_qa.py](examples/scripts/generate_qa.py)
-
 ## 🤝 Contributing
 
 Issues and Pull Requests are welcome!
@@ -90,3 +85,4 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 ⭐ If this project helps you, please give us a star!
+
