@@ -6,11 +6,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 from loguru import logger
+import re
+from urllib.parse import urljoin
 
 try:
     from langgraph.graph import END, StateGraph
 except ImportError:  # pragma: no cover - optional dependency
-    END = '__langgraph_end__'
+    END = "__langgraph_end__"
     StateGraph = None
 
 from datamax.utils.performance_monitor import PerformanceMonitor
@@ -58,10 +60,7 @@ class ToolRegistry:
             fields = list(properties.keys())
         dominant_fields = ", ".join(fields[:6]) if fields else "unspecified fields"
         param_desc = json.dumps(params, ensure_ascii=False) if params else "{}"
-        return (
-            f"Simulated response from {tool.method.upper()} {tool.path}. "
-            f"Parameters: {param_desc}. Likely returns {dominant_fields}."
-        )
+        return f"Simulated response from {tool.method.upper()} {tool.path}. " f"Parameters: {param_desc}. Likely returns {dominant_fields}."
 
     def invoke(
         self,
@@ -80,9 +79,7 @@ class ToolRegistry:
         params: Dict[str, Any],
     ) -> Tuple[str, bool, Optional[str], Optional[float]]:
         if not isinstance(params, dict):
-            raise TypeError(
-                f"Tool invocation expects parameters as an object, received {type(params).__name__}."
-            )
+            raise TypeError(f"Tool invocation expects parameters as an object, received {type(params).__name__}.")
         method, url, headers, query_params, json_payload, data_payload = self._prepare_request(tool, params)
         start = time.perf_counter()
         try:
@@ -117,56 +114,111 @@ class ToolRegistry:
         observation = self._summarise_response(response)
         return observation, True, None, latency
 
+    def _clean_payload(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove None values from parameters."""
+        return {k: v for k, v in params.items() if v is not None}
+
+    def _prepare_body_and_query(
+        self,
+        method: str,
+        remaining: Dict[str, Any],
+        query_params: Dict[str, Any],
+    ) -> Tuple[Optional[Any], Optional[Any], Dict[str, Any]]:
+
+        # GET-like methods do not have bodies → everything becomes query params
+        if method in {"get", "delete", "head", "options"}:
+            merged_query = dict(query_params)
+            for k, v in remaining.items():
+                merged_query.setdefault(k, v)
+            return None, None, merged_query
+
+        # POST/PUT/PATCH: extract request body
+        body_json = None
+        body_data = None
+        body_candidate = self._extract_body_candidate(remaining)
+
+        if isinstance(body_candidate, (str, bytes, bytearray)):
+            body_data = body_candidate
+        elif body_candidate is not None:
+            body_json = body_candidate
+
+        return body_json, body_data, query_params
+
+    def _extract_body_candidate(self, remaining: Dict[str, Any]) -> Any:
+        """OpenAPI request body detection handling 'body', 'json', or fallback."""
+        if "body" in remaining:
+            return remaining.pop("body")
+        if "json" in remaining:
+            return remaining.pop("json")
+        if remaining:
+            return remaining
+        return None
+
+    def _merge_headers(
+        self,
+        header_params: Dict[str, Any],
+        auth_context: "AuthContext",
+    ) -> Dict[str, str]:
+        headers = {k: str(v) for k, v in header_params.items()}
+        if auth_context.headers:
+            headers.update(auth_context.headers)
+        return headers
+
+    def _merge_query_params(
+        self,
+        query_params: Dict[str, Any],
+        auth_context: "AuthContext",
+    ) -> Dict[str, Any]:
+        merged = dict(query_params)
+        if auth_context.query_params:
+            merged.update(auth_context.query_params)
+        return merged
+
+    def _ensure_json_content_type(self, headers: Dict[str, str], body_json: Optional[Any]) -> None:
+        """Ensure JSON Content-Type header is present when needed."""
+        if body_json is None:
+            return
+
+        if "content-type" not in (key.lower() for key in headers):
+            headers["Content-Type"] = "application/json"
+
     def _prepare_request(
         self,
         tool: ToolSpec,
         params: Dict[str, Any],
     ) -> Tuple[str, str, Dict[str, str], Dict[str, Any], Optional[Any], Optional[Any]]:
-        payload = {key: value for key, value in params.items() if value is not None}
+
+        payload = self._clean_payload(params)
+
+        # Extract parameters (path/query/header) according to OpenAPI spec
         path_values, query_params, header_params, remaining = self._extract_parameter_values(tool, payload)
+
+        # Fill URL placeholders and retrieve leftover parameters
         url, remaining_after_path = self._resolve_url(tool, path_values, remaining)
+
         method = (tool.method or "get").lower()
 
-        body_json: Optional[Any] = None
-        body_data: Optional[Any] = None
-        if method in {"get", "delete", "head", "options"}:
-            for key, value in remaining_after_path.items():
-                query_params.setdefault(key, value)
-        else:
-            body_candidate = None
-            if "body" in remaining_after_path:
-                body_candidate = remaining_after_path.pop("body")
-            elif "json" in remaining_after_path:
-                body_candidate = remaining_after_path.pop("json")
-            elif remaining_after_path:
-                body_candidate = remaining_after_path
+        # Extract body or merge remaining parameters into query
+        body_json, body_data, final_query_params = self._prepare_body_and_query(method, remaining_after_path, query_params)
 
-            if isinstance(body_candidate, (str, bytes, bytearray)):
-                body_data = body_candidate
-            elif body_candidate is not None:
-                body_json = body_candidate
-
+        # Resolve auth
         auth_context = self._resolve_auth_context(tool)
 
-        headers: Dict[str, str] = {k: str(v) for k, v in header_params.items()}
-        query_merged: Dict[str, Any] = dict(query_params)
-        if auth_context.headers:
-            headers.update(auth_context.headers)
-        if auth_context.query_params:
-            query_merged.update(auth_context.query_params)
+        # Merge authentication headers/query parameters
+        headers = self._merge_headers(header_params, auth_context)
+        final_query_params = self._merge_query_params(final_query_params, auth_context)
 
-        if body_json is not None:
-            header_names = {key.lower(): key for key in headers.keys()}
-            if "content-type" not in header_names:
-                headers["Content-Type"] = "application/json"
+        # Ensure Content-Type for JSON bodies
+        self._ensure_json_content_type(headers, body_json)
 
-        return method, url, headers, query_merged, body_json, body_data
+        return method, url, headers, final_query_params, body_json, body_data
 
     def _extract_parameter_values(
         self,
         tool: ToolSpec,
         payload: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+
         working = dict(payload)
         path_values: Dict[str, Any] = {}
         query_params: Dict[str, Any] = {}
@@ -175,38 +227,57 @@ class ToolRegistry:
         for parameter in tool.parameters or []:
             if not isinstance(parameter, dict):
                 continue
+
             name = parameter.get("name")
             if not name:
                 continue
+
             location = (parameter.get("in") or "").lower()
             required = bool(parameter.get("required"))
-            lookup_keys = [name]
-            if "-" in name:
-                lookup_keys.append(name.replace("-", "_"))
 
-            value_found = False
-            value = None
-            for key in lookup_keys:
-                if key in working:
-                    value = working.pop(key)
-                    value_found = True
-                    break
+            value_found, value = self._extract_param_value(name, working)
 
             if location == "path":
-                if not value_found:
-                    if required:
-                        raise RuntimeError(
-                            f"Missing required path parameter '{name}' for tool '{tool.name}'."
-                        )
-                    continue
-                path_values[name] = value
-            elif value_found:
-                if location == "query":
-                    query_params[name] = value
-                elif location == "header":
-                    header_params[name] = value
+                self._handle_path_param(tool, name, required, value_found, value, path_values)
+                continue
+
+            if value_found:
+                self._store_non_path_param(location, name, value, query_params, header_params)
 
         return path_values, query_params, header_params, working
+
+    def _extract_param_value(self, name: str, working: Dict[str, Any]) -> Tuple[bool, Any]:
+        """Return (found, value) for a parameter name, supporting hyphen→underscore fallback."""
+        lookup_keys = [name]
+        if "-" in name:
+            lookup_keys.append(name.replace("-", "_"))
+
+        for key in lookup_keys:
+            if key in working:
+                return True, working.pop(key)
+        return False, None
+
+    def _handle_path_param(self, tool: ToolSpec, name: str, required: bool, found: bool, value: Any, path_values: Dict[str, Any]) -> None:
+        """Handle path parameters, raising if missing."""
+        if not found:
+            if required:
+                raise RuntimeError(f"Missing required path parameter '{name}' for tool '{tool.name}'.")
+            return
+        path_values[name] = value
+
+    def _store_non_path_param(
+        self,
+        location: str,
+        name: str,
+        value: Any,
+        query_params: Dict[str, Any],
+        header_params: Dict[str, Any],
+    ) -> None:
+        """Store query or header parameters."""
+        if location == "query":
+            query_params[name] = value
+        elif location == "header":
+            header_params[name] = value
 
     def _resolve_url(
         self,
@@ -228,9 +299,7 @@ class ToolRegistry:
                 alt_key = key.replace("-", "_")
                 value = remaining.pop(alt_key)
             else:
-                raise RuntimeError(
-                    f"Missing value for path placeholder '{key}' in tool '{tool.name}'."
-                )
+                raise RuntimeError(f"Missing value for path placeholder '{key}' in tool '{tool.name}'.")
             path_template = path_template.replace(f"{{{placeholder}}}", str(value))
 
         base_url = self._select_base_url(tool)
@@ -250,9 +319,7 @@ class ToolRegistry:
                 return urljoin(self._default_server.rstrip("/") + "/", cleaned.lstrip("/"))
         if self._default_server:
             return self._default_server
-        raise RuntimeError(
-            f"No server URL available for tool '{tool.name}'. Provide `default_tool_server` in the config."
-        )
+        raise RuntimeError(f"No server URL available for tool '{tool.name}'. Provide `default_tool_server` in the config.")
 
     def _resolve_auth_context(self, tool: ToolSpec) -> AuthContext:
         try:
@@ -321,10 +388,7 @@ def build_agent_plan(
         },
         {
             "role": "user",
-            "content": (
-                f"Question: {question.prompt}\n\nAvailable tools:\n"
-                + "\n\n".join(catalog_lines)
-            ),
+            "content": (f"Question: {question.prompt}\n\nAvailable tools:\n" + "\n\n".join(catalog_lines)),
         },
     ]
 
@@ -377,10 +441,7 @@ def generate_agent_final_answer(
 ) -> str:
     call_summaries = []
     for call in tool_calls:
-        call_summaries.append(
-            f"Tool {call.tool_name} with input {json.dumps(call.input, ensure_ascii=False)} "
-            f"produced observation: {call.observation}"
-        )
+        call_summaries.append(f"Tool {call.tool_name} with input {json.dumps(call.input, ensure_ascii=False)} " f"produced observation: {call.observation}")
     messages = [
         {
             "role": "system",
@@ -392,10 +453,7 @@ def generate_agent_final_answer(
         },
         {
             "role": "user",
-            "content": (
-                f"Question: {question.prompt}\n\n"
-                f"Tool call summary:\n" + "\n".join(call_summaries)
-            ),
+            "content": (f"Question: {question.prompt}\n\n" f"Tool call summary:\n" + "\n".join(call_summaries)),
         },
     ]
     raw = llm_generator(
@@ -419,9 +477,7 @@ def generate_agent_final_answer(
 
 def ensure_langgraph_available() -> None:
     if StateGraph is None:
-        raise ImportError(
-            "LangGraph is not installed. Install langgraph>=0.0.30 to run the agent pipeline."
-        )
+        raise ImportError("LangGraph is not installed. Install langgraph>=0.0.30 to run the agent pipeline.")
 
 
 class LangGraphAgent:
@@ -439,10 +495,7 @@ class LangGraphAgent:
             state["plan"] = self._generate_plan(state)
             state["step_index"] = 0
             turns: List[AgentTurn] = state.get("turns") or []
-            plan_explanation = "\n".join(
-                f"{idx + 1}. {step.get('tool')} - {step.get('reason')}"
-                for idx, step in enumerate(state["plan"])
-            )
+            plan_explanation = "\n".join(f"{idx + 1}. {step.get('tool')} - {step.get('reason')}" for idx, step in enumerate(state["plan"]))
             turns.append(
                 AgentTurn(
                     role="assistant",
@@ -470,9 +523,8 @@ class LangGraphAgent:
                 state["step_index"] = index + 1
                 return state
             params = step.get("inputs") or {}
-            observation, success, error, latency = self.tool_registry.invoke(
-                tool_spec, params, monitor
-            )
+            monitor = state.get("monitor")
+            observation, success, error, latency = self.tool_registry.invoke(tool_spec, params, monitor)
             tool_calls: List[ToolCall] = state.get("tool_calls") or []
             sequence = len(tool_calls) + 1
             tool_calls.append(
@@ -488,9 +540,7 @@ class LangGraphAgent:
                 )
             )
             if not success and error:
-                state.setdefault("issues", []).append(
-                    f"Tool {tool_spec.name} invocation failed: {error}"
-                )
+                state.setdefault("issues", []).append(f"Tool {tool_spec.name} invocation failed: {error}")
             turns: List[AgentTurn] = state.get("turns") or []
             turns.append(
                 AgentTurn(
@@ -617,10 +667,7 @@ class OpenAIAgent:
                 monitor=monitor,
             )
             if plan:
-                plan_explanation = "\n".join(
-                    f"{idx + 1}. {step.get('tool')} - {step.get('reason')}"
-                    for idx, step in enumerate(plan)
-                )
+                plan_explanation = "\n".join(f"{idx + 1}. {step.get('tool')} - {step.get('reason')}" for idx, step in enumerate(plan))
                 turns.append(
                     AgentTurn(
                         role="assistant",
@@ -650,9 +697,7 @@ class OpenAIAgent:
                         tool_input=params,
                     )
                 )
-                observation, success, error, latency = self.tool_registry.invoke(
-                    tool_spec, params, monitor
-                )
+                observation, success, error, latency = self.tool_registry.invoke(tool_spec, params, monitor)
                 tool_call = ToolCall(
                     sequence=len(tool_calls) + 1,
                     tool_name=tool_spec.name,
@@ -692,5 +737,3 @@ class OpenAIAgent:
 
         monitor.add_stage_items("agent_answer_generation", 1)
         return turns, tool_calls, final_answer
-
-

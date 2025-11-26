@@ -7,6 +7,7 @@ import json
 import time
 from httpx import URL
 
+
 class APIModule:
     """
     中台数据服务模块
@@ -26,15 +27,7 @@ class APIModule:
         """
         中台数据服务授权
         """
-        if (
-            not force_refresh
-            and self.access_token
-            and self.access_token_type
-            and (
-                self.access_token_expires_at is None
-                or self.access_token_expires_at > time.time()
-            )
-        ):
+        if not force_refresh and self.access_token and self.access_token_type and (self.access_token_expires_at is None or self.access_token_expires_at > time.time()):
             return self.access_token
 
         auth_response = httpx.get(
@@ -83,10 +76,7 @@ class APIModule:
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             token_initialized = bool(self.access_token and self.access_token_type)
-            token_expired = (
-                self.access_token_expires_at is not None
-                and self.access_token_expires_at <= time.time()
-            )
+            token_expired = self.access_token_expires_at is not None and self.access_token_expires_at <= time.time()
             if not token_initialized or token_expired:
                 self.auth()
             return func(self, *args, **kwargs)
@@ -110,9 +100,7 @@ class APIModule:
         """
 
         url = f"{self.API_HOST}{self.API_BASE_PATH}{endpoint}"
-        headers = {
-            "Authorization": f"{self.access_token_type} {self.access_token}"
-        }
+        headers = {"Authorization": f"{self.access_token_type} {self.access_token}"}
         response = httpx.request(
             method,
             url,
@@ -122,11 +110,7 @@ class APIModule:
             timeout=60,
         )
         # 不同data可能所属的类型不同，这里加上一一处理
-        if (
-            (isinstance(response.json()["data"], int))
-            or (isinstance(response.json()["data"], str))
-            or (isinstance(response.json()["data"], float))
-        ):
+        if (isinstance(response.json()["data"], int)) or (isinstance(response.json()["data"], str)) or (isinstance(response.json()["data"], float)):
             cleaned_dict = response.json()
         if isinstance(response.json()["data"], dict):
             cleaned_data = {}
@@ -136,14 +120,8 @@ class APIModule:
                 cleaned_data[k] = v
             cleaned_dict = {"data": [cleaned_data]}
         # 过滤掉data中所有键值为空的键值对
-        if (
-            isinstance(response.json()["data"], list)
-            and "data" in response.json()
-        ):
-            cleaned_data = [
-                dict((k, v) for k, v in item.items() if v is not None)
-                for item in response.json()["data"]
-            ]
+        if isinstance(response.json()["data"], list) and "data" in response.json():
+            cleaned_data = [dict((k, v) for k, v in item.items() if v is not None) for item in response.json()["data"]]
             cleaned_dict = {"data": cleaned_data}
         else:
             cleaned_dict = dict(response.json())
@@ -166,9 +144,7 @@ class APIModule:
         """
 
         url = f"{self.API_HOST}{self.API_BASE_PATH}{endpoint}"
-        headers = {
-            "Authorization": f"{self.access_token_type} {self.access_token}"
-        }
+        headers = {"Authorization": f"{self.access_token_type} {self.access_token}"}
         response = httpx.request(
             method,
             url,
@@ -178,13 +154,9 @@ class APIModule:
             timeout=60,
         )
         # 不同data可能所属的类型不同，这里加上一一处理
-        if response.json().get("data") == None:
+        if response.json().get("data") is None:
             return json.dumps({"data": {}}, ensure_ascii=False)
-        if (
-            (isinstance(response.json()["data"], int))
-            or (isinstance(response.json()["data"], str))
-            or (isinstance(response.json()["data"], float))
-        ):
+        if (isinstance(response.json()["data"], int)) or (isinstance(response.json()["data"], str)) or (isinstance(response.json()["data"], float)):
             cleaned_dict = response.json()
         if isinstance(response.json()["data"], dict):
             cleaned_data = {}
@@ -194,14 +166,8 @@ class APIModule:
                 cleaned_data[k] = v
             cleaned_dict = {"data": [cleaned_data]}
         # 过滤掉data中所有键值为空的键值对
-        if (
-            isinstance(response.json()["data"], list)
-            and "data" in response.json()
-        ):
-            cleaned_data = [
-                dict((k, v) for k, v in item.items() if v is not None)
-                for item in response.json()["data"]
-            ]
+        if isinstance(response.json()["data"], list) and "data" in response.json():
+            cleaned_data = [dict((k, v) for k, v in item.items() if v is not None) for item in response.json()["data"]]
             cleaned_dict = {"data": cleaned_data}
         else:
             cleaned_dict = dict(response.json())

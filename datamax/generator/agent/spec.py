@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from .models import ApiEndpoint, ApiSpec, PromptContext, ToolSpec
 
-SPEC_EXTENSIONS: Tuple[str, ...] = ('.json', '.yaml', '.yml')
+SPEC_EXTENSIONS: Tuple[str, ...] = (".json", ".yaml", ".yml")
 
 # ---------------------------------------------------------------------------
 # API specification loading and normalisation
@@ -58,9 +58,7 @@ class ApiSpecLoader:
 
         if raw is None:
             if yaml is None:
-                raise RuntimeError(
-                    "PyYAML is required to parse YAML specifications. Install pyyaml to continue."
-                )
+                raise RuntimeError("PyYAML is required to parse YAML specifications. Install pyyaml to continue.")
             raw = yaml.safe_load(text)
 
         if not isinstance(raw, dict):
@@ -97,12 +95,8 @@ class ApiSpecLoader:
                 security = operation.get("security") or raw.get("security") or []
                 op_servers = operation.get("servers") or []
                 endpoint_servers = [srv.get("url", "") for srv in op_servers if isinstance(srv, dict)]
-                resolved_request_schema = (
-                    self._resolve_request_schema(request_body, raw) if isinstance(request_body, dict) else None
-                )
-                resolved_responses = (
-                    self._resolve_response_schemas(responses, raw) if isinstance(responses, dict) else {}
-                )
+                resolved_request_schema = self._resolve_request_schema(request_body, raw) if isinstance(request_body, dict) else None
+                resolved_responses = self._resolve_response_schemas(responses, raw) if isinstance(responses, dict) else {}
                 endpoint = ApiEndpoint(
                     identifier=identifier,
                     method=method_lower,
@@ -379,9 +373,7 @@ class ApiGraph:
         self._endpoints: List[ApiEndpoint] = []
         for spec in specs:
             self._endpoints.extend(spec.endpoints)
-        self._endpoint_by_id: Dict[str, ApiEndpoint] = {
-            endpoint.identifier: endpoint for endpoint in self._endpoints
-        }
+        self._endpoint_by_id: Dict[str, ApiEndpoint] = {endpoint.identifier: endpoint for endpoint in self._endpoints}
         self._tool_catalog: Optional[List[ToolSpec]] = None
 
     def endpoints(self) -> List[ApiEndpoint]:
@@ -452,10 +444,7 @@ class ApiGraph:
             dependency_text = ""
             if endpoint.dependencies:
                 dependency_text = f" Depends on: {', '.join(endpoint.dependencies)}."
-            lines.append(
-                f"- {endpoint.identifier} [{endpoint.method.upper()} {endpoint.path}] :: {summary}. "
-                f"Params: {params}. Body: {request_info}.{dependency_text}"
-            )
+            lines.append(f"- {endpoint.identifier} [{endpoint.method.upper()} {endpoint.path}] :: {summary}. " f"Params: {params}. Body: {request_info}.{dependency_text}")
         if len(endpoints) > limit:
             lines.append(f"... ({len(endpoints) - limit} more endpoints omitted)")
         return "\n".join(lines)
@@ -553,10 +542,7 @@ class ApiGraph:
             composite = schema.get(composite_key)
             if isinstance(composite, list) and composite:
                 delimiter = " | " if composite_key != "allOf" else " & "
-                parts = [
-                    part for part in (ApiGraph._extract_type_name(item) for item in composite if isinstance(item, dict))
-                    if part
-                ]
+                parts = [part for part in (ApiGraph._extract_type_name(item) for item in composite if isinstance(item, dict)) if part]
                 if parts:
                     return delimiter.join(parts)
         return ""
@@ -568,5 +554,3 @@ class ApiGraph:
         if len(text) <= length:
             return text
         return text[: length - 3].rstrip() + "..."
-
-
