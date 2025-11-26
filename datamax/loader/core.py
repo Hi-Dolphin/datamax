@@ -93,9 +93,10 @@ class DataLoader:
 
     def download(self, oss_path: str) -> None:
         if self.source == "minio" and self.mi:
-            file_list = self.mi.list_objects(
-                bucket_name=self.bucket_name, prefix=oss_path
-            ) or []
+            file_list = (
+                self.mi.list_objects(bucket_name=self.bucket_name, prefix=oss_path)
+                or []
+            )
             for path in file_list:
                 self.mi.download_file(
                     bucket_name=self.bucket_name,

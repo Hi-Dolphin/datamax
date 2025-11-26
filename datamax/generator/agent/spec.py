@@ -58,7 +58,9 @@ class ApiSpecLoader:
 
         if raw is None:
             if yaml is None:
-                raise RuntimeError("PyYAML is required to parse YAML specifications. Install pyyaml to continue.")
+                raise RuntimeError(
+                    "PyYAML is required to parse YAML specifications. Install pyyaml to continue."
+                )
             raw = yaml.safe_load(text)
 
         if not isinstance(raw, dict):
@@ -70,9 +72,15 @@ class ApiSpecLoader:
 
     def _build_spec(self, raw: dict, title: str, version: str, source: str) -> ApiSpec:
         paths = raw.get("paths") or {}
-        servers = [srv.get("url", "") for srv in raw.get("servers", []) if isinstance(srv, dict)]
+        servers = [
+            srv.get("url", "")
+            for srv in raw.get("servers", [])
+            if isinstance(srv, dict)
+        ]
         components = raw.get("components") or {}
-        security_schemes = components.get("securitySchemes") if isinstance(components, dict) else {}
+        security_schemes = (
+            components.get("securitySchemes") if isinstance(components, dict) else {}
+        )
         if not isinstance(security_schemes, dict):
             security_schemes = {}
         endpoints: List[ApiEndpoint] = []
@@ -81,22 +89,45 @@ class ApiSpecLoader:
                 continue
             for method, operation in operations.items():
                 method_lower = str(method).lower()
-                if method_lower not in {"get", "post", "put", "delete", "patch", "options", "head"}:
+                if method_lower not in {
+                    "get",
+                    "post",
+                    "put",
+                    "delete",
+                    "patch",
+                    "options",
+                    "head",
+                }:
                     continue
                 if not isinstance(operation, dict):
                     continue
-                identifier = operation.get("operationId") or f"{method_upper(method_lower)} {path}"
+                identifier = (
+                    operation.get("operationId")
+                    or f"{method_upper(method_lower)} {path}"
+                )
                 summary = operation.get("summary") or ""
                 description = operation.get("description") or ""
                 tags = operation.get("tags") or []
-                parameters = self._normalise_parameters(operation.get("parameters"), raw)
+                parameters = self._normalise_parameters(
+                    operation.get("parameters"), raw
+                )
                 request_body = operation.get("requestBody")
                 responses = operation.get("responses") or {}
                 security = operation.get("security") or raw.get("security") or []
                 op_servers = operation.get("servers") or []
-                endpoint_servers = [srv.get("url", "") for srv in op_servers if isinstance(srv, dict)]
-                resolved_request_schema = self._resolve_request_schema(request_body, raw) if isinstance(request_body, dict) else None
-                resolved_responses = self._resolve_response_schemas(responses, raw) if isinstance(responses, dict) else {}
+                endpoint_servers = [
+                    srv.get("url", "") for srv in op_servers if isinstance(srv, dict)
+                ]
+                resolved_request_schema = (
+                    self._resolve_request_schema(request_body, raw)
+                    if isinstance(request_body, dict)
+                    else None
+                )
+                resolved_responses = (
+                    self._resolve_response_schemas(responses, raw)
+                    if isinstance(responses, dict)
+                    else {}
+                )
                 endpoint = ApiEndpoint(
                     identifier=identifier,
                     method=method_lower,
@@ -105,7 +136,9 @@ class ApiSpecLoader:
                     description=description,
                     tags=tags if isinstance(tags, list) else [],
                     parameters=parameters,
-                    request_body=request_body if isinstance(request_body, dict) else None,
+                    request_body=(
+                        request_body if isinstance(request_body, dict) else None
+                    ),
                     responses=responses if isinstance(responses, dict) else {},
                     security=security if isinstance(security, list) else [],
                     servers=endpoint_servers or servers,
@@ -151,7 +184,9 @@ class ApiSpecLoader:
                 normalised.append(resolved)
         return normalised
 
-    def _resolve_parameter(self, param: Any, raw: dict, trail: Optional[set[str]] = None) -> Optional[dict]:
+    def _resolve_parameter(
+        self, param: Any, raw: dict, trail: Optional[set[str]] = None
+    ) -> Optional[dict]:
         if not isinstance(param, dict):
             return None
         param_copy = dict(param)
@@ -164,7 +199,9 @@ class ApiSpecLoader:
             else:
                 target = self._lookup_ref(ref, raw)
                 if isinstance(target, dict):
-                    merged = self._merge_dicts(target, {k: v for k, v in param_copy.items() if k != "$ref"})
+                    merged = self._merge_dicts(
+                        target, {k: v for k, v in param_copy.items() if k != "$ref"}
+                    )
                     trail = set(trail)
                     trail.add(ref)
                     return self._resolve_parameter(merged, raw, trail)
@@ -215,7 +252,9 @@ class ApiSpecLoader:
                 resolved[str(status)] = schema
         return resolved
 
-    def _resolve_schema(self, schema: Any, raw: dict, trail: Optional[set[str]] = None) -> Any:
+    def _resolve_schema(
+        self, schema: Any, raw: dict, trail: Optional[set[str]] = None
+    ) -> Any:
         if not isinstance(schema, dict):
             return schema
         schema_copy = dict(schema)
@@ -226,7 +265,9 @@ class ApiSpecLoader:
             if ref not in trail:
                 target = self._lookup_ref(ref, raw)
                 if isinstance(target, dict):
-                    merged = self._merge_dicts(target, {k: v for k, v in schema_copy.items() if k != "$ref"})
+                    merged = self._merge_dicts(
+                        target, {k: v for k, v in schema_copy.items() if k != "$ref"}
+                    )
                     new_trail = set(trail)
                     new_trail.add(ref)
                     return self._resolve_schema(merged, raw, new_trail)
@@ -235,14 +276,20 @@ class ApiSpecLoader:
             if isinstance(value, dict):
                 schema_copy[key] = self._resolve_schema(value, raw, trail)
             elif isinstance(value, list):
-                schema_copy[key] = [self._resolve_schema(item, raw, trail) for item in value]
+                schema_copy[key] = [
+                    self._resolve_schema(item, raw, trail) for item in value
+                ]
         return schema_copy
 
     @staticmethod
     def _merge_dicts(base: dict, override: dict) -> dict:
         merged = dict(base)
         for key, value in override.items():
-            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            if (
+                key in merged
+                and isinstance(merged[key], dict)
+                and isinstance(value, dict)
+            ):
                 merged[key] = ApiSpecLoader._merge_dicts(merged[key], value)
             else:
                 merged[key] = value
@@ -270,7 +317,9 @@ class ApiSpecLoader:
         for key in ("x-depends-on", "x-dependencies", "xSequence"):
             value = operation.get(key)
             if isinstance(value, list):
-                deps.extend([str(item) for item in value if isinstance(item, (str, int))])
+                deps.extend(
+                    [str(item) for item in value if isinstance(item, (str, int))]
+                )
             elif isinstance(value, str):
                 deps.append(value)
         return deps
@@ -284,7 +333,11 @@ class ApiSpecLoader:
 
         for base, group in by_base_path.items():
             creators = [ep for ep in group if ep.method in {"post", "put"}]
-            readers = [ep for ep in group if ep.method in {"get", "patch", "delete"} and "{" in ep.path]
+            readers = [
+                ep
+                for ep in group
+                if ep.method in {"get", "patch", "delete"} and "{" in ep.path
+            ]
             for reader in readers:
                 for creator in creators:
                     if creator.identifier not in reader.dependencies:
@@ -295,7 +348,9 @@ def method_upper(method: str) -> str:
     return method.upper()
 
 
-def discover_spec_files(directory: Path, extensions: Sequence[str] = SPEC_EXTENSIONS) -> List[Path]:
+def discover_spec_files(
+    directory: Path, extensions: Sequence[str] = SPEC_EXTENSIONS
+) -> List[Path]:
     if not directory.exists():
         return []
 
@@ -339,7 +394,9 @@ def make_agent_output_stem(spec_path: Path, spec_root: Path, output_root: Path) 
     return output_dir / stem
 
 
-def make_agent_checkpoint_path(spec_path: Path, spec_root: Path, checkpoint_root: Path) -> Path:
+def make_agent_checkpoint_path(
+    spec_path: Path, spec_root: Path, checkpoint_root: Path
+) -> Path:
     relative_dir, stem = split_relative_path(spec_path, spec_root)
     checkpoint_dir = checkpoint_root / relative_dir
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -373,7 +430,9 @@ class ApiGraph:
         self._endpoints: List[ApiEndpoint] = []
         for spec in specs:
             self._endpoints.extend(spec.endpoints)
-        self._endpoint_by_id: Dict[str, ApiEndpoint] = {endpoint.identifier: endpoint for endpoint in self._endpoints}
+        self._endpoint_by_id: Dict[str, ApiEndpoint] = {
+            endpoint.identifier: endpoint for endpoint in self._endpoints
+        }
         self._tool_catalog: Optional[List[ToolSpec]] = None
 
     def endpoints(self) -> List[ApiEndpoint]:
@@ -409,7 +468,9 @@ class ApiGraph:
             )
 
         for endpoint in self._endpoints:
-            deps = [self.get(dep_id) for dep_id in endpoint.dependencies if self.get(dep_id)]
+            deps = [
+                self.get(dep_id) for dep_id in endpoint.dependencies if self.get(dep_id)
+            ]
             if deps:
                 chain = deps + [endpoint]
                 contexts.append(
@@ -435,7 +496,9 @@ class ApiGraph:
             self._tool_catalog = catalog
         return list(self._tool_catalog)
 
-    def describe_endpoints(self, endpoints: Sequence[ApiEndpoint], limit: int = 8) -> str:
+    def describe_endpoints(
+        self, endpoints: Sequence[ApiEndpoint], limit: int = 8
+    ) -> str:
         lines: List[str] = []
         for endpoint in list(endpoints)[:limit]:
             params = self._format_parameters(endpoint.parameters)
@@ -444,7 +507,10 @@ class ApiGraph:
             dependency_text = ""
             if endpoint.dependencies:
                 dependency_text = f" Depends on: {', '.join(endpoint.dependencies)}."
-            lines.append(f"- {endpoint.identifier} [{endpoint.method.upper()} {endpoint.path}] :: {summary}. " f"Params: {params}. Body: {request_info}.{dependency_text}")
+            lines.append(
+                f"- {endpoint.identifier} [{endpoint.method.upper()} {endpoint.path}] :: {summary}. "
+                f"Params: {params}. Body: {request_info}.{dependency_text}"
+            )
         if len(endpoints) > limit:
             lines.append(f"... ({len(endpoints) - limit} more endpoints omitted)")
         return "\n".join(lines)
@@ -457,7 +523,9 @@ class ApiGraph:
                 continue
             name = str(param.get("name") or "_")
             location = param.get("in")
-            schema = param.get("schema") if isinstance(param.get("schema"), dict) else {}
+            schema = (
+                param.get("schema") if isinstance(param.get("schema"), dict) else {}
+            )
             type_name = ApiGraph._extract_type_name(schema) or "any"
             desc_source = param.get("description") or schema.get("description") or ""
             description = ApiGraph._truncate(desc_source, 60)
@@ -483,7 +551,9 @@ class ApiGraph:
     def _summarize_schema(schema: Optional[dict], limit: int = 6) -> str:
         if not schema:
             return "None"
-        schema_type = schema.get("type") or ApiGraph._extract_type_name(schema) or "object"
+        schema_type = (
+            schema.get("type") or ApiGraph._extract_type_name(schema) or "object"
+        )
         if schema_type.startswith("array<"):
             return schema_type
         if schema_type == "array":
@@ -491,7 +561,11 @@ class ApiGraph:
             return f"array<{item_type or 'object'}>"
         properties = schema.get("properties")
         if isinstance(properties, dict) and properties:
-            required = {str(name) for name in schema.get("required", []) if isinstance(name, str)}
+            required = {
+                str(name)
+                for name in schema.get("required", [])
+                if isinstance(name, str)
+            }
             items: List[str] = []
             for key, value in list(properties.items())[:limit]:
                 entry = ApiGraph._summarize_property(key, value, required)
@@ -542,7 +616,15 @@ class ApiGraph:
             composite = schema.get(composite_key)
             if isinstance(composite, list) and composite:
                 delimiter = " | " if composite_key != "allOf" else " & "
-                parts = [part for part in (ApiGraph._extract_type_name(item) for item in composite if isinstance(item, dict)) if part]
+                parts = [
+                    part
+                    for part in (
+                        ApiGraph._extract_type_name(item)
+                        for item in composite
+                        if isinstance(item, dict)
+                    )
+                    if part
+                ]
                 if parts:
                     return delimiter.join(parts)
         return ""

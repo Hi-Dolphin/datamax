@@ -14,7 +14,9 @@ class AgentReviewPipeline:
     def __init__(self, config: AgentGenerationConfig):
         self.config = config
 
-    def review(self, episode: AgentEpisode, monitor: PerformanceMonitor) -> ReviewResult:
+    def review(
+        self, episode: AgentEpisode, monitor: PerformanceMonitor
+    ) -> ReviewResult:
         issues: List[str] = []
         suggestions: List[str] = []
         messages = [
@@ -60,9 +62,13 @@ class AgentReviewPipeline:
         if isinstance(parsed, dict):
             success = bool(parsed.get("success"))
             score = parsed.get("score")
-            issues = parsed.get("issues") if isinstance(parsed.get("issues"), list) else []
+            issues = (
+                parsed.get("issues") if isinstance(parsed.get("issues"), list) else []
+            )
             suggestions = (
-                parsed.get("suggestions") if isinstance(parsed.get("suggestions"), list) else []
+                parsed.get("suggestions")
+                if isinstance(parsed.get("suggestions"), list)
+                else []
             )
         monitor.add_stage_items("agent_review", 1)
         return ReviewResult(

@@ -42,7 +42,9 @@ class ToolSpec:
         if self.operation_id:
             parts.append(f"operationId: {self.operation_id}")
         if self.security:
-            schemes = ", ".join(sorted({key for entry in self.security for key in entry.keys()}))
+            schemes = ", ".join(
+                sorted({key for entry in self.security for key in entry.keys()})
+            )
             parts.append(f"Auth Required: {schemes or 'unspecified scheme'}")
         return "\n".join(parts)
 
@@ -69,7 +71,9 @@ class ApiEndpoint:
     def tool_name(self) -> str:
         if self.identifier:
             return self.identifier
-        clean_path = self.path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
+        clean_path = (
+            self.path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
+        )
         return f"{self.method.lower()}_{clean_path or 'root'}"
 
     def to_tool_spec(self) -> ToolSpec:
@@ -85,9 +89,15 @@ class ApiEndpoint:
             method=self.method,
             path=self.path,
             description=self.summary or self.description or "",
-            operation_id=self.identifier if self.identifier and self.identifier != self.tool_name() else None,
+            operation_id=(
+                self.identifier
+                if self.identifier and self.identifier != self.tool_name()
+                else None
+            ),
             input_schema=self._extract_request_schema(),
-            output_schema=self._extract_response_schema(success_status, success_response),
+            output_schema=self._extract_response_schema(
+                success_status, success_response
+            ),
             tags=list(self.tags),
             source_spec=self.source_spec,
             servers=list(self.servers),
@@ -112,7 +122,9 @@ class ApiEndpoint:
                 return item["schema"]
         return None
 
-    def _extract_response_schema(self, status: Optional[str], response: Optional[dict]) -> Optional[dict]:
+    def _extract_response_schema(
+        self, status: Optional[str], response: Optional[dict]
+    ) -> Optional[dict]:
         if status and status in self.response_schemas:
             return self.response_schemas[status]
         if self.response_schemas:
@@ -256,7 +268,9 @@ class AgentEpisode:
         return {
             "episode_id": self.episode_id,
             "question": self.question.to_dict(),
-            "tool_candidates": [candidate.to_dict() for candidate in self.tool_candidates],
+            "tool_candidates": [
+                candidate.to_dict() for candidate in self.tool_candidates
+            ],
             "tool_calls": [call.to_dict() for call in self.tool_calls],
             "turns": [turn.to_dict() for turn in self.turns],
             "final_answer": self.final_answer,

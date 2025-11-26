@@ -68,7 +68,11 @@ class ToolClassifier:
                     score_value = None
                 rationale = item.get("rationale") or ""
                 candidates.append(
-                    ToolCandidate(tool_name=name.strip(), score=score_value, rationale=str(rationale)),
+                    ToolCandidate(
+                        tool_name=name.strip(),
+                        score=score_value,
+                        rationale=str(rationale),
+                    ),
                 )
         monitor.add_stage_items("tool_classification", len(candidates))
         return candidates

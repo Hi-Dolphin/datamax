@@ -70,7 +70,9 @@ class ObsClient:
         )
         if response.status >= 300:
             message = getattr(
-                response, "errorMessage", f"Failed to download OBS object {object_name}."
+                response,
+                "errorMessage",
+                f"Failed to download OBS object {object_name}.",
             )
             raise RuntimeError(message)
         return file_path
@@ -98,7 +100,9 @@ class ObsClient:
         signed_url = getattr(response, "signedUrl", None)
         if response.status >= 300 or not signed_url:
             message = getattr(
-                response, "errorMessage", f"Failed to create OBS signed URL for {object_name}."
+                response,
+                "errorMessage",
+                f"Failed to create OBS signed URL for {object_name}.",
             )
             raise RuntimeError(message)
         return signed_url

@@ -17,7 +17,9 @@ class AgentQuestionGenerator:
     def __init__(self, config: AgentGenerationConfig):
         self.config = config
 
-    def generate(self, api_graph: ApiGraph, monitor: PerformanceMonitor) -> List[AgentQuestion]:
+    def generate(
+        self, api_graph: ApiGraph, monitor: PerformanceMonitor
+    ) -> List[AgentQuestion]:
         questions: List[AgentQuestion] = []
         contexts = api_graph.build_prompt_contexts()
         if not contexts:
@@ -66,7 +68,9 @@ class AgentQuestionGenerator:
                     continue
                 parsed = extract_json_from_llm_output(raw[0])
                 if not isinstance(parsed, list):
-                    logger.warning("Question generation output not a list; skipping context")
+                    logger.warning(
+                        "Question generation output not a list; skipping context"
+                    )
                     continue
                 for entry in parsed:
                     if len(questions) >= self.config.question_count:
@@ -77,7 +81,9 @@ class AgentQuestionGenerator:
             monitor.add_stage_items("agent_question_generation", len(questions))
         return questions
 
-    def _build_prompt(self, context: PromptContext, batch_limit: int, api_graph: ApiGraph) -> str:
+    def _build_prompt(
+        self, context: PromptContext, batch_limit: int, api_graph: ApiGraph
+    ) -> str:
         endpoint_summary = api_graph.describe_endpoints(context.endpoints, limit=12)
         instructions = (
             "Generate realistic end-user questions/goals that require interacting with the provided APIs. "

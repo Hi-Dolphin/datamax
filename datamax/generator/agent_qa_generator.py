@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import uuid
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
 import re
 import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from urllib.parse import urljoin
 
@@ -46,14 +46,22 @@ from .agent.models import (
 from .agent.progress import AgentProgressTracker
 from .agent.questions import AgentQuestionGenerator
 from .agent.review import AgentReviewPipeline
-from .agent.runners import LangGraphAgent, OpenAIAgent, ToolRegistry, build_agent_plan, generate_agent_final_answer, ensure_langgraph_available, SPEC_EXTENSIONS
+from .agent.runners import (
+    SPEC_EXTENSIONS,
+    LangGraphAgent,
+    OpenAIAgent,
+    ToolRegistry,
+    build_agent_plan,
+    ensure_langgraph_available,
+    generate_agent_final_answer,
+)
 from .agent.spec import ApiGraph, ApiSpecLoader
+from .auth import AuthManager
 from .qa_generator import (
     QAProgressTracker,
     extract_json_from_llm_output,
     llm_generator,
 )
-from .auth import AuthManager
 
 
 class AgentTrainingDataGenerator:
@@ -68,16 +76,27 @@ class AgentTrainingDataGenerator:
     def run(self, spec_sources: Sequence[Union[str, dict]]) -> dict:
         specs = self.loader.load(spec_sources)
         if not specs:
-            raise ValueError("No API specifications could be loaded; aborting generation.")
+            raise ValueError(
+                "No API specifications could be loaded; aborting generation."
+            )
 
         api_graph = ApiGraph(specs)
         tool_catalog = api_graph.tool_catalog()
         if self.config.require_auth_for_protected_tools and not self.config.auth:
-            protected_schemes = sorted({scheme for tool in tool_catalog for requirement in tool.security if isinstance(requirement, dict) for scheme in requirement.keys()})
+            protected_schemes = sorted(
+                {
+                    scheme
+                    for tool in tool_catalog
+                    for requirement in tool.security
+                    if isinstance(requirement, dict)
+                    for scheme in requirement.keys()
+                }
+            )
             if protected_schemes:
                 raise RuntimeError(
                     "Authentication is required for the loaded API specifications. "
-                    "Provide credentials for the following security schemes via AgentGenerationConfig.auth: " + ", ".join(protected_schemes)
+                    "Provide credentials for the following security schemes via AgentGenerationConfig.auth: "
+                    + ", ".join(protected_schemes)
                 )
         auth_manager = AuthManager(self.config.auth)
         tool_registry = ToolRegistry(
@@ -97,7 +116,9 @@ class AgentTrainingDataGenerator:
 
         tracker: Optional[AgentProgressTracker] = None
         if self.config.checkpoint_path:
-            tracker = AgentProgressTracker(self.config.checkpoint_path, resume=self.config.resume_from_checkpoint)
+            tracker = AgentProgressTracker(
+                self.config.checkpoint_path, resume=self.config.resume_from_checkpoint
+            )
 
         questions = self.question_generator.generate(api_graph, self.monitor)
         episodes: List[AgentEpisode] = []
@@ -106,7 +127,9 @@ class AgentTrainingDataGenerator:
             if tracker and episode_id in tracker.entries_by_key:
                 continue
             candidates = self.classifier.classify(question, tool_catalog, self.monitor)
-            turns, tool_calls, final_answer = agent.run(question, candidates, self.monitor)
+            turns, tool_calls, final_answer = agent.run(
+                question, candidates, self.monitor
+            )
             episode = AgentEpisode(
                 episode_id=episode_id,
                 question=question,
@@ -150,7 +173,9 @@ def generate_agent_training_data(
     return generator.run(spec_sources)
 
 
-def discover_spec_files(directory: Path, extensions: Sequence[str] = SPEC_EXTENSIONS) -> List[Path]:
+def discover_spec_files(
+    directory: Path, extensions: Sequence[str] = SPEC_EXTENSIONS
+) -> List[Path]:
     """Recursively discover API specification files under ``directory``."""
     if not directory.exists():
         return []
@@ -195,7 +220,9 @@ def make_agent_output_stem(spec_path: Path, spec_root: Path, output_root: Path) 
     return output_dir / stem
 
 
-def make_agent_checkpoint_path(spec_path: Path, spec_root: Path, checkpoint_root: Path) -> Path:
+def make_agent_checkpoint_path(
+    spec_path: Path, spec_root: Path, checkpoint_root: Path
+) -> Path:
     relative_dir, stem = split_relative_path(spec_path, spec_root)
     checkpoint_dir = checkpoint_root / relative_dir
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -282,7 +309,13 @@ def episode_to_sharegpt(
         question.get("prompt")
         or question.get("question")
         or next(
-            (turn.get("content") for turn in (episode.get("turns") or []) if isinstance(turn, dict) and turn.get("role") == "user" and turn.get("content")),
+            (
+                turn.get("content")
+                for turn in (episode.get("turns") or [])
+                if isinstance(turn, dict)
+                and turn.get("role") == "user"
+                and turn.get("content")
+            ),
             "",
         )
     )
@@ -309,7 +342,14 @@ def episode_to_sharegpt(
     final_answer = ensure_text(episode.get("final_answer"))
     if not final_answer:
         fallback = next(
-            (turn.get("content") for turn in reversed(episode.get("turns") or []) if isinstance(turn, dict) and turn.get("role") == "assistant" and turn.get("content") and not turn.get("tool_name")),
+            (
+                turn.get("content")
+                for turn in reversed(episode.get("turns") or [])
+                if isinstance(turn, dict)
+                and turn.get("role") == "assistant"
+                and turn.get("content")
+                and not turn.get("tool_name")
+            ),
             "",
         )
         final_answer = ensure_text(fallback)
@@ -339,10 +379,14 @@ def convert_episodes_to_sharegpt(
         for tool in tool_catalog:
             if isinstance(tool, dict) and tool.get("name"):
                 tool_lookup[str(tool["name"])] = tool
-    return [episode_to_sharegpt(ep, tool_lookup) for ep in episodes if isinstance(ep, dict)]
+    return [
+        episode_to_sharegpt(ep, tool_lookup) for ep in episodes if isinstance(ep, dict)
+    ]
 
 
-def validate_auth_configuration_for_spec(spec_path: Path, auth_config: Optional[dict]) -> None:
+def validate_auth_configuration_for_spec(
+    spec_path: Path, auth_config: Optional[dict]
+) -> None:
     if not auth_config:
         return
     loader = ApiSpecLoader()

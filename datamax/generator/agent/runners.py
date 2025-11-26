@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import urljoin
 
 import requests
 from loguru import logger
-import re
-from urllib.parse import urljoin
 
 try:
     from langgraph.graph import END, StateGraph
@@ -60,7 +60,10 @@ class ToolRegistry:
             fields = list(properties.keys())
         dominant_fields = ", ".join(fields[:6]) if fields else "unspecified fields"
         param_desc = json.dumps(params, ensure_ascii=False) if params else "{}"
-        return f"Simulated response from {tool.method.upper()} {tool.path}. " f"Parameters: {param_desc}. Likely returns {dominant_fields}."
+        return (
+            f"Simulated response from {tool.method.upper()} {tool.path}. "
+            f"Parameters: {param_desc}. Likely returns {dominant_fields}."
+        )
 
     def invoke(
         self,
@@ -79,8 +82,12 @@ class ToolRegistry:
         params: Dict[str, Any],
     ) -> Tuple[str, bool, Optional[str], Optional[float]]:
         if not isinstance(params, dict):
-            raise TypeError(f"Tool invocation expects parameters as an object, received {type(params).__name__}.")
-        method, url, headers, query_params, json_payload, data_payload = self._prepare_request(tool, params)
+            raise TypeError(
+                f"Tool invocation expects parameters as an object, received {type(params).__name__}."
+            )
+        method, url, headers, query_params, json_payload, data_payload = (
+            self._prepare_request(tool, params)
+        )
         start = time.perf_counter()
         try:
             response = requests.request(
@@ -174,7 +181,9 @@ class ToolRegistry:
             merged.update(auth_context.query_params)
         return merged
 
-    def _ensure_json_content_type(self, headers: Dict[str, str], body_json: Optional[Any]) -> None:
+    def _ensure_json_content_type(
+        self, headers: Dict[str, str], body_json: Optional[Any]
+    ) -> None:
         """Ensure JSON Content-Type header is present when needed."""
         if body_json is None:
             return
@@ -191,7 +200,9 @@ class ToolRegistry:
         payload = self._clean_payload(params)
 
         # Extract parameters (path/query/header) according to OpenAPI spec
-        path_values, query_params, header_params, remaining = self._extract_parameter_values(tool, payload)
+        path_values, query_params, header_params, remaining = (
+            self._extract_parameter_values(tool, payload)
+        )
 
         # Fill URL placeholders and retrieve leftover parameters
         url, remaining_after_path = self._resolve_url(tool, path_values, remaining)
@@ -199,7 +210,9 @@ class ToolRegistry:
         method = (tool.method or "get").lower()
 
         # Extract body or merge remaining parameters into query
-        body_json, body_data, final_query_params = self._prepare_body_and_query(method, remaining_after_path, query_params)
+        body_json, body_data, final_query_params = self._prepare_body_and_query(
+            method, remaining_after_path, query_params
+        )
 
         # Resolve auth
         auth_context = self._resolve_auth_context(tool)
@@ -238,15 +251,21 @@ class ToolRegistry:
             value_found, value = self._extract_param_value(name, working)
 
             if location == "path":
-                self._handle_path_param(tool, name, required, value_found, value, path_values)
+                self._handle_path_param(
+                    tool, name, required, value_found, value, path_values
+                )
                 continue
 
             if value_found:
-                self._store_non_path_param(location, name, value, query_params, header_params)
+                self._store_non_path_param(
+                    location, name, value, query_params, header_params
+                )
 
         return path_values, query_params, header_params, working
 
-    def _extract_param_value(self, name: str, working: Dict[str, Any]) -> Tuple[bool, Any]:
+    def _extract_param_value(
+        self, name: str, working: Dict[str, Any]
+    ) -> Tuple[bool, Any]:
         """Return (found, value) for a parameter name, supporting hyphen→underscore fallback."""
         lookup_keys = [name]
         if "-" in name:
@@ -257,11 +276,21 @@ class ToolRegistry:
                 return True, working.pop(key)
         return False, None
 
-    def _handle_path_param(self, tool: ToolSpec, name: str, required: bool, found: bool, value: Any, path_values: Dict[str, Any]) -> None:
+    def _handle_path_param(
+        self,
+        tool: ToolSpec,
+        name: str,
+        required: bool,
+        found: bool,
+        value: Any,
+        path_values: Dict[str, Any],
+    ) -> None:
         """Handle path parameters, raising if missing."""
         if not found:
             if required:
-                raise RuntimeError(f"Missing required path parameter '{name}' for tool '{tool.name}'.")
+                raise RuntimeError(
+                    f"Missing required path parameter '{name}' for tool '{tool.name}'."
+                )
             return
         path_values[name] = value
 
@@ -299,7 +328,9 @@ class ToolRegistry:
                 alt_key = key.replace("-", "_")
                 value = remaining.pop(alt_key)
             else:
-                raise RuntimeError(f"Missing value for path placeholder '{key}' in tool '{tool.name}'.")
+                raise RuntimeError(
+                    f"Missing value for path placeholder '{key}' in tool '{tool.name}'."
+                )
             path_template = path_template.replace(f"{{{placeholder}}}", str(value))
 
         base_url = self._select_base_url(tool)
@@ -316,10 +347,14 @@ class ToolRegistry:
             if cleaned.startswith("http://") or cleaned.startswith("https://"):
                 return cleaned
             if self._default_server:
-                return urljoin(self._default_server.rstrip("/") + "/", cleaned.lstrip("/"))
+                return urljoin(
+                    self._default_server.rstrip("/") + "/", cleaned.lstrip("/")
+                )
         if self._default_server:
             return self._default_server
-        raise RuntimeError(f"No server URL available for tool '{tool.name}'. Provide `default_tool_server` in the config.")
+        raise RuntimeError(
+            f"No server URL available for tool '{tool.name}'. Provide `default_tool_server` in the config."
+        )
 
     def _resolve_auth_context(self, tool: ToolSpec) -> AuthContext:
         try:
@@ -327,7 +362,10 @@ class ToolRegistry:
         except RuntimeError:
             if self._require_auth:
                 raise
-            logger.warning("Auth disabled yet required for tool '%s'; continuing without credentials.", tool.name)
+            logger.warning(
+                "Auth disabled yet required for tool '%s'; continuing without credentials.",
+                tool.name,
+            )
             return AuthContext()
 
     def _summarise_response(self, response: requests.Response) -> str:
@@ -388,7 +426,10 @@ def build_agent_plan(
         },
         {
             "role": "user",
-            "content": (f"Question: {question.prompt}\n\nAvailable tools:\n" + "\n\n".join(catalog_lines)),
+            "content": (
+                f"Question: {question.prompt}\n\nAvailable tools:\n"
+                + "\n\n".join(catalog_lines)
+            ),
         },
     ]
 
@@ -424,12 +465,16 @@ def build_agent_plan(
             {
                 "tool": tool_name.strip(),
                 "reason": entry.get("reason") or "",
-                "inputs": entry.get("inputs") if isinstance(entry.get("inputs"), dict) else {},
+                "inputs": (
+                    entry.get("inputs") if isinstance(entry.get("inputs"), dict) else {}
+                ),
                 "assistant_thought": entry.get("assistant_thought"),
             }
         )
     if not steps and fallback_tools:
-        steps.append({"tool": fallback_tools[0], "reason": "Default fallback", "inputs": {}})
+        steps.append(
+            {"tool": fallback_tools[0], "reason": "Default fallback", "inputs": {}}
+        )
     return steps
 
 
@@ -441,7 +486,10 @@ def generate_agent_final_answer(
 ) -> str:
     call_summaries = []
     for call in tool_calls:
-        call_summaries.append(f"Tool {call.tool_name} with input {json.dumps(call.input, ensure_ascii=False)} " f"produced observation: {call.observation}")
+        call_summaries.append(
+            f"Tool {call.tool_name} with input {json.dumps(call.input, ensure_ascii=False)} "
+            f"produced observation: {call.observation}"
+        )
     messages = [
         {
             "role": "system",
@@ -453,7 +501,10 @@ def generate_agent_final_answer(
         },
         {
             "role": "user",
-            "content": (f"Question: {question.prompt}\n\n" f"Tool call summary:\n" + "\n".join(call_summaries)),
+            "content": (
+                f"Question: {question.prompt}\n\n"
+                f"Tool call summary:\n" + "\n".join(call_summaries)
+            ),
         },
     ]
     raw = llm_generator(
@@ -477,7 +528,9 @@ def generate_agent_final_answer(
 
 def ensure_langgraph_available() -> None:
     if StateGraph is None:
-        raise ImportError("LangGraph is not installed. Install langgraph>=0.0.30 to run the agent pipeline.")
+        raise ImportError(
+            "LangGraph is not installed. Install langgraph>=0.0.30 to run the agent pipeline."
+        )
 
 
 class LangGraphAgent:
@@ -495,7 +548,10 @@ class LangGraphAgent:
             state["plan"] = self._generate_plan(state)
             state["step_index"] = 0
             turns: List[AgentTurn] = state.get("turns") or []
-            plan_explanation = "\n".join(f"{idx + 1}. {step.get('tool')} - {step.get('reason')}" for idx, step in enumerate(state["plan"]))
+            plan_explanation = "\n".join(
+                f"{idx + 1}. {step.get('tool')} - {step.get('reason')}"
+                for idx, step in enumerate(state["plan"])
+            )
             turns.append(
                 AgentTurn(
                     role="assistant",
@@ -524,7 +580,9 @@ class LangGraphAgent:
                 return state
             params = step.get("inputs") or {}
             monitor = state.get("monitor")
-            observation, success, error, latency = self.tool_registry.invoke(tool_spec, params, monitor)
+            observation, success, error, latency = self.tool_registry.invoke(
+                tool_spec, params, monitor
+            )
             tool_calls: List[ToolCall] = state.get("tool_calls") or []
             sequence = len(tool_calls) + 1
             tool_calls.append(
@@ -540,12 +598,15 @@ class LangGraphAgent:
                 )
             )
             if not success and error:
-                state.setdefault("issues", []).append(f"Tool {tool_spec.name} invocation failed: {error}")
+                state.setdefault("issues", []).append(
+                    f"Tool {tool_spec.name} invocation failed: {error}"
+                )
             turns: List[AgentTurn] = state.get("turns") or []
             turns.append(
                 AgentTurn(
                     role="assistant",
-                    content=step.get("assistant_thought") or f"Calling tool {tool_spec.name}",
+                    content=step.get("assistant_thought")
+                    or f"Calling tool {tool_spec.name}",
                     tool_name=tool_spec.name,
                     tool_input=params if isinstance(params, dict) else {},
                 )
@@ -597,7 +658,9 @@ class LangGraphAgent:
         tool_candidates: Sequence[ToolCandidate],
         monitor: PerformanceMonitor,
     ) -> Tuple[List[AgentTurn], List[ToolCall], str]:
-        tool_names = [candidate.tool_name for candidate in tool_candidates if candidate.tool_name]
+        tool_names = [
+            candidate.tool_name for candidate in tool_candidates if candidate.tool_name
+        ]
         initial_state = {
             "question": question,
             "tool_candidates": tool_names,
@@ -654,7 +717,9 @@ class OpenAIAgent:
         tool_candidates: Sequence[ToolCandidate],
         monitor: PerformanceMonitor,
     ) -> Tuple[List[AgentTurn], List[ToolCall], str]:
-        tool_names = [candidate.tool_name for candidate in tool_candidates if candidate.tool_name]
+        tool_names = [
+            candidate.tool_name for candidate in tool_candidates if candidate.tool_name
+        ]
         turns: List[AgentTurn] = [AgentTurn(role="user", content=question.prompt)]
         tool_calls: List[ToolCall] = []
 
@@ -667,7 +732,10 @@ class OpenAIAgent:
                 monitor=monitor,
             )
             if plan:
-                plan_explanation = "\n".join(f"{idx + 1}. {step.get('tool')} - {step.get('reason')}" for idx, step in enumerate(plan))
+                plan_explanation = "\n".join(
+                    f"{idx + 1}. {step.get('tool')} - {step.get('reason')}"
+                    for idx, step in enumerate(plan)
+                )
                 turns.append(
                     AgentTurn(
                         role="assistant",
@@ -687,8 +755,12 @@ class OpenAIAgent:
                         )
                     )
                     continue
-                params = step.get("inputs") if isinstance(step.get("inputs"), dict) else {}
-                assistant_thought = step.get("assistant_thought") or f"Calling tool {tool_spec.name}"
+                params = (
+                    step.get("inputs") if isinstance(step.get("inputs"), dict) else {}
+                )
+                assistant_thought = (
+                    step.get("assistant_thought") or f"Calling tool {tool_spec.name}"
+                )
                 turns.append(
                     AgentTurn(
                         role="assistant",
@@ -697,7 +769,9 @@ class OpenAIAgent:
                         tool_input=params,
                     )
                 )
-                observation, success, error, latency = self.tool_registry.invoke(tool_spec, params, monitor)
+                observation, success, error, latency = self.tool_registry.invoke(
+                    tool_spec, params, monitor
+                )
                 tool_call = ToolCall(
                     sequence=len(tool_calls) + 1,
                     tool_name=tool_spec.name,
