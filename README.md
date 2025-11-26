@@ -2,13 +2,11 @@
 
 <div align="center">
 
-[中文](README_zh.md) | **English**
+[中文](README_zh.md) | **English** | [中文文档](https://hi-dolphin.github.io/datamax) | [最佳实践](https://github.com/Hi-Dolphin/datamax/blob/main/examples/scripts/generate_qa.py)
 
 [![PyPI version](https://badge.fury.io/py/pydatamax.svg)](https://badge.fury.io/py/pydatamax) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
-
-**Documentation Portal:** https://hi-dolphin.github.io/datamax
 
 A powerful multi-format file parsing, data cleaning, and AI annotation toolkit built for modern Python applications.
 
@@ -87,7 +85,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 - 📧 Email: cy.kron@foxmail.com, wang.xiangyuxy@outlook.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
-- 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
+- 📚 Best Practice: [How to generate qa](https://github.com/Hi-Dolphin/datamax/blob/main/examples/scripts/generate_qa.py)
 - 💬 Wechat Group: <br><img src='wechat.jpg' width=300>
 ---
 
