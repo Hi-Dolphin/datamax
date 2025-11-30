@@ -90,6 +90,60 @@ class PostgresPersistence(AbstractContextManager):
 
         self._accumulator.consume(result)
 
+    def check_files_status(self, source_key: str, file_paths: list[str]) -> Dict[str, str]:
+        """
+        Check processing status for a batch of files.
+        Returns a dictionary mapping file_path -> status.
+        """
+        if not self.conn or not file_paths:
+            return {}
+
+        result = {}
+        with self.conn.cursor() as cur:
+            # Use ANY for array comparison which is cleaner in psycopg
+            cur.execute(
+                """
+                SELECT file_path, status
+                FROM sdc_ai.qa_file_status
+                WHERE source_key = %s AND file_path = ANY(%s)
+                """,
+                (source_key, file_paths),
+            )
+            for row in cur.fetchall():
+                result[row["file_path"]] = row["status"]
+        return result
+
+    def upsert_file_status(
+        self,
+        source_key: str,
+        file_path: str,
+        status: str,
+        run_id: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """
+        Update or insert the status of a file processing task.
+        """
+        if not self.conn:
+            return
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO sdc_ai.qa_file_status (
+                    source_key, file_path, status, run_id, error_message, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, NOW() AT TIME ZONE 'utc')
+                ON CONFLICT (source_key, file_path) DO UPDATE
+                SET status = EXCLUDED.status,
+                    run_id = COALESCE(EXCLUDED.run_id, sdc_ai.qa_file_status.run_id),
+                    error_message = EXCLUDED.error_message,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (source_key, file_path, status, run_id, error_message),
+            )
+        self.conn.commit()
+
     # ------------------------------------------------------------------ #
     # internal helpers                                                   #
     # ------------------------------------------------------------------ #
