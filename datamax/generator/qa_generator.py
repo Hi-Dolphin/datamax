@@ -458,8 +458,8 @@ def extract_json_from_llm_output(output: str):
         try:
             return json.loads(json_match.group(1))
         except json.JSONDecodeError as e:
-            print(f"Error parsing JSON: {e}")
-
+            logger.error(f"Error parsing JSON: {e}")
+            ...
     # Try to extract the most JSON-like part
     json_start = output.find("[")
     json_end = output.rfind("]") + 1
@@ -1385,9 +1385,10 @@ def review_qa_pairs(
                     if dbg:
                         dbg.log(f"QA pair {idx} rejected (score: {score}): {reason}")
                     if severity == "warning":
-                        logger.warning(
-                            f"Failed to parse review result for QA pair {idx}: {error_message}"
-                        )
+                        # logger.warning(
+                        #     f"Failed to parse review result for QA pair {idx}: {error_message}"
+                        # )
+                        ...
                     elif severity == "error":
                         logger.error(f"Error reviewing QA pair {idx}: {error_message}")
 

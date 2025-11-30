@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS sdc_ai.qa_pair (
     run_id             BIGINT REFERENCES sdc_ai.qa_generation_run(run_id) ON DELETE SET NULL,
     source_id          INTEGER REFERENCES sdc_ai.qa_source_dim(source_id),
     model_id           INTEGER REFERENCES sdc_ai.qa_model_dim(model_id),
+    source_key         TEXT,
+    source_name        TEXT,
+    owner_team         TEXT,
+    created_by         TEXT,
+    run_name           TEXT,
+    trigger_type       TEXT,
+    model_key          TEXT,
+    model_provider     TEXT,
+    model_version      TEXT,
     question           TEXT NOT NULL,
     answer             TEXT NOT NULL,
     answer_format      TEXT DEFAULT 'text',
@@ -100,6 +109,17 @@ CREATE INDEX IF NOT EXISTS idx_qa_pair_model
 
 CREATE INDEX IF NOT EXISTS idx_qa_pair_generated_at
     ON sdc_ai.qa_pair (generated_at DESC);
+
+ALTER TABLE sdc_ai.qa_pair
+  ADD COLUMN IF NOT EXISTS source_key TEXT,
+  ADD COLUMN IF NOT EXISTS source_name TEXT,
+  ADD COLUMN IF NOT EXISTS owner_team TEXT,
+  ADD COLUMN IF NOT EXISTS created_by TEXT,
+  ADD COLUMN IF NOT EXISTS run_name TEXT,
+  ADD COLUMN IF NOT EXISTS trigger_type TEXT,
+  ADD COLUMN IF NOT EXISTS model_key TEXT,
+  ADD COLUMN IF NOT EXISTS model_provider TEXT,
+  ADD COLUMN IF NOT EXISTS model_version TEXT;
 
 -- Quality review ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sdc_ai.qa_quality_review (

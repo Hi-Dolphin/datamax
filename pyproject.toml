@@ -98,6 +98,13 @@ dependencies = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.1.0",
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    "sqlalchemy>=2.0.0,<3.0.0",
+    "alembic>=1.13.0,<2.0.0",
+    "asyncpg>=0.29.0,<1.0.0",
+    "redis>=5.0.0,<6.0.0",
+    "aiosqlite>=0.19.0,<1.0.0",
 ]
 
 [tool.black]

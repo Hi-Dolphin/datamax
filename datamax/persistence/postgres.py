@@ -421,11 +421,15 @@ class PostgresPersistence(AbstractContextManager):
                     """
                     INSERT INTO sdc_ai.qa_pair (
                         payload_id, run_id, source_id, model_id,
+                        source_key, source_name, owner_team, created_by,
+                        run_name, trigger_type, model_key, model_provider, model_version,
                         question, answer, answer_format, model_name,
                         prompt_tokens, completion_tokens, latency_ms,
                         confidence_score, status, generated_at, updated_at
                     )
                     VALUES (%(payload_id)s, %(run_id)s, %(source_id)s, %(model_id)s,
+                            %(source_key)s, %(source_name)s, %(owner_team)s, %(created_by)s,
+                            %(run_name)s, %(trigger_type)s, %(model_key)s, %(model_provider)s, %(model_version)s,
                             %(question)s, %(answer)s, %(answer_format)s, %(model_name)s,
                             %(prompt_tokens)s, %(completion_tokens)s, %(latency_ms)s,
                             %(confidence_score)s, %(status)s, %(generated_at)s, %(generated_at)s)
@@ -523,6 +527,15 @@ class _PersistenceContext:
             "run_id": self.run_id,
             "source_id": self.source_id,
             "model_id": self.model_id,
+            "source_key": self.config.source_key,
+            "source_name": self.config.source_name,
+            "owner_team": self.config.owner_team,
+            "created_by": self.config.created_by,
+            "run_name": self.config.run_name,
+            "trigger_type": self.config.trigger_type,
+            "model_key": self.config.model_key,
+            "model_provider": self.config.model_provider,
+            "model_version": self.config.model_version,
             "answer_format": "text",
             "model_name": self.config.model_key or "unknown-model",
             "confidence_score": None,

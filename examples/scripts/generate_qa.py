@@ -7,10 +7,13 @@ Set QA_INPUT_SOURCE=obs with OBS_* credentials to pull inputs from Huawei OBS.
 import os
 import urllib.parse
 from pathlib import Path
-
+from loguru import logger
 from datamax import DataMax
 from datamax.loader.core import DataLoader
 
+# -----------------------------------------
+#                Env
+# -----------------------------------------
 api_key = os.getenv("DASHSCOPE_API_KEY", "YOUR OWN KEY")
 base_url = os.getenv("DASHSCOPE_BASE_URL", "YOUR BASE URL")
 model = os.getenv("QA_MODEL", "YOUR QA MODEL")
@@ -21,16 +24,17 @@ obs_secret_key = os.getenv("OBS_ACCESS_KEY_SECRET")
 obs_bucket_name = os.getenv("OBS_BUCKET_NAME")
 obs_download_dir_env = os.getenv("OBS_DOWNLOAD_DIR")
 obs_prefix = os.getenv("OBS_PREFIX", "")
-
 root_dir = Path(os.getenv("DATAMAX_ROOT", "/mnt/f/datamax"))
-if not root_dir.is_absolute():
-    root_dir = Path(__file__).resolve().parents[2] / root_dir
-
 train_dir_name = "train"
-local_dataset_dir = root_dir / "data" / "test"
+local_dataset_dir = root_dir / "data" / "数据集"
 default_obs_download_dir = root_dir / "obs_downloads"
-
 save_parent_path = root_dir / train_dir_name
+
+# Optional numeric overrides
+question_number = int(os.getenv("QA_QUESTION_NUMBER", 50))
+chunk_size = int(os.getenv("QA_CHUNK_SIZE", 3000))
+chunk_overlap = int(os.getenv("QA_CHUNK_OVERLAP", 1500))
+max_qps = int(os.getenv("QA_MAX_QPS", 100))
 
 
 def build_persistence_config() -> dict | None:
@@ -72,18 +76,12 @@ def build_persistence_config() -> dict | None:
         "model_provider": os.getenv("QA_MODEL_PROVIDER"),
         "model_version": os.getenv("QA_MODEL_VERSION"),
     }
-
-    # Optional numeric overrides
-    question_number = os.getenv("QA_QUESTION_NUMBER")
     if question_number:
         config["question_number"] = question_number
-    chunk_size = os.getenv("QA_CHUNK_SIZE")
     if chunk_size:
         config["chunk_size"] = chunk_size
-    chunk_overlap = os.getenv("QA_CHUNK_OVERLAP")
     if chunk_overlap:
         config["chunk_overlap"] = chunk_overlap
-    max_qps = os.getenv("QA_MAX_QPS")
     if max_qps:
         config["max_qps"] = max_qps
 
@@ -154,51 +152,58 @@ def main() -> None:
         raise SystemExit("No input files found for QA generation.")
 
     for input_file in input_files:
-        input_file = input_file.resolve()
         try:
-            relative_path = input_file.relative_to(root_dir)
-        except ValueError:
-            relative_path = Path(input_file.name)
+            input_file = input_file.resolve()
+            try:
+                relative_path = input_file.relative_to(root_dir)
+            except ValueError:
+                relative_path = Path(input_file.name)
 
-        relative_stem = relative_path.with_suffix("")
-        save_dir = save_parent_path / relative_stem.parent
-        save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / f"{relative_stem.name}_train"
+            relative_stem = relative_path.with_suffix("")
+            save_dir = save_parent_path / relative_stem.parent
+            save_dir.mkdir(parents=True, exist_ok=True)
+            save_path = save_dir / f"{relative_stem.name}_train"
 
-        dm = DataMax(file_path=str(input_file), to_markdown=True)
-        data = dm.get_data()
+            dm = DataMax(file_path=str(input_file), to_markdown=True)
+            data = dm.get_data()
 
-        content = data.get("content")
-        if isinstance(content, list):
-            content = "\n\n".join(text for text in content if text)
+            content = data.get("content")
+            if isinstance(content, list):
+                content = "\n\n".join(text for text in content if text)
 
-        if not content or not content.strip():
-            print(f"[skip] Parsed content empty for {relative_path}, skipping QA generation.")
+            if not content or not content.strip():
+                print(f"[skip] Parsed content empty for {relative_path}, skipping QA generation.")
+                continue
+
+            qa = dm.get_pre_label(
+                content=content,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model,
+                question_number=question_number,  # question_number_per_chunk
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                max_qps=max_qps,
+                debug=False,
+                structured_data=False,  # enable structured output
+                auto_self_review_mode=True,
+                review_max_qps=max_qps,
+                persistence=persistence_config,
+            )
+
+            if not qa:
+                print(f"[skip] No QA pairs generated for {relative_path}, skipping save.")
+                continue
+
+            dm.save_label_data(qa, str(save_path))
+        except Exception as e:
+            logger.error(f"error: {e}")
             continue
-
-        qa = dm.get_pre_label(
-            content=content,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model,
-            question_number=2,  # question_number_per_chunk
-            max_qps=20.0,
-            debug=False,
-            structured_data=False,  # enable structured output
-            auto_self_review_mode=True,
-            review_max_qps=20.0,
-            persistence=persistence_config,
-        )
-
-        if not qa:
-            print(f"[skip] No QA pairs generated for {relative_path}, skipping save.")
-            continue
-
-        dm.save_label_data(qa, str(save_path))
-
 
 
 if __name__ == "__main__":
     main()
 
 # nohup python examples/scripts/generate_qa.py > generate_qa.out 2>&1 & echo $! > generate_qa.pid
+
+# python examples/scripts/generate_qa.py
