@@ -8,16 +8,16 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from itertools import islice
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
-from itertools import islice
+
 import requests
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_text_splitters import RecursiveJsonSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
+from langchain_text_splitters import RecursiveJsonSplitter
 from loguru import logger
-from pyexpat.errors import messages
 from tqdm import tqdm
 
 from datamax.utils.performance_monitor import PerformanceMonitor
@@ -40,7 +40,9 @@ DEFAULT_MAX_RETRIES = int(os.getenv("DATAMAX_LLM_MAX_RETRIES", "5"))
 RETRY_BASE_DELAY_SECONDS = float(os.getenv("DATAMAX_LLM_RETRY_BASE_DELAY", "1.0"))
 RETRY_BACKOFF_FACTOR = float(os.getenv("DATAMAX_LLM_BACKOFF_FACTOR", "2.0"))
 MAX_BACKOFF_SECONDS = float(os.getenv("DATAMAX_LLM_MAX_BACKOFF_SECONDS", "30"))
-MIN_REQUEST_INTERVAL_SECONDS = float(os.getenv("DATAMAX_LLM_MIN_INTERVAL_SECONDS", "0.6"))
+MIN_REQUEST_INTERVAL_SECONDS = float(
+    os.getenv("DATAMAX_LLM_MIN_INTERVAL_SECONDS", "0.6")
+)
 
 _rate_limit_lock = threading.Lock()
 _last_request_timestamp = 0.0
@@ -107,6 +109,7 @@ class QAProgressTracker:
                 entry = self.entries_by_key.get(key)
                 if entry:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
     def record(self, entry: dict):
         key = self._make_key(entry)
         if not key:
@@ -139,6 +142,303 @@ class QAProgressTracker:
 
     def total_entries(self) -> int:
         return len(self.entries_by_key)
+
+
+def _should_log_debug(debug: bool, attempt: int) -> bool:
+    return debug and attempt == 1
+
+
+def _log_llm_metadata(response: requests.Response, usage: dict) -> None:
+    logger.debug("LLM response received")
+    logger.debug("-" * 40)
+    logger.debug(f"Status code: {response.status_code}")
+    if usage:
+        logger.debug("Token usage:")
+        logger.debug(f"  Prompt tokens: {usage.get('prompt_tokens', 'N/A')}")
+        logger.debug(f"  Completion tokens: {usage.get('completion_tokens', 'N/A')}")
+        logger.debug(f"  Total tokens: {usage.get('total_tokens', 'N/A')}")
+    logger.debug("-" * 40)
+
+
+def _log_llm_raw_output(raw_output: str) -> None:
+    logger.debug("Raw LLM response:")
+    for line in raw_output.split("\n"):
+        if line.strip():
+            logger.debug(f"  {line}")
+    logger.debug("-" * 40)
+
+
+def _log_returning_raw_content(raw_output: str) -> None:
+    logger.debug(f"Returning raw content (length: {len(raw_output)})")
+    logger.debug("=" * 60)
+
+
+def _batch_iterable(it: Iterable[Any], batch_size: int):
+    iterator = iter(it)
+    while True:
+        batch = list(islice(iterator, batch_size))
+        if not batch:
+            break
+        yield batch
+
+
+def _build_indexed_batches(page_content: list, worker_count: int) -> list:
+    total_pages = len(page_content)
+    target_batches = max(1, worker_count * 3)
+    batch_size = max(1, (total_pages + target_batches - 1) // target_batches)
+    return [
+        (idx, batch)
+        for idx, batch in enumerate(_batch_iterable(page_content, batch_size))
+    ]
+
+
+def _submit_question_jobs(
+    executor,
+    indexed_batches,
+    question_number,
+    max_retries,
+    api_key,
+    model,
+    base_url,
+    message,
+    debug,
+    perf_monitor,
+    stage_name,
+    interval,
+):
+    return {
+        executor.submit(
+            _process_question_batch,
+            batch_pages,
+            question_number,
+            max_retries,
+            api_key,
+            model,
+            base_url,
+            message,
+            debug,
+            perf_monitor,
+            stage_name,
+            interval,
+        ): batch_idx
+        for batch_idx, batch_pages in indexed_batches
+    }
+
+
+def _collect_results_debug(futures, batch_results):
+    for future in as_completed(futures):
+        batch_idx = futures[future]
+        try:
+            batch_results[batch_idx] = future.result()
+        except Exception:
+            batch_results[batch_idx] = []
+
+
+def _collect_results_progress(futures, batch_results):
+    with tqdm(total=len(futures), desc="Generating questions") as progress_bar:
+        for future in as_completed(futures):
+            batch_idx = futures[future]
+            try:
+                batch_results[batch_idx] = future.result()
+            except Exception:
+                batch_results[batch_idx] = []
+            progress_bar.update(1)
+            progress_bar.set_postfix(
+                {
+                    "Generated questions": sum(
+                        len(batch or []) for batch in batch_results
+                    )
+                }
+            )
+
+
+def _collect_answer_results_debug(futures, qa_pairs, progress_callback=None):
+    for future in as_completed(futures):
+        try:
+            result = future.result()
+            if result:
+                q, a = result
+                qa_pairs[q] = a
+                if progress_callback:
+                    progress_callback(q, a)
+        except Exception as e:
+            logger.error(f"Answer generation failed: {e}")
+
+
+def _collect_answer_results_progress(futures, qa_pairs, progress_callback=None):
+    with tqdm(total=len(futures), desc="Generating answers") as progress_bar:
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result:
+                    q, a = result
+                    qa_pairs[q] = a
+                    if progress_callback:
+                        progress_callback(q, a)
+            except Exception as e:
+                logger.error(f"Answer generation failed: {e}")
+            progress_bar.update(1)
+
+
+def _record_perf_if_needed(
+    perf_monitor: Optional[PerformanceMonitor],
+    perf_stage: Optional[str],
+    type_str: str,
+    messages_payload: list,
+    raw_output: str,
+    prompt: Union[str, None],
+    model: str,
+    base_url: str,
+    temperature: float,
+    top_p: float,
+    attempt: int,
+    status_code: int,
+) -> None:
+    if not perf_monitor:
+        return
+
+    perf_monitor.record_call(
+        stage=perf_stage,
+        call_type=type_str or "unknown",
+        messages=messages_payload,
+        response=raw_output,
+        prompt=prompt,
+        metadata={
+            "model": model,
+            "base_url": base_url,
+            "temperature": temperature,
+            "top_p": top_p,
+            "attempt": attempt,
+            "status_code": status_code,
+        },
+    )
+
+
+def _extract_pending_items(question_items: list, existing: dict) -> list:
+    pending = []
+    for item in question_items:
+        if not isinstance(item, dict):
+            logger.warning(f"Skipping non-dict question item: {item!r}")
+            continue
+
+        question = item.get("question")
+        if question is None:
+            logger.warning(f"Skipping question item without 'question' key: {item!r}")
+            continue
+
+        if question not in existing:
+            pending.append(item)
+
+    return pending
+
+
+def _submit_answer_jobs(
+    executor,
+    pending_items,
+    max_retries,
+    api_key,
+    model,
+    base_url,
+    message,
+    debug,
+    perf_monitor,
+    stage_name,
+    interval,
+):
+    return {
+        executor.submit(
+            _generate_answer_with_retry,
+            item,
+            max_retries,
+            api_key,
+            model,
+            base_url,
+            message,
+            debug,
+            perf_monitor,
+            stage_name,
+            interval,
+        ): item
+        for item in pending_items
+    }
+
+
+def _submit_review_jobs(
+    executor,
+    qa_pairs,
+    source_text,
+    api_key,
+    model,
+    base_url,
+    score_threshold,
+    max_retries,
+    debug,
+    user_prompt,
+    perf_monitor,
+    interval,
+):
+    return [
+        executor.submit(
+            _review_single_qa_pair,
+            idx,
+            qa_pair,
+            source_text,
+            api_key,
+            model,
+            base_url,
+            score_threshold,
+            max_retries,
+            debug,
+            user_prompt,
+            perf_monitor,
+            interval,
+        )
+        for idx, qa_pair in enumerate(qa_pairs, start=1)
+    ]
+
+
+def _log_review_debug(dbg, idx, accepted, score, reason):
+    if dbg:
+        status = "passed" if accepted else "rejected"
+        dbg.log(f"QA pair {idx} {status} (score: {score}): {reason}")
+
+
+def _handle_review_result(
+    result,
+    reviewed_qa_pairs,
+    rejected_count,
+    dbg,
+):
+    (
+        idx,
+        qa_pair,
+        accepted,
+        score,
+        reason,
+        severity,
+        error_message,
+    ) = result
+
+    _log_review_debug(dbg, idx, accepted, score, reason)
+
+    if accepted:
+        reviewed_qa_pairs.append(qa_pair)
+    else:
+        rejected_count += 1
+        if severity == "warning":
+            logger.warning(
+                f"Failed to parse review result for QA pair {idx}: {error_message}"
+            )
+        elif severity == "error":
+            logger.error(f"Error reviewing QA pair {idx}: {error_message}")
+
+    return rejected_count
+
+
+def _update_progress_bar(progress_bar, reviewed_count, rejected_count):
+    if progress_bar:
+        progress_bar.update(1)
+        progress_bar.set_postfix({"passed": reviewed_count, "rejected": rejected_count})
 
 
 def _respect_rate_limit(min_interval: float):
@@ -375,67 +675,6 @@ def load_and_split_text(
 
 
 # ------------llm generator-------------------
-def _parse_loose_list(output: str) -> list[str] | None:
-    """
-    Parse a list-like payload when inner double quotes are not escaped.
-
-    This is a tolerant fallback that looks for JSONL-style list items, stripping
-    wrapping quotes while preserving any inner quotes verbatim.
-    """
-    if not output:
-        return None
-
-    content = output.strip()
-    if content.startswith("["):
-        content = content[1:]
-    if content.endswith("]"):
-        content = content[:-1]
-
-    items: list[str] = []
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped in {"[", "]", ",", "[,", ",]"}:
-            continue
-
-        if stripped.endswith(","):
-            stripped = stripped[:-1].rstrip()
-
-        if stripped.startswith('"') and stripped.endswith('"'):
-            stripped = stripped[1:-1]
-        else:
-            if stripped.startswith('"'):
-                stripped = stripped[1:]
-            if stripped.endswith('"'):
-                stripped = stripped[:-1]
-
-        stripped = stripped.replace('\\"', '"')
-        if stripped:
-            items.append(stripped)
-
-    if items:
-        return items
-
-    inline = content.strip()
-    if not inline:
-        return None
-
-    parts = inline.split('","')
-    recovered: list[str] = []
-    for idx, part in enumerate(parts):
-        fragment = part.strip()
-        if idx == 0 and fragment.startswith('"'):
-            fragment = fragment[1:]
-        if idx == len(parts) - 1 and fragment.endswith('"'):
-            fragment = fragment[:-1]
-        fragment = fragment.replace('\\"', '"')
-        if fragment:
-            recovered.append(fragment)
-
-    return recovered or None
-
-
 def extract_json_from_llm_output(output: str):
     """
     Extract JSON content from LLM output, handling multiple possible formats
@@ -458,22 +697,247 @@ def extract_json_from_llm_output(output: str):
         try:
             return json.loads(json_match.group(1))
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing JSON: {e}")
-            ...
+            print(f"Error parsing JSON: {e}")
+
     # Try to extract the most JSON-like part
     json_start = output.find("[")
     json_end = output.rfind("]") + 1
     if json_start != -1 and json_end != 0:
-        candidate = output[json_start:json_end]
         try:
-            return json.loads(candidate)
+            return json.loads(output[json_start:json_end])
         except json.JSONDecodeError:
-            loose = _parse_loose_list(candidate)
-            if loose is not None:
-                return loose
+            pass
 
     logger.error(f"Model output not in standard format: {output}")
     return None
+
+
+def _prepare_llm_messages(prompt: Union[str, None], message: Union[list, None]) -> list:
+    if message:
+        return list(message)
+    return [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": "Please follow the generation instructions strictly.",
+        },
+    ]
+
+
+def _log_llm_request(
+    debug: bool,
+    attempt: int,
+    model: str,
+    base_url: str,
+    temperature: float,
+    top_p: float,
+    type_str: str,
+    messages_payload: list,
+):
+    if debug and attempt == 1:
+        logger.debug("=" * 60)
+        logger.debug("LLM request details")
+        logger.debug("=" * 60)
+        logger.debug(f"Model: {model}")
+        logger.debug(f"API URL: {base_url}")
+        logger.debug(f"Temperature: {temperature}")
+        logger.debug(f"Top-P: {top_p}")
+        logger.debug(f"Request type: {type_str}")
+        logger.debug("-" * 40)
+        logger.debug("Messages:")
+        for idx, msg in enumerate(messages_payload, 1):
+            logger.debug(f"{idx}. {msg['role'].upper()}:")
+            content_value = msg.get("content", "")
+            if not isinstance(content_value, str):
+                content_value = str(content_value)
+            content_lines = content_value.split("\n")
+            for line in content_lines:
+                if line.strip():
+                    logger.debug(f"   {line}")
+        logger.debug("-" * 40)
+        logger.debug("Sending request to LLM...")
+
+
+def process_questions(
+    api_key: str,
+    model: str,
+    base_url: str,
+    page_content: list,
+    question_number: int,
+    max_qps: float = 5.0,
+    message: list = None,
+    max_retries: int = 10,
+    debug: bool = False,
+    perf_monitor: Optional[PerformanceMonitor] = None,
+) -> list:
+    """Generate questions using multi-threading with retry mechanism (refactored to reduce complexity)."""
+
+    message = message or []
+    stage_name = QUESTION_STAGE
+    stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
+    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+
+    if not page_content:
+        return []
+
+    worker_count = _determine_worker_count(max_qps, len(page_content))
+    worker_count = max(1, worker_count)
+    logger.info(
+        f"Starting question generation (max_qps={max_qps}, worker_count={worker_count}, "
+        f"retries: {max_retries})..."
+    )
+
+    indexed_batches = _build_indexed_batches(page_content, worker_count)
+    batch_results = [None] * len(indexed_batches)
+
+    with stage_ctx:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = _submit_question_jobs(
+                executor,
+                indexed_batches,
+                question_number,
+                max_retries,
+                api_key,
+                model,
+                base_url,
+                message,
+                debug,
+                perf_monitor,
+                stage_name,
+                interval,
+            )
+
+            if debug:
+                _collect_results_debug(futures, batch_results)
+            else:
+                _collect_results_progress(futures, batch_results)
+
+    ordered_results = [q for batch in batch_results if batch for q in batch]
+
+    if perf_monitor:
+        perf_monitor.add_stage_items(stage_name, len(ordered_results))
+
+    return ordered_results
+
+
+def _prepare_request_headers(api_key: str) -> dict:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _prepare_request_body(model, messages_payload, temperature, top_p):
+    return {
+        "model": model,
+        "messages": messages_payload,
+        "temperature": temperature,
+        "top_p": top_p,
+    }
+
+
+def _record_perf_for_success(perf_monitor, perf_stage, call_start, response):
+    if not perf_monitor:
+        return
+
+    result = response.json()
+    usage = result.get("usage") or {}
+
+    perf_monitor.record_request(
+        stage=perf_stage,
+        duration_seconds=time.perf_counter() - call_start,
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+    )
+
+
+def _record_no_choices(
+    perf_monitor,
+    perf_stage,
+    type,
+    messages_payload,
+    prompt,
+    model,
+    base_url,
+    temperature,
+    top_p,
+    attempt,
+    response,
+):
+    if not perf_monitor:
+        return
+
+    perf_monitor.record_call(
+        stage=perf_stage,
+        call_type=type or "unknown",
+        messages=messages_payload,
+        response="",
+        prompt=prompt,
+        metadata={
+            "model": model,
+            "base_url": base_url,
+            "temperature": temperature,
+            "top_p": top_p,
+            "attempt": attempt,
+            "status_code": response.status_code,
+            "note": "No choices returned",
+        },
+    )
+
+
+def _record_perf_for_error(
+    perf_monitor,
+    perf_stage,
+    type,
+    messages_payload,
+    prompt,
+    model,
+    base_url,
+    temperature,
+    top_p,
+    attempt,
+    status_code,
+    error_message,
+):
+    if not perf_monitor:
+        return
+
+    perf_monitor.record_call(
+        stage=perf_stage,
+        call_type=type or "unknown",
+        messages=messages_payload or [],
+        response="",
+        prompt=prompt,
+        metadata={
+            "model": model,
+            "base_url": base_url,
+            "temperature": temperature,
+            "top_p": top_p,
+            "attempt": attempt,
+            "status_code": status_code,
+            "error": error_message,
+        },
+    )
+
+
+def _extract_exception_info(e):
+    response = getattr(e, "response", None)
+    status_code = response.status_code if response is not None else None
+
+    if isinstance(e, requests.exceptions.HTTPError):
+        detail = _extract_error_detail(response)
+        error_message = f"HTTP {status_code}: {detail}"
+    else:
+        detail = str(e)
+        error_message = detail
+
+    return response, status_code, detail, error_message
+
+
+def _should_retry_attempt(e, status_code, error_detail):
+    if isinstance(e, requests.exceptions.HTTPError):
+        return _should_retry(status_code, error_detail)
+    return True
 
 
 def llm_generator(
@@ -491,9 +955,9 @@ def llm_generator(
     min_interval_seconds: Union[float, None] = None,
     perf_monitor: Optional[PerformanceMonitor] = None,
     perf_stage: Optional[str] = None,
-    call_metadata: Optional[Dict[str, Any]] = None,
 ) -> list:
     """Generate content using LLM API with automatic throttling and retries."""
+
     attempts = max(1, max_retries)
     request_interval = (
         min_interval_seconds
@@ -504,275 +968,105 @@ def llm_generator(
 
     for attempt in range(1, attempts + 1):
         call_start = time.perf_counter()
+
         if request_interval:
             _respect_rate_limit(request_interval)
 
-        messages_payload = None
+        messages_payload = _prepare_llm_messages(prompt, message)
+        _log_llm_request(
+            debug, attempt, model, base_url, temperature, top_p, type, messages_payload
+        )
+
         try:
-            messages_payload = (
-                list(message)
-                if message
-                else [
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": "Please follow the generation instructions strictly.",
-                    },
-                ]
-            )
-
-            if debug and attempt == 1:
-                logger.debug("=" * 60)
-                logger.debug("LLM request details")
-                logger.debug("=" * 60)
-                logger.debug(f"Model: {model}")
-                logger.debug(f"API URL: {base_url}")
-                logger.debug(f"Temperature: {temperature}")
-                logger.debug(f"Top-P: {top_p}")
-                logger.debug(f"Request type: {type}")
-                logger.debug("-" * 40)
-                logger.debug("Messages:")
-                for idx, msg in enumerate(messages_payload, 1):
-                    logger.debug(f"{idx}. {msg['role'].upper()}:")
-                    content_value = msg.get("content", "")
-                    if not isinstance(content_value, str):
-                        content_value = str(content_value)
-                    content_lines = content_value.split("\n")
-                    for line in content_lines:
-                        if line.strip():
-                            logger.debug(f"   {line}")
-                logger.debug("-" * 40)
-
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            data = {
-                "model": model,
-                "messages": messages_payload,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-
-            if debug and attempt == 1:
-                logger.debug("Sending request to LLM...")
-
             response = requests.post(
                 base_url,
-                headers=headers,
-                json=data,
+                headers=_prepare_request_headers(api_key),
+                json=_prepare_request_body(model, messages_payload, temperature, top_p),
                 timeout=DEFAULT_REQUEST_TIMEOUT,
             )
             response.raise_for_status()
-            result = response.json()
-            duration = time.perf_counter() - call_start
-            usage = result.get("usage") or {}
-            def _coerce_int(value: Any) -> Optional[int]:
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    return None
 
-            prompt_tokens_usage = _coerce_int(usage.get("prompt_tokens"))
-            completion_tokens_usage = _coerce_int(usage.get("completion_tokens"))
-            total_tokens_usage = _coerce_int(usage.get("total_tokens"))
-            if total_tokens_usage is None and (
-                prompt_tokens_usage is not None and completion_tokens_usage is not None
-            ):
-                total_tokens_usage = prompt_tokens_usage + completion_tokens_usage
-            raw_output = ""
+            _record_perf_for_success(perf_monitor, perf_stage, call_start, response)
 
-            if perf_monitor:
-                perf_monitor.record_request(
-                    stage=perf_stage,
-                    duration_seconds=duration,
-                    prompt_tokens=prompt_tokens_usage,
-                    completion_tokens=completion_tokens_usage,
-                )
+            output = _process_llm_response(
+                response,
+                debug,
+                attempt,
+                type,
+                perf_monitor,
+                perf_stage,
+                messages_payload,
+                prompt,
+                model,
+                base_url,
+                temperature,
+                top_p,
+            )
 
-            if debug and attempt == 1:
-                logger.debug("LLM response received")
-                logger.debug("-" * 40)
-                logger.debug(f"Status code: {response.status_code}")
-                if usage:
-                    logger.debug("Token usage:")
-                    logger.debug(f"  Prompt tokens: {prompt_tokens_usage if prompt_tokens_usage is not None else 'N/A'}")
-                    logger.debug(f"  Completion tokens: {completion_tokens_usage if completion_tokens_usage is not None else 'N/A'}")
-                    logger.debug(f"  Total tokens: {total_tokens_usage if total_tokens_usage is not None else 'N/A'}")
-                logger.debug("-" * 40)
+            if output is not None:
+                return output
 
-            if "choices" in result and len(result["choices"]) > 0:
-                raw_output = result["choices"][0]["message"].get("content", "")
-
-                if debug and attempt == 1:
-                    logger.debug("Raw LLM response:")
-                    for line in raw_output.split("\n"):
-                        if line.strip():
-                            logger.debug(f"  {line}")
-                    logger.debug("-" * 40)
-
-                if perf_monitor:
-                    combined_metadata: Dict[str, Any] = {
-                        "model": model,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "attempt": attempt,
-                        "status_code": response.status_code,
-                        "duration_seconds": duration,
-                    }
-                    if prompt_tokens_usage is not None:
-                        combined_metadata["prompt_tokens"] = prompt_tokens_usage
-                    if completion_tokens_usage is not None:
-                        combined_metadata["completion_tokens"] = completion_tokens_usage
-                    if total_tokens_usage is not None:
-                        combined_metadata["total_tokens"] = total_tokens_usage
-                    extra_metadata = dict(call_metadata or {})
-                    if extra_metadata:
-                        combined_metadata.update(extra_metadata)
-                    perf_monitor.record_call(
-                        stage=perf_stage,
-                        call_type=type or "unknown",
-                        messages=messages_payload,
-                        response=raw_output,
-                        prompt=prompt,
-                        metadata=combined_metadata,
-                    )
-
-                if type == "question":
-                    fmt_output = extract_json_from_llm_output(raw_output)
-                    if debug and attempt == 1:
-                        logger.debug(f"Parsed questions: {fmt_output}")
-                        logger.debug(
-                            f"Question count: {len(fmt_output) if fmt_output else 0}"
-                        )
-                        logger.debug("=" * 60)
-                    return fmt_output if fmt_output is not None else []
-                else:
-                    if debug and attempt == 1:
-                        logger.debug(
-                            f"Returning raw content (length: {len(raw_output)})"
-                        )
-                        logger.debug("=" * 60)
-                    return [raw_output] if raw_output else []
-
-            if perf_monitor:
-                perf_monitor.record_call(
-                    stage=perf_stage,
-                    call_type=type or "unknown",
-                    messages=messages_payload,
-                    response=raw_output,
-                    prompt=prompt,
-                    metadata={
-                        "model": model,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "attempt": attempt,
-                        "status_code": response.status_code,
-                        "note": "No choices returned",
-                    },
-                )
+            _record_no_choices(
+                perf_monitor,
+                perf_stage,
+                type,
+                messages_payload,
+                prompt,
+                model,
+                base_url,
+                temperature,
+                top_p,
+                attempt,
+                response,
+            )
 
             if debug and attempt == 1:
                 logger.debug("No valid choices returned by LLM")
                 logger.debug("=" * 60)
+
             return []
 
-        except requests.exceptions.HTTPError as http_err:
-            response = http_err.response if hasattr(http_err, "response") else None
-            status_code = response.status_code if response is not None else None
-            error_detail = _extract_error_detail(response)
-            last_error_message = (
-                f"HTTP {status_code}: {error_detail or str(http_err)}"
+        except (
+            requests.exceptions.HTTPError,
+            requests.exceptions.RequestException,
+            Exception,
+        ) as e:
+            response, status_code, detail, last_error_message = _extract_exception_info(
+                e
             )
-            if perf_monitor:
-                perf_monitor.record_call(
-                    stage=perf_stage,
-                    call_type=type or "unknown",
-                    messages=messages_payload or [],
-                    response="",
-                    prompt=prompt,
-                    metadata={
-                        "model": model,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "attempt": attempt,
-                        "status_code": status_code,
-                        "error": last_error_message,
-                    },
-                )
-            if _should_retry(status_code, error_detail) and attempt < attempts:
+
+            _record_perf_for_error(
+                perf_monitor,
+                perf_stage,
+                type,
+                messages_payload,
+                prompt,
+                model,
+                base_url,
+                temperature,
+                top_p,
+                attempt,
+                status_code,
+                last_error_message,
+            )
+
+            should_retry = _should_retry_attempt(e, status_code, detail)
+            if should_retry and attempt < attempts:
                 wait_time = _calculate_retry_delay(
                     attempt, _get_retry_after(response), retry_backoff_factor
                 )
                 logger.warning(
-                    "LLM request was rate limited or temporarily failed "
-                    f"({last_error_message}); retrying in {wait_time:.2f}s"
+                    f"LLM request failed ({last_error_message}); retrying in {wait_time:.2f}s"
                 )
                 time.sleep(wait_time)
                 continue
-            logger.error(f"LLM keyword extraction failed: {last_error_message}")
-            if hasattr(http_err, "__traceback__") and http_err.__traceback__ is not None:
-                logger.error(f"Error line number: {http_err.__traceback__.tb_lineno}")
-            return []
-        except requests.exceptions.RequestException as req_err:
-            last_error_message = str(req_err)
-            if perf_monitor:
-                perf_monitor.record_call(
-                    stage=perf_stage,
-                    call_type=type or "unknown",
-                    messages=messages_payload or [],
-                    response="",
-                    prompt=prompt,
-                    metadata={
-                        "model": model,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "attempt": attempt,
-                        "error": last_error_message,
-                    },
-                )
-            if attempt < attempts:
-                wait_time = _calculate_retry_delay(attempt, None, retry_backoff_factor)
-                # logger.warning(
-                #     "LLM request hit a network error "
-                #     f"({last_error_message}); retrying in {wait_time:.2f}s"
-                # )
-                time.sleep(wait_time)
-                continue
-            logger.error(f"LLM keyword extraction failed: {last_error_message}")
-            if hasattr(req_err, "__traceback__") and req_err.__traceback__ is not None:
-                logger.error(f"Error line number: {req_err.__traceback__.tb_lineno}")
-            return []
-        except Exception as e:
-            last_error_message = str(e)
-            if perf_monitor:
-                perf_monitor.record_call(
-                    stage=perf_stage,
-                    call_type=type or "unknown",
-                    messages=messages_payload or [],
-                    response="",
-                    prompt=prompt,
-                    metadata={
-                        "model": model,
-                        "base_url": base_url,
-                        "temperature": temperature,
-                        "top_p": top_p,
-                        "attempt": attempt,
-                        "error": last_error_message,
-                    },
-                )
-            logger.error(f"LLM keyword extraction failed: {last_error_message}")
-            if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+
+            logger.error(f"LLM request failed: {last_error_message}")
+            if getattr(e, "__traceback__", None):
                 logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
             return []
 
-    logger.error(
-        f"LLM keyword extraction failed after {attempts} attempts: {last_error_message}"
-    )
+    logger.error(f"LLM request failed after {attempts} attempts: {last_error_message}")
     return []
 
 
@@ -827,6 +1121,65 @@ def process_match_tags(
     return results
 
 
+def _attempt_domain_tree_generation(
+    api_key: str,
+    model: str,
+    base_url: str,
+    prompt: str,
+    temperature: float,
+    top_p: float,
+    debug: bool,
+) -> Optional[DomainTree]:
+    message = [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": "Please analyze the document and return a structured domain tree in JSON.",
+        },
+    ]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "model": model,
+        "messages": message,
+        "temperature": temperature,
+        "top_p": top_p,
+    }
+    response = requests.post(
+        base_url,
+        headers=headers,
+        json=data,
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    result = response.json()
+
+    if debug:
+        logger.debug(f"API Response Status: {response.status_code}")
+        if "usage" in result:
+            logger.debug(f"Token Usage: {result['usage']}")
+
+    if "choices" in result and len(result["choices"]) > 0:
+        output = result["choices"][0]["message"]["content"]
+        if debug:
+            logger.debug(f"Raw Response: {output[:500]}...")
+        if output:
+            json_output = extract_json_from_llm_output(output)
+            if debug:
+                logger.debug(f"Parsed JSON: {json_output}")
+            if json_output is not None:
+                domain_tree = DomainTree()
+                domain_tree.from_json(json_output)
+                if debug:
+                    logger.debug(f"Generated Domain Tree: {domain_tree.visualize()}")
+                logger.info(
+                    f"Domain tree generated successfully, created {len(json_output)} main tags"
+                )
+                return domain_tree
+    return None
+
 
 def process_domain_tree(
     api_key: str,
@@ -839,82 +1192,31 @@ def process_domain_tree(
     debug: bool = False,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
-    logger.info(f"Domain tree generation started...")
+    logger.info("Domain tree generation started...")
 
     if debug:
         logger.debug("=" * 80)
         logger.debug("馃尦 DOMAIN TREE GENERATION DEBUG INFO")
         logger.debug("=" * 80)
-        logger.debug(f"馃摑 System Prompt: {prompt[:200]}...")
-        logger.debug(f"馃敡 Model: {model}")
-        logger.debug(f"馃寪 API URL: {base_url}")
-        logger.debug(f"馃尅锔?Temperature: {temperature}")
-        logger.debug(f"馃幆 Top-P: {top_p}")
-        logger.debug(f"馃攧 Max Retries: {max_retries}")
+        logger.debug(f"System Prompt: {prompt[:200]}...")
+        logger.debug(f"Model: {model}")
+        logger.debug(f"API URL: {base_url}")
+        logger.debug(f"Temperature: {temperature}")
+        logger.debug(f"Top-P: {top_p}")
+        logger.debug(f"Max Retries: {max_retries}")
         logger.debug("=" * 80)
 
     for attempt in range(max_retries):
         try:
-            message = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "Please analyze the document and return a structured domain tree in JSON."},
-            ]
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            data = {
-                "model": model,
-                "messages": message,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-            response = requests.post(
-                base_url,
-                headers=headers,
-                json=data,
-                timeout=DEFAULT_REQUEST_TIMEOUT,
+            domain_tree = _attempt_domain_tree_generation(
+                api_key, model, base_url, prompt, temperature, top_p, debug
             )
-            response.raise_for_status()
-            result = response.json()
+            if domain_tree:
+                return domain_tree
 
-            if debug:
-                logger.debug(f"馃摗 API Response Status: {response.status_code}")
-                if "usage" in result:
-                    logger.debug(f"馃敘 Token Usage: {result['usage']}")
-
-            # Parse LLM response
-            if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"]["content"]
-                if debug:
-                    logger.debug(f"馃搫 Raw Response: {output[:500]}...")
-                if output:
-                    json_output = extract_json_from_llm_output(output)
-                    if debug:
-                        logger.debug(f"馃攳 Parsed JSON: {json_output}")
-                    if json_output is not None:
-                        domain_tree = DomainTree()
-                        domain_tree.from_json(json_output)
-                        if debug:
-                            logger.debug(
-                                f"馃尦 Generated Domain Tree: {domain_tree.visualize()}"
-                            )
-                        logger.info(
-                            f"Domain tree generated successfully, created {len(json_output)} main tags"
-                        )
-                        return domain_tree
-                    else:
-                        logger.warning(
-                            f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Unable to parse JSON output"
-                        )
-                else:
-                    logger.warning(
-                        f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Empty output"
-                    )
-            else:
-                logger.warning(
-                    f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Invalid response format"
-                )
+            logger.warning(
+                f"Domain tree generation failed (attempt {attempt + 1}/{max_retries}): Invalid response"
+            )
 
         except Exception as e:
             logger.error(
@@ -924,171 +1226,151 @@ def process_domain_tree(
                 logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
 
             if attempt == max_retries - 1:
-                error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
-                print(f"鉂?{error_msg}")
-                logger.error(
-                    f"Domain tree generation failed after {max_retries} retries: {error_msg}"
-                )
-                return None
-            else:
-                logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
-                import time
+                break
 
-                time.sleep(2)  # Wait 2 seconds before retry
+            logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
+            time.sleep(2)
 
     error_msg = "Tree generation failed! Please check network or switch LLM model! Will continue with plain text generation"
-    print(f"鉂?{error_msg}")
     logger.error(
         f"Domain tree generation failed after {max_retries} retries: {error_msg}"
     )
     return None
 
 
-def process_questions(
+def _generate_questions_with_retry(
+    page: str,
+    question_number: int,
+    max_retries: int,
     api_key: str,
     model: str,
     base_url: str,
-    page_content: list,
+    message: list,
+    debug: bool,
+    perf_monitor: Optional[PerformanceMonitor],
+    stage_name: str,
+    interval: float,
+) -> List[Dict[str, Any]]:
+    for attempt in range(max_retries):
+        try:
+            prompt = get_system_prompt_for_question(page, question_number)
+            questions = llm_generator(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                message=message,
+                prompt=prompt,
+                type="question",
+                debug=debug,
+                perf_monitor=perf_monitor,
+                perf_stage=stage_name,
+                min_interval_seconds=interval,
+            )
+            if questions:
+                return [{"question": question, "page": page} for question in questions]
+            logger.warning(
+                f"Question generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
+            )
+        except Exception as e:
+            logger.error(
+                f"Question generation error (attempt {attempt + 1}/{max_retries}): {e}"
+            )
+            if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+
+        if attempt < max_retries - 1:
+            logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
+            time.sleep(2)
+
+    logger.error(f"Question generation failed after {max_retries} retries")
+    return []
+
+
+def _process_question_batch(
+    pages_batch: List[Any],
     question_number: int,
-    max_qps: float = 5.0,
-    message: list = None,
-    max_retries: int = 10,
-    debug: bool = False,
-    perf_monitor: Optional[PerformanceMonitor] = None,
-) -> list:
-    """Generate questions using multi-threading with retry mechanism"""
-    if message is None:
-        message = []
-    stage_name = QUESTION_STAGE
-    stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
-    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
-
-    def _generate_questions_with_retry(page):
-        """Inner function for question generation with retry"""
-        for attempt in range(max_retries):
-            try:
-                prompt = get_system_prompt_for_question(page, question_number)
-                questions = llm_generator(
-                    api_key=api_key,
-                    model=model,
-                    base_url=base_url,
-                    message=message,
-                    prompt=prompt,
-                    type="question",
-                    debug=debug,
-                    perf_monitor=perf_monitor,
-                    perf_stage=stage_name,
-                    min_interval_seconds=interval,
-                )
-                if questions:
-                    return [
-                        {"question": question, "page": page} for question in questions
-                    ]
-                logger.warning(
-                    f"Question generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Question generation error (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
-
-            if attempt < max_retries - 1:
-                logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
-                import time
-
-                time.sleep(2)  # Wait 2 seconds before retry
-
-        logger.error(f"Question generation failed after {max_retries} retries")
-        return []
-
-    def _batch_iterable(it: Iterable[Any], batch_size: int):
-        iterator = iter(it)
-        while True:
-            batch = list(islice(iterator, batch_size))
-            if not batch:
-                break
-            yield batch
-
-    def _process_batch(pages_batch: List[Any]) -> List[Dict[str, Any]]:
-        batch_output: List[Dict[str, Any]] = []
-        for page in pages_batch:
-            result = _generate_questions_with_retry(page)
-            if result:
-                batch_output.extend(result)
-        return batch_output
-
-    def generate_questions_concurrent_io(
-        pages: List[Any],
-        worker_count: int,
-        stage_ctx,
-        debug: bool = False,
-    ) -> List[Dict[str, Any]]:
-        ctx = stage_ctx if stage_ctx is not None else nullcontext()
-        worker_count = max(1, worker_count)
-        total_pages = len(pages)
-        target_batches = max(1, worker_count * 3)
-        batch_size = max(1, (total_pages + target_batches - 1) // target_batches)
-        indexed_batches: List[Tuple[int, List[Any]]] = [
-            (idx, batch) for idx, batch in enumerate(_batch_iterable(pages, batch_size))
-        ]
-        batch_results: List[Optional[List[Dict[str, Any]]]] = [None] * len(
-            indexed_batches
+    max_retries: int,
+    api_key: str,
+    model: str,
+    base_url: str,
+    message: list,
+    debug: bool,
+    perf_monitor: Optional[PerformanceMonitor],
+    stage_name: str,
+    interval: float,
+) -> List[Dict[str, Any]]:
+    batch_output: List[Dict[str, Any]] = []
+    for page in pages_batch:
+        result = _generate_questions_with_retry(
+            page,
+            question_number,
+            max_retries,
+            api_key,
+            model,
+            base_url,
+            message,
+            debug,
+            perf_monitor,
+            stage_name,
+            interval,
         )
-        with ctx:
-            if total_pages == 0:
-                return []
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                futures = {
-                    executor.submit(_process_batch, batch_pages): batch_idx
-                    for batch_idx, batch_pages in indexed_batches
-                }
-                if debug:
-                    for future in as_completed(futures):
-                        batch_idx = futures[future]
-                        try:
-                            batch_results[batch_idx] = future.result()
-                        except Exception:
-                            batch_results[batch_idx] = []
-                else:
-                    with tqdm(
-                        total=len(futures), desc="Generating questions"
-                    ) as progress_bar:
-                        for future in as_completed(futures):
-                            batch_idx = futures[future]
-                            try:
-                                batch_results[batch_idx] = future.result()
-                            except Exception:
-                                batch_results[batch_idx] = []
-                            progress_bar.update(1)
-                            progress_bar.set_postfix(
-                                {
-                                    "Generated questions": sum(
-                                        len(batch or []) for batch in batch_results
-                                    )
-                                }
-                            )
-        ordered_results: List[Dict[str, Any]] = []
-        for batch in batch_results:
-            if batch:
-                ordered_results.extend(batch)
-        return ordered_results
+        if result:
+            batch_output.extend(result)
+    return batch_output
 
-    worker_count = _determine_worker_count(max_qps, len(page_content))
-    logger.info(
-        f"Starting question generation (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries})..."
-    )
-    total_questions = generate_questions_concurrent_io(
-        pages=page_content,
-        worker_count=worker_count,
-        stage_ctx=stage_ctx,
-        debug=debug,
-    )
-    if perf_monitor:
-        perf_monitor.add_stage_items(stage_name, len(total_questions))
-    return total_questions
 
+def _generate_answer_with_retry(
+    item: dict,
+    max_retries: int,
+    api_key: str,
+    model: str,
+    base_url: str,
+    message: list,
+    debug: bool,
+    perf_monitor: Optional[PerformanceMonitor],
+    stage_name: str,
+    interval: float,
+) -> Optional[Tuple[str, str]]:
+    for attempt in range(max_retries):
+        try:
+            prompt = get_system_prompt_for_answer(item["page"], item["question"])
+            answer = llm_generator(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                prompt=prompt,
+                message=message,
+                type="answer",
+                debug=debug,
+                perf_monitor=perf_monitor,
+                perf_stage=stage_name,
+                min_interval_seconds=interval,
+            )
+            if answer and len(answer) > 0:
+                return item["question"], answer[0]
+            logger.warning(
+                f"Answer generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
+            )
+        except Exception as e:
+            logger.error(
+                f"Answer generation error (attempt {attempt + 1}/{max_retries}): {e}"
+            )
+            if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
+
+        if attempt < max_retries - 1:
+            logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
+            time.sleep(2)
+
+    question_text = (
+        item["question"][:20] + "..."
+        if len(item["question"]) > 20
+        else item["question"]
+    )
+    logger.error(
+        f"Network status is poor! Discarded QA pair for question: ({question_text})"
+    )
+    return None
 
 
 def process_answers(
@@ -1104,139 +1386,174 @@ def process_answers(
     progress_callback: Optional[Callable[[str, str], None]] = None,
     perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> dict:
-    """Generate answers using multi-threading"""
-    qa_pairs: Dict[str, str] = {}
-    if message is None:
-        message = []
+    """Generate answers using multi-threading (refactored to reduce complexity)."""
+
+    qa_pairs: Dict[str, str] = existing_answers.copy() if existing_answers else {}
+    message = message or []
     stage_name = ANSWER_STAGE
 
-    def _finalize(result: Dict[str, str]) -> Dict[str, str]:
-        if perf_monitor:
-            perf_monitor.add_stage_items(stage_name, len(result))
-        return result
-
     if existing_answers:
-        qa_pairs.update(existing_answers)
         logger.info(
-            f"Loaded {len(existing_answers)} answers from checkpoint, skipping regeneration for them"
+            f"Loaded {len(existing_answers)} answers from checkpoint, "
+            "skipping regeneration for them"
         )
 
-    pending_items: list[dict] = []
     if not question_items:
         logger.warning("No question items supplied for answer generation")
-        return _finalize(qa_pairs)
+        if perf_monitor:
+            perf_monitor.add_stage_items(stage_name, len(qa_pairs))
+        return qa_pairs
 
-    for item in question_items:
-        if not isinstance(item, dict):
-            logger.warning(f"Skipping non-dict question item: {item!r}")
-            continue
+    pending_items = _extract_pending_items(question_items, qa_pairs)
 
-        question = item.get("question")
-        if question is None:
-            logger.warning(f"Skipping question item without 'question' key: {item!r}")
-            continue
-
-        if question not in qa_pairs:
-            pending_items.append(item)
     if not pending_items:
         logger.info("All questions already have answers from checkpoint")
-        return _finalize(qa_pairs)
+        if perf_monitor:
+            perf_monitor.add_stage_items(stage_name, len(qa_pairs))
+        return qa_pairs
 
-    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
-
-    def _generate_answer_with_retry(item):
-        """Inner function for answer generation with retry"""
-        for attempt in range(max_retries):
-            try:
-                prompt = get_system_prompt_for_answer(item["page"], item["question"])
-                metadata_payload: Dict[str, Any] = {}
-                question_value = item.get("question")
-                if question_value is not None:
-                    metadata_payload["question"] = question_value
-                qid_value = item.get("qid")
-                if qid_value:
-                    metadata_payload["qid"] = qid_value
-                label_value = item.get("label")
-                if label_value:
-                    metadata_payload["label"] = label_value
-                context_value = item.get("page")
-                if context_value:
-                    metadata_payload["context"] = context_value
-                answer = llm_generator(
-                    api_key=api_key,
-                    model=model,
-                    base_url=base_url,
-                    prompt=prompt,
-                    message=message,
-                    type="answer",
-                    debug=debug,
-                    perf_monitor=perf_monitor,
-                    perf_stage=stage_name,
-                    min_interval_seconds=interval,
-                    call_metadata=metadata_payload if metadata_payload else None,
-                )
-                if answer and len(answer) > 0:
-                    return item["question"], answer[0]
-                logger.warning(
-                    f"Answer generation failed (attempt {attempt + 1}/{max_retries}): Empty result"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Answer generation error (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-                    logger.error(f"Error line number: {e.__traceback__.tb_lineno}")
-
-            if attempt < max_retries - 1:
-                logger.info(f"Waiting for retry... ({attempt + 2}/{max_retries})")
-                time.sleep(2)
-
-        question_text = (
-            item["question"][:20] + "..."
-            if len(item["question"]) > 20
-            else item["question"]
-        )
-        logger.error(
-            f"Network status is poor! Discarded QA pair for question: ({question_text})"
-        )
-        return None
-
-    worker_count = _determine_worker_count(max_qps, len(pending_items))
+    interval = 1.0 / max_qps if max_qps > 0 else 0.0
+    worker_count = max(1, _determine_worker_count(max_qps, len(pending_items)))
     logger.info(
-        f"Starting answer generation (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries}, pending: {len(pending_items)})..."
+        f"Starting answer generation (max_qps={max_qps}, worker_count={worker_count}, "
+        f"retries: {max_retries}, pending: {len(pending_items)})..."
     )
+
     stage_ctx = perf_monitor.stage(stage_name) if perf_monitor else nullcontext()
+
     with stage_ctx:
-        with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
-            futures = {
-                executor.submit(_generate_answer_with_retry, item): item
-                for item in pending_items
-            }
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = _submit_answer_jobs(
+                executor,
+                pending_items,
+                max_retries,
+                api_key,
+                model,
+                base_url,
+                message,
+                debug,
+                perf_monitor,
+                stage_name,
+                interval,
+            )
 
             if debug:
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result is not None:
-                        question, answer = result
-                        with lock:
-                            qa_pairs[question] = answer
-                        if progress_callback:
-                            progress_callback(question, answer)
+                _collect_answer_results_debug(futures, qa_pairs, progress_callback)
             else:
-                with tqdm(
-                    as_completed(futures), total=len(futures), desc="Generating answers"
-                ) as pbar:
-                    for future in pbar:
-                        result = future.result()
-                        if result is not None:
-                            question, answer = result
-                            with lock:
-                                qa_pairs[question] = answer
-                            if progress_callback:
-                                progress_callback(question, answer)
-                            pbar.set_postfix({"Generated answers": len(qa_pairs)})
+                _collect_answer_results_progress(futures, qa_pairs, progress_callback)
 
-    return _finalize(qa_pairs)
+    if perf_monitor:
+        perf_monitor.add_stage_items(stage_name, len(qa_pairs))
+
+    return qa_pairs
+
+
+def _extract_and_parse_review_json(review_result: str, idx: int, attempt: int) -> Optional[dict]:
+    """Extracts JSON from review output and parses it, with logging on failure."""
+    json_str = review_result.strip()
+    # 1. Try to find JSON in markdown code blocks
+    markdown_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", json_str, re.DOTALL)
+    if markdown_match:
+        json_str = markdown_match.group(1)
+    else:
+        # 2. Try to find the first JSON object in the text
+        brace_match = re.search(r"(\{.*\})", json_str, re.DOTALL)
+        if brace_match:
+            json_str = brace_match.group(1)
+
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        # Log the raw output to output.log for debugging
+        try:
+            with open("output.log", "a", encoding="utf-8") as f_log:
+                f_log.write(f"\n--- JSON Decode Error for QA Pair {idx} (Attempt {attempt + 1}) ---\n")
+                f_log.write(f"Error: {exc}\n")
+                f_log.write(f"Extracted Candidate:\n{json_str}\n")
+                f_log.write(f"Raw Content Start:\n{review_result}\nRaw Content End\n")
+                f_log.write("-" * 40 + "\n")
+        except Exception as log_err:
+            logger.error(f"Failed to write to output.log: {log_err}")
+        return None
+
+
+def _review_single_qa_pair(
+    idx: int,
+    qa_pair: dict,
+    source_text: Optional[str],
+    api_key: str,
+    model: str,
+    base_url: str,
+    score_threshold: int,
+    max_retries: int,
+    debug: bool,
+    user_prompt: str,
+    perf_monitor: Optional[PerformanceMonitor],
+    interval: float,
+) -> Tuple[int, dict, bool, int, str, Optional[str], Optional[str]]:
+    last_error_message = ""
+    reference_text = qa_pair.get("context") or source_text or ""
+    for attempt in range(max_retries):
+        try:
+            qa_pair_json = json.dumps(qa_pair, ensure_ascii=False, indent=2)
+            review_prompt = get_system_prompt_for_review(reference_text, qa_pair_json)
+            review_messages = [
+                {"role": "system", "content": review_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            review_result_list = llm_generator(
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                type="review",
+                message=review_messages,
+                debug=debug,
+                perf_monitor=perf_monitor,
+                perf_stage=REVIEW_STAGE,
+                min_interval_seconds=interval,
+            )
+            review_result = review_result_list[0] if review_result_list else ""
+            if not review_result:
+                last_error_message = "Empty review result"
+                continue
+
+            review_json = _extract_and_parse_review_json(review_result, idx, attempt)
+            if review_json is None:
+                last_error_message = "JSON decode error"
+                # If this was the last attempt, return failure
+                if attempt == max_retries - 1:
+                    return (
+                        idx,
+                        qa_pair,
+                        False,
+                        0,
+                        "Failed to parse review result",
+                        "warning",
+                        last_error_message,
+                    )
+                continue  # Retry loop
+
+            score = review_json.get("score", 0)
+            reason = review_json.get("reason", "No reason provided")
+
+            if score >= score_threshold:
+                return idx, qa_pair, True, score, reason, None, None
+
+            return idx, qa_pair, False, score, reason, "info", None
+
+        except Exception as exc:  # noqa: BLE001
+            last_error_message = str(exc)
+            if attempt < max_retries - 1:
+                time.sleep(1)
+    return (
+        idx,
+        qa_pair,
+        False,
+        0,
+        "Review request failed",
+        "error",
+        last_error_message,
+    )
 
 
 def review_qa_pairs(
@@ -1250,156 +1567,61 @@ def review_qa_pairs(
     max_qps: float = 5.0,
     max_retries: int = 3,
     debug: bool = False,
-    user_prompt: str = "\u8bf7\u8fdb\u884c\u8bc4\u4f30",
+    user_prompt: str = "请进行评分",
     progress_desc: str = "Reviewing QA pairs",
     dbg: Any = None,
     perf_monitor: Optional[PerformanceMonitor] = None,
 ) -> tuple[list[dict], int]:
-    """
-    Review QA pairs concurrently and return the accepted pairs with rejection count.
 
-    Args:
-        qa_pairs: List of QA pair dicts to review.
-        source_text: Original source text used for prompt construction.
-        api_key: API key for the LLM.
-        model: Model name for the LLM.
-        base_url: Base URL for the LLM service.
-        score_threshold: Minimum score to accept a QA pair.
-        max_qps: Maximum review requests per second.
-        max_retries: Number of retries for each review request.
-        debug: Disable progress bar and rely on debug logs when True.
-        user_prompt: User message sent alongside the system prompt.
-        progress_desc: Description for the progress bar.
-        dbg: Optional debug logger context.
-
-    Returns:
-        Tuple of (accepted QA pairs list, rejected count).
-    """
     if not qa_pairs:
         logger.info("No QA pairs supplied for review; skipping review process")
         if perf_monitor:
             perf_monitor.add_stage_items(REVIEW_STAGE, 0)
         return [], 0
 
-    interval = 1.0 / max_qps if max_qps and max_qps > 0 else 0.0
+    interval = 1.0 / max_qps if max_qps > 0 else 0.0
     reviewed_qa_pairs: list[dict] = []
     rejected_count = 0
+
     stage_ctx = perf_monitor.stage(REVIEW_STAGE) if perf_monitor else nullcontext()
-
-    def _review_single(idx: int, qa_pair: dict):
-        last_error_message = ""
-        reference_text = qa_pair.get("context") or source_text or ""
-        for attempt in range(max_retries):
-            try:
-                qa_pair_json = json.dumps(qa_pair, ensure_ascii=False, indent=2)
-                review_prompt = get_system_prompt_for_review(reference_text, qa_pair_json)
-                review_messages = [
-                    {"role": "system", "content": review_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-                review_result_list = llm_generator(
-                    api_key=api_key,
-                    model=model,
-                    base_url=base_url,
-                    type="review",
-                    message=review_messages,
-                    debug=debug,
-                    perf_monitor=perf_monitor,
-                    perf_stage=REVIEW_STAGE,
-                    min_interval_seconds=interval,
-                )
-                review_result = review_result_list[0] if review_result_list else ""
-                if not review_result:
-                    last_error_message = "Empty review result"
-                    continue
-
-                try:
-                    review_json = json.loads(review_result)
-                except json.JSONDecodeError as exc:
-                    last_error_message = f"JSON decode error: {exc}"
-                    return (
-                        idx,
-                        qa_pair,
-                        False,
-                        0,
-                        "Failed to parse review result",
-                        "warning",
-                        last_error_message,
-                    )
-
-                score = review_json.get("score", 0)
-                reason = review_json.get("reason", "No reason provided")
-
-                if score >= score_threshold:
-                    return idx, qa_pair, True, score, reason, None, None
-
-                return idx, qa_pair, False, score, reason, "info", None
-
-            except Exception as exc:  # noqa: BLE001
-                last_error_message = str(exc)
-                if attempt < max_retries - 1:
-                    time.sleep(1)
-        return (
-            idx,
-            qa_pair,
-            False,
-            0,
-            "Review request failed",
-            "error",
-            last_error_message,
-        )
-
-    progress_bar = None
-    if not debug:
-        progress_bar = tqdm(total=len(qa_pairs), desc=progress_desc, unit="pair")
+    progress_bar = (
+        None if debug else tqdm(total=len(qa_pairs), desc=progress_desc, unit="pair")
+    )
 
     worker_count = _determine_worker_count(max_qps, len(qa_pairs))
     logger.info(
-        f"Starting QA review (max_qps={max_qps}, worker_count={worker_count}, retries: {max_retries}, total: {len(qa_pairs)})..."
+        f"Starting QA review (max_qps={max_qps}, worker_count={worker_count}, "
+        f"retries: {max_retries}, total: {len(qa_pairs)})..."
     )
+
     with stage_ctx:
         with ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
-            futures = [
-                executor.submit(_review_single, idx, qa_pair)
-                for idx, qa_pair in enumerate(qa_pairs, start=1)
-            ]
+            futures = _submit_review_jobs(
+                executor,
+                qa_pairs,
+                source_text,
+                api_key,
+                model,
+                base_url,
+                score_threshold,
+                max_retries,
+                debug,
+                user_prompt,
+                perf_monitor,
+                interval,
+            )
 
-            iterator = as_completed(futures)
-            for future in iterator:
-                (
-                    idx,
-                    qa_pair,
-                    accepted,
-                    score,
-                    reason,
-                    severity,
-                    error_message,
-                ) = future.result()
-
-                if accepted:
-                    reviewed_qa_pairs.append(qa_pair)
-                    if dbg:
-                        dbg.log(f"QA pair {idx} passed review (score: {score}): {reason}")
-                else:
-                    rejected_count += 1
-                    if dbg:
-                        dbg.log(f"QA pair {idx} rejected (score: {score}): {reason}")
-                    if severity == "warning":
-                        # logger.warning(
-                        #     f"Failed to parse review result for QA pair {idx}: {error_message}"
-                        # )
-                        ...
-                    elif severity == "error":
-                        logger.error(f"Error reviewing QA pair {idx}: {error_message}")
-
-                if progress_bar:
-                    progress_bar.update(1)
-                    progress_bar.set_postfix(
-                        {
-                            "passed": len(reviewed_qa_pairs),
-                            "rejected": rejected_count,
-                        }
-                    )
+            for future in as_completed(futures):
+                result = future.result()
+                rejected_count = _handle_review_result(
+                    result,
+                    reviewed_qa_pairs,
+                    rejected_count,
+                    dbg,
+                )
+                _update_progress_bar(
+                    progress_bar, len(reviewed_qa_pairs), rejected_count
+                )
 
         if progress_bar:
             progress_bar.close()
@@ -1410,9 +1632,68 @@ def review_qa_pairs(
     return reviewed_qa_pairs, rejected_count
 
 
-
 def find_tagpath_by_label(domain_tree: DomainTree, label: str):
     return domain_tree.find_path(label)
+
+
+def _process_llm_response(
+    response: requests.Response,
+    debug: bool,
+    attempt: int,
+    type_str: str,
+    perf_monitor: Optional[PerformanceMonitor],
+    perf_stage: Optional[str],
+    messages_payload: list,
+    prompt: Union[str, None],
+    model: str,
+    base_url: str,
+    temperature: float,
+    top_p: float,
+) -> Union[list, None]:
+    result = response.json()
+    usage = result.get("usage") or {}
+
+    choices = result.get("choices") or []
+    if not choices:
+        return None
+
+    debug_enabled = _should_log_debug(debug, attempt)
+
+    if debug_enabled:
+        _log_llm_metadata(response, usage)
+
+    raw_output = choices[0]["message"].get("content", "") or ""
+
+    if debug_enabled and raw_output:
+        _log_llm_raw_output(raw_output)
+
+    _record_perf_if_needed(
+        perf_monitor=perf_monitor,
+        perf_stage=perf_stage,
+        type_str=type_str,
+        messages_payload=messages_payload,
+        raw_output=raw_output,
+        prompt=prompt,
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        top_p=top_p,
+        attempt=attempt,
+        status_code=response.status_code,
+    )
+
+    if type_str == "question":
+        fmt_output = extract_json_from_llm_output(raw_output)
+        if debug_enabled:
+            logger.debug(f"Parsed questions: {fmt_output}")
+            logger.debug(f"Question count: {len(fmt_output) if fmt_output else 0}")
+            logger.debug("=" * 60)
+        return fmt_output if fmt_output is not None else []
+
+    if debug_enabled:
+        _log_returning_raw_content(raw_output)
+
+    return [raw_output] if raw_output else []
 
 
 def generatr_qa_pairs(
@@ -1434,9 +1715,7 @@ def generatr_qa_pairs(
         from datamax.generator.domain_tree import DomainTree
 
         domain_tree = DomainTree([])
-    existing_answers = (
-        progress_tracker.existing_answers() if progress_tracker else None
-    )
+    existing_answers = progress_tracker.existing_answers() if progress_tracker else None
     question_lookup = {item["question"]: item for item in question_info}
 
     def _on_answer_generated(question: str, answer: str):
@@ -1452,11 +1731,12 @@ def generatr_qa_pairs(
             "input": "",
             "output": answer,
             "label": label,
-            "tag-path": find_tagpath_by_label(domain_tree, label) if domain_tree else "",
+            "tag-path": (
+                find_tagpath_by_label(domain_tree, label) if domain_tree else ""
+            ),
             "context": question_item.get("page", ""),
         }
         progress_tracker.record(entry)
-
 
     qa_pairs = process_answers(
         question_items=question_info,
@@ -1493,8 +1773,105 @@ def generatr_qa_pairs(
     return res_list
 
 
-def _interactive_tree_modification(domain_tree):
-    """Interactive custom domain tree structure modification."""
+def _parse_node_name(part: str) -> Optional[str]:
+    """Extract node name from the first segment."""
+    name_part = part.split(":", 1)
+    if len(name_part) != 2:
+        print("Format error: missing node name")
+        return None
+    return name_part[1].strip()
+
+
+def _parse_parent_child(parts: list[str]) -> tuple[str, str]:
+    """Extract parent and child names from the remaining parts."""
+    parent = ""
+    child = ""
+    for segment in parts:
+        key_value = [s.strip() for s in segment.split(":", 1)]
+        if len(key_value) != 2:
+            continue
+        key = key_value[0].lower()
+        val = key_value[1]
+        if key == "parent":
+            parent = val
+        elif key == "child":
+            child = val
+    return parent, child
+
+
+def _handle_add_root(domain_tree, node_name: str):
+    if domain_tree.add_node(node_name):
+        print(f"Successfully added node '{node_name}' as root node")
+    else:
+        print("Add failed: unknown error")
+
+
+def _handle_add_between(domain_tree, node_name: str, parent: str, child: str):
+    if domain_tree.insert_node_between(node_name, parent, child):
+        print(
+            f"Successfully inserted node '{node_name}' between '{parent}' and '{child}'"
+        )
+    else:
+        print("Insert failed: please check parent and child relationship")
+
+
+def _handle_add_under_parent(domain_tree, node_name: str, parent: str):
+    if domain_tree.add_node(node_name, parent):
+        print(f"Successfully added node '{node_name}' under parent node '{parent}'")
+    else:
+        print(f"Add failed: parent node '{parent}' not found")
+
+
+def _handle_add_node(domain_tree, parts):
+    node_name = _parse_node_name(parts[0])
+    if not node_name:
+        return
+
+    parent_name, child_name = _parse_parent_child(parts[1:])
+
+    if not parent_name:
+        _handle_add_root(domain_tree, node_name)
+    elif child_name:
+        _handle_add_between(domain_tree, node_name, parent_name, child_name)
+    else:
+        _handle_add_under_parent(domain_tree, node_name, parent_name)
+
+
+def _handle_delete_node(domain_tree, user_input):
+    name_part = user_input.split(":", 1)
+    node_name = name_part[1].strip() if len(name_part) == 2 else ""
+    if not node_name:
+        print("Format error: please provide node name")
+        return
+    if domain_tree.remove_node(node_name):
+        print(f"Successfully deleted node '{node_name}' and all its descendant nodes")
+    else:
+        print(f"Delete failed: node '{node_name}' not found")
+
+
+def _handle_rename_node(domain_tree, user_input):
+    parts = [segment.strip() for segment in user_input.split(";")]
+    if len(parts) != 2:
+        print(
+            "Format error: please use 'Rename node: <new name>; Original: <old name>'"
+        )
+        return
+    new_part = parts[0].split(":", 1)
+    old_part = parts[1].split(":", 1)
+    if len(new_part) != 2 or len(old_part) != 2:
+        print(
+            "Format error: please use 'Rename node: <new name>; Original: <old name>'"
+        )
+        return
+    new_name = new_part[1].strip()
+    old_name = old_part[1].strip()
+    if domain_tree.update_node(old_name, new_name):
+        print(f"Successfully updated node '{old_name}' to '{new_name}'")
+    else:
+        print(f"Update failed: node '{old_name}' not found")
+
+
+def _print_tree_help():
     print("\nDo you need to modify the tree?")
     print("Supported operations:")
     print("1. Add node: <name>; Parent: <parent> (parent optional; blank adds as root)")
@@ -1507,106 +1884,159 @@ def _interactive_tree_modification(domain_tree):
     )
     print("\nPlease enter operation command (enter 'Finish' to exit):")
 
+
+def _handle_user_add(domain_tree, user_input):
+    parts = [segment.strip() for segment in user_input.split(";")]
+    if not parts:
+        print("Format error: please use 'Add node: <name>; Parent: <parent>'")
+        return
+    _handle_add_node(domain_tree, parts)
+
+
+def _handle_user_command(domain_tree, user_input):
+    """Dispatch user commands based on prefixes."""
+    lower = user_input.lower()
+
+    if lower.startswith("add node"):
+        _handle_user_add(domain_tree, user_input)
+    elif lower.startswith("delete node"):
+        _handle_delete_node(domain_tree, user_input)
+    elif lower.startswith("rename node"):
+        _handle_rename_node(domain_tree, user_input)
+    else:
+        print("Unknown operation. Please follow the listed formats.")
+
+
+def _print_tree_and_prompt(domain_tree):
+    print("\nCurrent tree structure:")
+    print(domain_tree.visualize())
+    print("\nPlease enter next operation command:")
+
+
+def _interactive_tree_modification(domain_tree):
+    """Interactive custom domain tree structure modification."""
+    _print_tree_help()
+
     while True:
         try:
             user_input = input("> ").strip()
             if not user_input:
                 continue
+
             if user_input.lower() == "finish":
                 print("Tree operations completed, continuing QA pair generation...")
                 break
-            elif user_input.lower().startswith("add node"):
-                parts = [segment.strip() for segment in user_input.split(";")]
-                if not parts:
-                    print("Format error: please use 'Add node: <name>; Parent: <parent>'")
-                    continue
-                name_part = parts[0].split(":", 1)
-                if len(name_part) != 2:
-                    print("Format error: missing node name")
-                    continue
-                node_name = name_part[1].strip()
-                parent_name = ""
-                child_name = ""
-                for segment in parts[1:]:
-                    key_value = [s.strip() for s in segment.split(":", 1)]
-                    if len(key_value) != 2:
-                        continue
-                    key_lower = key_value[0].lower()
-                    if key_lower == "parent":
-                        parent_name = key_value[1]
-                    elif key_lower == "child":
-                        child_name = key_value[1]
 
-                if not parent_name:
-                    if domain_tree.add_node(node_name):
-                        print(f"Successfully added node '{node_name}' as root node")
-                    else:
-                        print("Add failed: unknown error")
-                elif child_name:
-                    if domain_tree.insert_node_between(node_name, parent_name, child_name):
-                        print(
-                            f"Successfully inserted node '{node_name}' between '{parent_name}' and '{child_name}'"
-                        )
-                    else:
-                        print("Insert failed: please check parent and child relationship")
-                else:
-                    if domain_tree.add_node(node_name, parent_name):
-                        print(
-                            f"Successfully added node '{node_name}' under parent node '{parent_name}'"
-                        )
-                    else:
-                        print(f"Add failed: parent node '{parent_name}' not found")
-            elif user_input.lower().startswith("delete node"):
-                name_part = user_input.split(":", 1)
-                node_name = name_part[1].strip() if len(name_part) == 2 else ""
-                if not node_name:
-                    print("Format error: please provide node name")
-                    continue
-                if domain_tree.remove_node(node_name):
-                    print(
-                        f"Successfully deleted node '{node_name}' and all its descendant nodes"
-                    )
-                else:
-                    print(f"Delete failed: node '{node_name}' not found")
-            elif user_input.lower().startswith("rename node"):
-                parts = [segment.strip() for segment in user_input.split(";")]
-                if len(parts) != 2:
-                    print(
-                        "Format error: please use 'Rename node: <new name>; Original: <old name>'"
-                    )
-                    continue
-                new_part = parts[0].split(":", 1)
-                old_part = parts[1].split(":", 1)
-                if len(new_part) != 2 or len(old_part) != 2:
-                    print(
-                        "Format error: please use 'Rename node: <new name>; Original: <old name>'"
-                    )
-                    continue
-                new_name = new_part[1].strip()
-                old_name = old_part[1].strip()
-                if domain_tree.update_node(old_name, new_name):
-                    print(f"Successfully updated node '{old_name}' to '{new_name}'")
-                else:
-                    print(f"Update failed: node '{old_name}' not found")
-            else:
-                print("Unknown operation. Please follow the listed formats.")
+            _handle_user_command(domain_tree, user_input)
+            _print_tree_and_prompt(domain_tree)
 
-            print("\nCurrent tree structure:")
-            print(domain_tree.visualize())
-            print("\nPlease enter next operation command:")
-            print("Supported operations:")
-            print("1. Add node: <name>; Parent: <parent> (parent optional)")
-            print("2. Add node: <name>; Parent: <parent>; Child: <child>")
-            print("3. Delete node: <name>")
-            print("4. Rename node: <new name>; Original: <old name>")
-            print("5. Finish")
         except KeyboardInterrupt:
             print("\nOperation interrupted, continuing QA pair generation...")
             break
         except Exception as e:
             print(f"Operation error: {e}")
             print("Please re-enter operation command:")
+
     return domain_tree
+
+
+def _prepare_page_content(
+    content: str,
+    structured_data: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+    use_mineru: bool,
+) -> Tuple[List[str], str]:
+    if structured_data is False:
+        content_type = "Text"
+        if content.strip().startswith("#") or "**" in content or "```" in content:
+            content_type = "Markdown"
+            logger.info("Detected Markdown format content")
+        elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
+            content_type = "PDF converted content"
+            logger.info("Detected PDF converted content")
+            if use_mineru:
+                logger.info("Using MinerU parsed PDF content")
+            else:
+                logger.info("Using PDF parsed PDF content")
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        return splitter.split_text(content), content_type
+
+    elif structured_data is True:
+        content_type = "Dict"
+        logger.info("Detected Dict format content")
+        import json
+        import re
+
+        json_pattern = r"\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}"
+        json_matches = re.findall(json_pattern, content)
+
+        valid_json_objects = []
+        for match in json_matches:
+            try:
+                json.loads(match)  # Check validity
+                valid_json_objects.append(match)
+            except json.JSONDecodeError:
+                continue
+
+        return valid_json_objects, content_type
+    return [], "Unknown"
+
+
+def _prepare_domain_tree(
+    use_tree_label: bool,
+    custom_domain_tree: list,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    page_content: list,
+    debug: bool,
+    interactive_tree: bool,
+):
+    domain_tree = None
+    if use_tree_label:
+        from datamax.generator.domain_tree import DomainTree
+
+        if custom_domain_tree is not None:
+            domain_tree = DomainTree(custom_domain_tree)
+            logger.info("Using user-uploaded custom domain tree structure")
+            print(
+                "Using your uploaded custom domain tree structure for pre-labeling..."
+            )
+        else:
+            domain_tree = process_domain_tree(
+                api_key=api_key,
+                base_url=base_url,
+                model=model_name,
+                text="\n".join(page_content),
+                temperature=0.7,
+                top_p=0.9,
+                debug=debug,
+            )
+            if domain_tree is None:
+                logger.info(
+                    "Domain tree generation failed, using plain text generation strategy"
+                )
+                use_tree_label = False
+
+        if interactive_tree and domain_tree and domain_tree.tree:
+            tree_source = "Custom" if custom_domain_tree is not None else "Generated"
+            print("\n" + "=" * 60)
+            print(f"Domain tree source: {tree_source}")
+            print("=" * 60)
+            print(domain_tree.visualize())
+            print("=" * 60)
+            if custom_domain_tree is not None:
+                print("You can modify the custom tree, or enter to use it directly")
+            domain_tree = _interactive_tree_modification(domain_tree)
+
+    return domain_tree, use_tree_label
 
 
 def full_qa_labeling_process(
@@ -1634,125 +2064,34 @@ def full_qa_labeling_process(
     Complete QA generation workflow, including splitting, domain tree generation and interaction,
     question generation, label tagging, and answer generation.
     """
-    import uuid
-
     monitor = perf_monitor or PerformanceMonitor()
 
-    # Validate required parameters
     if not content:
         logger.error(
             "content parameter is required. Check content is null or not. Check file_path is null or not."
         )
         return []
 
-    if not api_key:
-        logger.error("api_key parameter is required")
+    if not api_key or not base_url or not model_name:
+        logger.error("api_key, base_url, and model_name parameters are required")
         return []
 
-    if not base_url:
-        logger.error("base_url parameter is required")
-        return []
-
-    if not model_name:
-        logger.error("model_name parameter is required")
-        return []
-
-    # 1. text split - only process content, not file_path
     logger.info("Using text content for splitting")
+    page_content, content_type = _prepare_page_content(
+        content, structured_data, chunk_size, chunk_overlap, use_mineru
+    )
 
-    # Try to detect content type
-    if structured_data == False:
-        content_type = "Text"
-        if content.strip().startswith("#") or "**" in content or "```" in content:
-            content_type = "Markdown"
-            logger.info("Detected Markdown format content")
-        elif any(keyword in content.lower() for keyword in ["pdf", "page", "document"]):
-            content_type = "PDF converted content"
-            logger.info("Detected PDF converted content")
-            if use_mineru:
-                logger.info("Using MinerU parsed PDF content")
-            else:
-                logger.info("Using PDF parsed PDF content")
-            
-        # Directly use LangChain's text splitter for chunking without creating temporary files
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+    domain_tree, use_tree_label = _prepare_domain_tree(
+        use_tree_label,
+        custom_domain_tree,
+        api_key,
+        base_url,
+        model_name,
+        page_content,
+        debug,
+        interactive_tree,
+    )
 
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-            is_separator_regex=False,
-        )
-        page_content = splitter.split_text(content)
-
-    elif structured_data == True:
-        content_type = "Dict"
-        logger.info("Detected Dict format content")
-        # logger.info(f"Befor RecursiveJsonSplitter: {type(content)}, {content}")
-        import re
-        import json
-        
-        json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
-        json_matches = re.findall(json_pattern, content)
-        
-        valid_json_objects = []
-        for match in json_matches:
-            try:
-                json_obj = json.loads(match)
-                valid_json_objects.append(match)
-            except json.JSONDecodeError:
-                continue
-        
-        page_content = valid_json_objects
-        
-        # logger.info(f"After RecursiveJsonSplitter: {page_content}")
-    # 2. domain tree generation
-    domain_tree = None
-    if use_tree_label:
-        from datamax.generator.domain_tree import DomainTree
-
-        # if custom_domain_tree is not None, use it
-        if custom_domain_tree is not None:
-            domain_tree = DomainTree(custom_domain_tree)
-            logger.info("Using user-uploaded custom domain tree structure")
-            print(
-                "Using your uploaded custom domain tree structure for pre-labeling..."
-            )
-        else:
-            # otherwise, generate tree from text
-            domain_tree = process_domain_tree(
-                api_key=api_key,
-                base_url=base_url,
-                model=model_name,
-                text="\n".join(page_content),
-                temperature=0.7,
-                top_p=0.9,
-                debug=debug,
-            )
-            if domain_tree is None:
-                # tree generation failed, use text generation strategy
-                logger.info(
-                    "Domain tree generation failed, using plain text generation strategy"
-                )
-                use_tree_label = False
-
-        # Unified interactive editing logic
-        if interactive_tree and domain_tree and domain_tree.tree:
-            tree_source = "Custom" if custom_domain_tree is not None else "Generated"
-            print("\n" + "=" * 60)
-            print(f"Domain tree source: {tree_source}")
-            print("=" * 60)
-            print(domain_tree.visualize())
-            print("=" * 60)
-            if custom_domain_tree is not None:
-                print(
-                    "You can modify the custom tree, or enter to use it directly"
-                )
-            domain_tree = _interactive_tree_modification(domain_tree)
-        #  --------------  split done  -------------------
-
-    # ----------- start generate -----------------
-    # generate questions
     question_info = process_questions(
         api_key=api_key,
         model=model_name,
@@ -1767,7 +2106,7 @@ def full_qa_labeling_process(
     for question_item in question_info:
         if "qid" not in question_item:
             question_item["qid"] = str(uuid.uuid4())
-    # 4. label tagging
+
     if (
         use_tree_label
         and domain_tree
@@ -1789,7 +2128,7 @@ def full_qa_labeling_process(
     else:
         for question_item in question_info:
             question_item["label"] = ""
-    # 5. generate answers
+
     progress_tracker = None
     if checkpoint_path:
         progress_tracker = QAProgressTracker(
@@ -1813,7 +2152,6 @@ def full_qa_labeling_process(
         perf_monitor=monitor,
     )
 
-    # Return both qa_list and domain_tree
     result = {
         "qa_pairs": qa_list,
         "metadata": {
