@@ -1,6 +1,6 @@
 # Multi-stage build for DataMax
 # Stage 1: Build stage
-FROM python:3.11-slim as builder
+FROM dtmdutv2rd61h5.xuanyuan.run/python:3.11-slim as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,17 +24,17 @@ RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 # Copy source code
 COPY . /app
 WORKDIR /app
 
 # Install the package
-RUN pip install -e .
+RUN pip install -e . -i https://mirrors.aliyun.com/pypi/simple/
 
 # Stage 2: Runtime stage
-FROM python:3.11-slim as runtime
+FROM dtmdutv2rd61h5.xuanyuan.run/python:3.11-slim as runtime
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -86,3 +86,6 @@ LABEL maintainer="DataMax Team" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/Hi-Dolphin/datamax" \
       org.opencontainers.image.documentation="https://github.com/Hi-Dolphin/datamax/blob/main/README.md"
+
+# docker build --no-cache -t datamax:latest .
+# docker run --rm --name datamax-worker -it datamax:latest /bin/bash python3 

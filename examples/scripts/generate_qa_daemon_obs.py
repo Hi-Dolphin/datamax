@@ -17,6 +17,7 @@ from datamax import DataMax
 from datamax.generator.types import PersistenceConfig
 from datamax.loader.core import DataLoader
 from datamax.persistence.postgres import PostgresPersistence
+from obs import ObsClient
 
 # -----------------------------------------
 #                Env
@@ -26,13 +27,13 @@ base_url = os.getenv("DASHSCOPE_BASE_URL", "YOUR BASE URL")
 model = os.getenv("QA_MODEL", "YOUR QA MODEL")
 qa_input_source = os.getenv("QA_INPUT_SOURCE", "local").lower()
 
-# OSS (Aliyun)
-oss_endpoint = os.getenv("OSS_ENDPOINT")
-oss_access_key = os.getenv("OSS_ACCESS_KEY_ID")
-oss_secret_key = os.getenv("OSS_ACCESS_KEY_SECRET")
-oss_bucket_name = os.getenv("OSS_BUCKET_NAME")
-oss_prefix = os.getenv("OSS_PREFIX", "")
-oss_download_dir_env = os.getenv("OSS_DOWNLOAD_DIR")
+# OBS (Huawei Cloud)
+obs_endpoint = os.getenv("OBS_ENDPOINT")
+obs_access_key = os.getenv("OBS_ACCESS_KEY_ID")
+obs_secret_key = os.getenv("OBS_ACCESS_KEY_SECRET")
+obs_bucket_name = os.getenv("OBS_BUCKET_NAME")
+obs_prefix = os.getenv("OBS_PREFIX", "")
+obs_download_dir_env = os.getenv("OBS_DOWNLOAD_DIR")
 
 # Global Paths
 root_dir = Path(os.getenv("DATAMAX_ROOT")) if os.getenv("DATAMAX_ROOT") else Path.cwd()
@@ -109,33 +110,31 @@ def discover_local_files() -> list[Path]:
     return sorted(path for path in local_dataset_dir.rglob("*") if path.is_file())
 
 
-def get_oss_loader() -> DataLoader:
+def get_obs_loader() -> ObsClient:
     missing = [
         name
         for name, value in {
-            "OSS_ENDPOINT": oss_endpoint,
-            "OSS_ACCESS_KEY_ID": oss_access_key,
-            "OSS_ACCESS_KEY_SECRET": oss_secret_key,
-            "OSS_BUCKET_NAME": oss_bucket_name,
+            "OBS_ENDPOINT": obs_endpoint,
+            "OBS_ACCESS_KEY_ID": obs_access_key,
+            "OBS_ACCESS_KEY_SECRET": obs_secret_key,
+            "OBS_BUCKET_NAME": obs_bucket_name,
         }.items()
         if not value
     ]
     if missing:
-        raise SystemExit(f"Missing OSS configuration for generate_qa: {', '.join(missing)}")
+        raise SystemExit(f"Missing OBS configuration for generate_qa: {', '.join(missing)}")
 
-    loader = DataLoader(
-        endpoint=oss_endpoint,
-        secret_key=oss_secret_key,
-        access_key=oss_access_key,
-        bucket_name=oss_bucket_name,
-        source="oss",
+    obs_client = ObsClient(
+        access_key_id=obs_access_key,
+        secret_access_key=obs_secret_key,
+        server=obs_endpoint,
     )
-    return loader
+    return obs_client
 
 
 def get_download_dir() -> Path:
-    if oss_download_dir_env:
-        download_dir = Path(oss_download_dir_env)
+    if obs_download_dir_env:
+        download_dir = Path(obs_download_dir_env)
         if not download_dir.is_absolute():
             download_dir = root_dir / download_dir
     else:
@@ -144,20 +143,17 @@ def get_download_dir() -> Path:
     return download_dir
 
 
-def fetch_and_filter_oss_files(loader: DataLoader) -> List[str]:
+def fetch_and_filter_obs_files(loader: ObsClient) -> List[str]:
     """
-    List all files in OSS and filter out those already processed.
-    Returns a list of OSS keys (file paths) to be processed.
+    List all files in OBS and filter out those already processed.
+    Returns a list of OBS keys (file paths) to be processed.
     """
-    if not loader.oss:
-        logger.error("OSS client not initialized properly.")
-        return []
-
     # 1. List all objects
-    logger.info(f"Listing objects in bucket '{oss_bucket_name}' with prefix '{oss_prefix}'...")
-    all_keys = loader.oss.get_objects_in_folders(prefix=oss_prefix)
+    logger.info(f"Listing objects in bucket '{obs_bucket_name}' with prefix '{obs_prefix}'...")
+    resp = loader.listObjects(bucketName=obs_bucket_name, prefix=obs_prefix)
+    all_keys = [obj['key'] for obj in resp.get('contents', [])] if resp.get('status') < 300 else []
     if not all_keys:
-        logger.info("No files found in OSS.")
+        logger.info("No files found in OBS.")
         return []
 
     # 2. If no DB configured, return all (re-process everything or user must handle manually)
@@ -192,17 +188,17 @@ def fetch_and_filter_oss_files(loader: DataLoader) -> List[str]:
     return new_keys
 
 
-def update_file_status(oss_key: str, status: str, error_message: Optional[str] = None) -> None:
+def update_file_status(obs_key: str, status: str, error_message: Optional[str] = None) -> None:
     """Helper to update file status in DB safely."""
-    if not oss_key or not persistence_config:
+    if not obs_key or not persistence_config:
         return
 
     try:
         p_config = PersistenceConfig.from_mapping(persistence_config)
         with PostgresPersistence(p_config) as p:
-            p.upsert_file_status(p_config.source_key, oss_key, status, error_message=error_message)
+            p.upsert_file_status(p_config.source_key, obs_key, status, error_message=error_message)
     except Exception as e:
-        logger.error(f"Failed to update DB status for {oss_key}: {e}")
+        logger.error(f"Failed to update DB status for {obs_key}: {e}")
 
 
 def _generate_and_save_qa(input_file: Path, save_path: Path, relative_path: Path) -> Optional[str]:
@@ -245,7 +241,7 @@ def _generate_and_save_qa(input_file: Path, save_path: Path, relative_path: Path
     return None
 
 
-def process_file(input_file: Path, oss_key: Optional[str] = None) -> bool:
+def process_file(input_file: Path, obs_key: Optional[str] = None) -> bool:
     """
     Process a single file.
     :param input_file: Local path to the file.
@@ -261,8 +257,8 @@ def process_file(input_file: Path, oss_key: Optional[str] = None) -> bool:
             relative_path = Path(input_file.name)
 
         # Mark as PROCESSING
-        if oss_key:
-            update_file_status(oss_key, "PROCESSING")
+        if obs_key:
+            update_file_status(obs_key, "PROCESSING")
 
         relative_stem = relative_path.with_suffix("")
         save_dir = save_parent_path / relative_stem.parent
@@ -274,21 +270,21 @@ def process_file(input_file: Path, oss_key: Optional[str] = None) -> bool:
         error_msg = _generate_and_save_qa(input_file, save_path, relative_path)
 
         if error_msg:
-            if oss_key:
-                update_file_status(oss_key, "COMPLETED", error_message=error_msg)
+            if obs_key:
+                update_file_status(obs_key, "COMPLETED", error_message=error_msg)
             return True
 
         # Mark as COMPLETED
-        if oss_key:
-            update_file_status(oss_key, "COMPLETED")
+        if obs_key:
+            update_file_status(obs_key, "COMPLETED")
 
         return True
 
     except Exception as e:
         logger.error(f"Error processing {relative_path}: {e}")
         # Mark as FAILED
-        if oss_key:
-            update_file_status(oss_key, "FAILED", error_message=str(e))
+        if obs_key:
+            update_file_status(obs_key, "FAILED", error_message=str(e))
         return False
 
 
@@ -298,28 +294,29 @@ def run_once() -> None:
     """
     save_parent_path.mkdir(parents=True, exist_ok=True)
 
-    if qa_input_source == "oss":
-        loader = get_oss_loader()
+    if qa_input_source == "obs":
+        loader = get_obs_loader()
         download_dir = get_download_dir()
 
         # 1. Filter
-        target_keys = fetch_and_filter_oss_files(loader)
+        target_keys = fetch_and_filter_obs_files(loader)
 
         # 2. Download & Process loop
         for key in target_keys:
             try:
                 logger.info(f"Downloading {key}...")
                 # We construct local path
-                # Note: oss_key might contain slashes
+                # Note: obs_key might contain slashes
                 local_file_name = key.split("/")[-1]
                 
                 # Just stick to flat or original simple logic for now to allow resolution
                 local_file_path = download_dir / local_file_name
 
-                if loader.oss:
-                    loader.oss.get_object_to_file(key, str(local_file_path))
-
-                process_file(local_file_path, oss_key=key)
+                resp = loader.getObject(bucketName=obs_bucket_name, objectKey=key, downloadPath=str(local_file_path))
+                if resp.status < 300:
+                    process_file(local_file_path, obs_key=key)
+                else:
+                    logger.error(f"Failed to download {key}: {resp.errorMessage}")
 
                 # Optional: cleanup file after processing to save space?
                 # os.remove(local_file_path)

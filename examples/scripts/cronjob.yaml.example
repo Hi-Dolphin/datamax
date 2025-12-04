@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qa-generator-job
+  namespace: hi-dolphin-ai-prod
+  labels:
+    app: qa-generator
+spec:
+  # 调度策略：每 30 分钟检查一次 OSS
+  schedule: "*/30 * * * *"
+  
+  # -----------------------------------------------------------
+  # 核心配置：解决 "任务时间过长"
+  # Forbid: 如果上一次任务还在跑（哪怕跑了2天），这期间所有的调度都会被跳过。
+  # 直到上一次任务彻底 Completed，下一次调度时间到了才会启动新 Pod。
+  # -----------------------------------------------------------
+  concurrencyPolicy: Forbid
+  
+  # 保留历史记录，方便排查
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  
+  jobTemplate:
+    spec:
+      # 如果任务失败，重试 2 次（防止网络抖动）
+      backoffLimit: 2
+      # 超时保险：如果跑了 3 天 (259200秒) 还没完，强制杀掉
+      activeDeadlineSeconds: 259200
+      
+      template:
+        metadata:
+          labels:
+            app: qa-generator
+        spec:
+          # 失败重启策略
+          restartPolicy: OnFailure
+          
+          containers:
+          - name: generator
+            # 假设你就用同一个镜像，或者你可以换成专门的 worker 镜像
+            image: nexus-cloud.coscoshipping.com:8082/hi-dolphin-ai-prod/hi-dolphin:v0.15.24-prod
+            imagePullPolicy: Always
+            
+            # ✅ 启动命令：确保指向你的脚本路径
+            # 假设脚本在镜像的 /app 目录下
+            command: ["python", "examples/scripts/generate_qa_daemon_oss.py"]
+            
+            # ✅ 关键资源限制 (生成任务比较吃 CPU)
+            resources:
+              requests:
+                cpu: "1000m"
+                memory: "2Gi"
+              limits:
+                cpu: "2000m"
+                memory: "4Gi"
+
+            # 挂载存储
+            volumeMounts:
+            - mountPath: /app/data  # 容器内数据目录
+              name: data-storage
+
+            env:
+            # ---------------------------------------
+            # 核心变量：设置为 0，让脚本跑完一次就退出
+            # ---------------------------------------
+            - name: QA_SCHEDULE_INTERVAL
+              value: "0"
+            
+            - name: QA_INPUT_SOURCE
+              value: "oss"
+            
+            # 指定数据根目录到 PVC 挂载点
+            - name: DATAMAX_ROOT
+              value: "/app/data"
+
+            # 配置 OSS 信息 (非敏感)
+            - name: OSS_ENDPOINT
+              value: "oss-cn-hangzhou.aliyuncs.com"
+            - name: OSS_BUCKET_NAME
+              value: "your-bucket-name"
+            - name: OSS_PREFIX
+              value: "files/"
+
+            # 引用 Secret (敏感信息)
+            - name: DASHSCOPE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qa-app-secrets
+                  key: DASHSCOPE_API_KEY
+            - name: OSS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: qa-app-secrets
+                  key: OSS_ACCESS_KEY_ID
+            - name: OSS_ACCESS_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: qa-app-secrets
+                  key: OSS_ACCESS_KEY_SECRET
+            - name: QA_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: qa-app-secrets
+                  key: QA_DB_DSN
+
+          volumes:
+          - name: data-storage
+            persistentVolumeClaim:
+              claimName: qa-data-pvc

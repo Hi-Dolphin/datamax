@@ -165,11 +165,7 @@ credentials/
 monitoring/
 metrics/
 
-# Scripts
-scripts/
-
 # Examples
-examples/
 samples/
 demo/
 
