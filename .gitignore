@@ -118,6 +118,7 @@ serp*.json
 !wechat.jpg
 checkpoints.jsonl
 pending_files.txt
+qa_daemon.lock
 
 # Configuration and secrets
 .env

@@ -16,6 +16,8 @@ import fcntl  # UNIX/Linux only. Required for file locking.
 import urllib.parse
 from pathlib import Path
 from typing import List, Optional
+import threading
+import hashlib
 
 from loguru import logger
 
@@ -118,6 +120,15 @@ class DaemonContext:
 # -------------------------------------------------
 #  Database & Persistence Configuration
 # -------------------------------------------------
+
+
+def get_file_hash(filepath: Path) -> str:
+    """Calculates MD5 hash of a file."""
+    hash_md5 = hashlib.md5()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 
 def build_persistence_config() -> dict | None:
@@ -259,6 +270,143 @@ def update_file_status(oss_key: str, status: str, error_message: Optional[str] =
             p.upsert_file_status(p_config.source_key, oss_key, status, error_message=error_message)
     except Exception as e:
         logger.error(f"Failed to update status in DB for {oss_key}: {e}")
+
+
+# -------------------------------------------------
+#  Liveness Probe
+# -------------------------------------------------
+
+
+def liveness_probe(ctx: DaemonContext) -> None:
+    """
+    Periodically checks OSS connectivity and logs status.
+    Runs in a separate thread.
+    """
+    # Lazy import to ensure it exists or fail gracefully inside the thread
+    try:
+        import oss2
+    except ImportError:
+        logger.error("Liveness Probe: 'oss2' library not found. Probe disabled.")
+        return
+
+    logger.info("Starting Liveness Probe (10s interval)...")
+
+    while not ctx.should_stop():
+        try:
+            if not (oss_access_key and oss_secret_key and oss_endpoint and oss_bucket_name):
+                logger.warning("Liveness Probe: Missing OSS configuration.")
+            else:
+                auth = oss2.Auth(oss_access_key, oss_secret_key)
+                bucket = oss2.Bucket(auth, oss_endpoint, oss_bucket_name)
+                # Lightweight call to verify connectivity
+                bucket.get_bucket_info()
+                logger.info(f"Liveness Probe: [OK] Connected to OSS. Endpoint: {oss_endpoint}, Bucket: {oss_bucket_name}")
+        except Exception as e:
+            logger.error(f"Liveness Probe: [FAILED] Connection Error: {e}")
+
+        # Sleep 60s, checking for stop signal
+        for _ in range(60):
+            if ctx.should_stop():
+                break
+            time.sleep(1)
+
+
+# -------------------------------------------------
+#  Database Pre-flight Check
+# -------------------------------------------------
+
+
+def preflight_database_check() -> None:
+    """
+    Checks if the database schema is up-to-date by comparing the SQL file hash.
+    Automatically applies the SQL script if the hash has changed.
+    """
+    if not persistence_config:
+        logger.info("Persistence not configured. Skipping DB checks.")
+        return
+
+    dsn = persistence_config.get("dsn")
+    if not dsn:
+        return
+
+    # Locate the SQL file
+    sql_file_path = Path(__file__).parent / "pgsql-database.sql"
+    if not sql_file_path.exists():
+        logger.warning(f"SQL file not found at {sql_file_path}. Skipping schema auto-migration.")
+        return
+
+    # Calculate current file hash
+    current_hash = get_file_hash(sql_file_path)
+
+    logger.info("Starting Database Schema Check...")
+
+    try:
+        import psycopg2
+    except ImportError:
+        logger.warning("psycopg2 module not found. Skipping DB checks.")
+        return
+
+    conn = None
+    try:
+        conn = psycopg2.connect(dsn)
+        conn.autocommit = False  # Use transaction
+
+        with conn.cursor() as cur:
+            # 1. Bootstrap: Ensure Schema and Version Table exist
+            # We do this in Python to ensure we can track the version even if the main SQL hasn't run yet.
+            cur.execute("CREATE SCHEMA IF NOT EXISTS sdc_ai")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sdc_ai.schema_version (
+                    filename TEXT PRIMARY KEY,
+                    file_hash TEXT NOT NULL,
+                    applied_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """
+            )
+
+            # 2. Check stored hash
+            cur.execute("SELECT file_hash FROM sdc_ai.schema_version WHERE filename = %s", ("pgsql-database.sql",))
+            row = cur.fetchone()
+            stored_hash = row[0] if row else None
+
+            # 3. Compare and Migrate if needed
+            if stored_hash != current_hash:
+                if stored_hash is None:
+                    logger.info("Initializing database schema for the first time...")
+                else:
+                    logger.info(f"Schema change detected (Hash mismatch). Upgrading schema...")
+
+                # Read and Execute SQL Script
+                with open(sql_file_path, "r", encoding="utf-8") as f:
+                    sql_script = f.read()
+
+                cur.execute(sql_script)
+
+                # Update Hash Record
+                cur.execute(
+                    """
+                    INSERT INTO sdc_ai.schema_version (filename, file_hash, applied_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (filename) DO UPDATE 
+                    SET file_hash = EXCLUDED.file_hash, applied_at = NOW()
+                """,
+                    ("pgsql-database.sql", current_hash),
+                )
+
+                conn.commit()
+                logger.info("Database Schema applied successfully.")
+            else:
+                logger.info("Database Schema is up-to-date (Hash matched).")
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Database Pre-flight Check Failed: {e}")
+        sys.exit(1)
+    finally:
+        if conn:
+            conn.close()
 
 
 # -------------------------------------------------
@@ -413,15 +561,24 @@ def main() -> None:
     # Ensure root directories exist
     save_parent_path.mkdir(parents=True, exist_ok=True)
 
+    # Perform Database Pre-flight Check
+    preflight_database_check()
+
     # Enter Daemon Context (Locking & Signal Handling)
     with DaemonContext() as ctx:
         logger.info(f"QA Generator Daemon Started. PID: {os.getpid()}")
         logger.info(f"Schedule Interval: {schedule_interval}s")
 
+        # Start Liveness Probe
+        probe_thread = threading.Thread(target=liveness_probe, args=(ctx,), daemon=True)
+        probe_thread.start()
+
         # Main Event Loop
         while not ctx.should_stop():
             try:
                 run_batch(ctx)
+                # time.sleep(10)
+                # logger.debug("mock run batch")
             except Exception as e:
                 logger.critical(f"Critical error in main loop: {e}")
                 time.sleep(10)  # Prevent tight crash loop

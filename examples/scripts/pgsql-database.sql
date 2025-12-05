@@ -216,28 +216,69 @@ CREATE INDEX IF NOT EXISTS idx_metrics_hourly_model_source
 -- Optional: refresh when data is available
 -- REFRESH MATERIALIZED VIEW CONCURRENTLY sdc_ai.qa_metrics_hourly_model_source;
 ALTER TABLE sdc_ai.qa_generation_run
-  ADD COLUMN prompt_tokens BIGINT,
-  ADD COLUMN completion_tokens BIGINT,
-  ADD COLUMN total_tokens BIGINT,
-  ADD COLUMN tokens_per_second NUMERIC(12,4),
-  ADD COLUMN overall_qpm NUMERIC(12,4),
-  ADD COLUMN workflow_duration_seconds NUMERIC(12,4),
-  ADD COLUMN tokens_per_request NUMERIC(12,4);
+  ADD COLUMN IF NOT EXISTS prompt_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS completion_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS total_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS tokens_per_second NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS overall_qpm NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS workflow_duration_seconds NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS tokens_per_request NUMERIC(12,4);
 
 ALTER TABLE sdc_ai.qa_metrics_hourly
-  ADD COLUMN total_prompt_tokens BIGINT,
-  ADD COLUMN total_completion_tokens BIGINT,
-  ADD COLUMN total_tokens BIGINT,
-  ADD COLUMN tokens_per_second NUMERIC(12,4),
-  ADD COLUMN overall_qpm NUMERIC(12,4),
-  ADD COLUMN total_duration_seconds NUMERIC(12,4),
-  ADD COLUMN tokens_per_request NUMERIC(12,4);
+  ADD COLUMN IF NOT EXISTS total_prompt_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS total_completion_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS total_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS tokens_per_second NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS overall_qpm NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS total_duration_seconds NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS tokens_per_request NUMERIC(12,4);
 
 ALTER TABLE sdc_ai.qa_metrics_daily
-  ADD COLUMN total_prompt_tokens BIGINT,
-  ADD COLUMN total_completion_tokens BIGINT,
-  ADD COLUMN total_tokens BIGINT,
-  ADD COLUMN tokens_per_second NUMERIC(12,4),
-  ADD COLUMN overall_qpm NUMERIC(12,4),
-  ADD COLUMN total_duration_seconds NUMERIC(12,4),
-  ADD COLUMN tokens_per_request NUMERIC(12,4);
+  ADD COLUMN IF NOT EXISTS total_prompt_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS total_completion_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS total_tokens BIGINT,
+  ADD COLUMN IF NOT EXISTS tokens_per_second NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS overall_qpm NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS total_duration_seconds NUMERIC(12,4),
+  ADD COLUMN IF NOT EXISTS tokens_per_request NUMERIC(12,4);
+
+
+
+-- Create dedicated table for tracking file processing status
+CREATE TABLE IF NOT EXISTS sdc_ai.qa_file_status (
+    id BIGSERIAL PRIMARY KEY,
+    source_key VARCHAR(255) NOT NULL,
+    file_path TEXT NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING', -- PENDING, PROCESSING, COMPLETED, FAILED
+    run_id BIGINT, -- Reference to the execution run
+    error_message TEXT,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc'),
+    updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (NOW() AT TIME ZONE 'utc'),
+    
+    -- Ensure unique tracking per source and file
+    CONSTRAINT uq_qa_file_status_source_file UNIQUE (source_key, file_path)
+);
+
+-- Create index for fast lookup during scheduling
+CREATE INDEX IF NOT EXISTS idx_qa_file_status_lookup ON sdc_ai.qa_file_status(source_key, file_path);
+CREATE INDEX IF NOT EXISTS idx_qa_file_status_status ON sdc_ai.qa_file_status(status);
+
+-- Function to automatically update updated_at timestamp
+CREATE OR REPLACE FUNCTION sdc_ai.update_qa_file_status_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = (NOW() AT TIME ZONE 'utc');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to call the update function
+CREATE OR REPLACE TRIGGER update_qa_file_status_timestamp
+    BEFORE UPDATE ON sdc_ai.qa_file_status
+    FOR EACH ROW
+    EXECUTE FUNCTION sdc_ai.update_qa_file_status_timestamp();
+
+COMMENT ON TABLE sdc_ai.qa_file_status IS 'Tracks the processing status of individual files from source systems';
+COMMENT ON COLUMN sdc_ai.qa_file_status.source_key IS 'Identifier for the data source (e.g., "obs_bucket_1")';
+COMMENT ON COLUMN sdc_ai.qa_file_status.file_path IS 'Full path or key of the file in the source system';
+COMMENT ON COLUMN sdc_ai.qa_file_status.status IS 'Current processing status: PENDING, PROCESSING, COMPLETED, FAILED';
