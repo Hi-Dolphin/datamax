@@ -1,6 +1,6 @@
 # Multi-stage build for DataMax
 # Stage 1: Build stage
-FROM dtmdutv2rd61h5.xuanyuan.run/python:3.11-slim as builder
+FROM python:3.11-slim-bookworm as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,13 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     git \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Create and activate virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -24,30 +23,29 @@ RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install -r requirements.txt
 
 # Copy source code
 COPY . /app
 WORKDIR /app
 
 # Install the package
-RUN pip install -e . -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install -e .
 
 # Stage 2: Runtime stage
-FROM dtmdutv2rd61h5.xuanyuan.run/python:3.11-slim as runtime
+FROM python:3.11-slim-bookworm as runtime
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
+    build-essential \
     curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
+    git \
+    && rm -rf /var/lib/apt/lists/*
+    
 # Create non-root user
 RUN groupadd -r datamax && useradd -r -g datamax datamax
 

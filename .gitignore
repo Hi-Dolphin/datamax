@@ -136,3 +136,5 @@ examples/scripts/cronjob.yaml
 README_CI_CD.md
 DEPLOYMENT_GUIDE.md
 test.py
+config
+aliyunDockerfile
